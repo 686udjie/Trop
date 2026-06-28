@@ -22,14 +22,7 @@ actor InnerTube {
     private var sapisid: String?
 
     private init() {
-        // Configure URLSession with standard InnerTube headers
         let config = URLSessionConfiguration.default
-        config.httpAdditionalHeaders = [
-            "Content-Type": "application/json",
-            "X-Goog-Api-Format-Version": "1",
-            "X-Origin": "https://music.youtube.com",
-            "Referer": "https://music.youtube.com/"
-        ]
         config.timeoutIntervalForRequest = 30
         self.session = URLSession(configuration: config)
 
@@ -50,6 +43,12 @@ actor InnerTube {
         visitorData = store.visitorData
     }
 
+    // Ensures visitorData is set, fetching it via browse if needed
+    func ensureVisitorData() async throws {
+        if visitorData != nil { return }
+        _ = try await browse(browseId: "FEmusic_home")
+    }
+
     // Fetches browse pages (home, library, artist, album, playlist)
     func browse(
         browseId: String,
@@ -68,7 +67,14 @@ actor InnerTube {
         if let continuation = continuation {
             body["continuation"] = continuation
         }
-        return try await post(endpoint: "browse", body: body, client: client)
+        let json = try await post(endpoint: "browse", body: body, client: client)
+        // Extract and persist visitorData from browse response
+        if let ctx = json["responseContext"] as? [String: Any],
+           let vd = ctx["visitorData"] as? String {
+            visitorData = vd
+            print("[InnerTube] Extracted visitorData from browse response")
+        }
+        return json
     }
 
     // Fetches stream URLs and metadata for a specific video
@@ -102,6 +108,39 @@ actor InnerTube {
             ]
         }
         return try await post(endpoint: "player", body: body, client: client)
+    }
+
+    // Fetches player response and decodes into typed models
+    func playerResponse(
+        videoId: String,
+        playlistId: String? = nil,
+        client: YouTubeClient = .webRemix,
+        locale: YouTubeLocale = .default,
+        signatureTimestamp: Int? = nil,
+        poToken: String? = nil
+    ) async throws -> PlayerResponse {
+        var body: [String: Any] = [
+            "context": buildContextDict(client: client, locale: locale),
+            "videoId": videoId,
+            "contentCheckOk": true,
+            "racyCheckOk": true
+        ]
+        if let playlistId = playlistId {
+            body["playlistId"] = playlistId
+        }
+        if let signatureTimestamp = signatureTimestamp {
+            body["playbackContext"] = [
+                "contentPlaybackContext": [
+                    "signatureTimestamp": signatureTimestamp
+                ]
+            ]
+        }
+        if let poToken = poToken {
+            body["serviceIntegrityDimensions"] = [
+                "poToken": poToken
+            ]
+        }
+        return try await postDecodable(endpoint: "player", body: body, client: client)
     }
 
     // Fetches queue data (playlist contents, related songs, radio)
@@ -161,6 +200,21 @@ actor InnerTube {
         body: [String: Any],
         client: YouTubeClient
     ) async throws -> [String: Any] {
+        let (data, _) = try await rawPost(endpoint: endpoint, body: body, client: client)
+
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw InnerTubeError.decodingFailed
+        }
+
+        return json
+    }
+
+    // Core POST returning raw Data for typed decoding
+    private func rawPost(
+        endpoint: String,
+        body: [String: Any],
+        client: YouTubeClient
+    ) async throws -> (Data, HTTPURLResponse) {
         let request = RequestBuilder.buildRequest(
             endpoint: endpoint,
             body: body,
@@ -176,15 +230,39 @@ actor InnerTube {
             throw InnerTubeError.invalidResponse
         }
 
-        guard (200...299).contains(httpResponse.statusCode) else {
+        if !(200...299).contains(httpResponse.statusCode) {
+            if let bodyStr = String(data: request.httpBody ?? Data(), encoding: .utf8) {
+                print("[InnerTube] ❌ Request body for \(endpoint) [\(client.clientName)]:\n\(bodyStr)")
+            }
+            print("[InnerTube] ❌ Request headers:")
+            for (key, value) in request.allHTTPHeaderFields ?? [:] {
+                print("[InnerTube]   \(key): \(value)")
+            }
+            if let bodyStr = String(data: data, encoding: .utf8) {
+                print("[InnerTube] ❌ Response body:\n\(bodyStr)")
+            }
             throw InnerTubeError.httpError(statusCode: httpResponse.statusCode, data: data)
         }
 
-        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw InnerTubeError.decodingFailed
-        }
+        return (data, httpResponse)
+    }
 
-        return json
+    // POST endpoint and decode into a Decodable type
+    private func postDecodable<T: Decodable>(
+        endpoint: String,
+        body: [String: Any],
+        client: YouTubeClient
+    ) async throws -> T {
+        let (data, _) = try await rawPost(endpoint: endpoint, body: body, client: client)
+        do {
+            return try decoder.decode(T.self, from: data)
+        } catch {
+            if let raw = String(data: data, encoding: .utf8) {
+                let preview = raw.prefix(2000)
+                print("[InnerTube] Decoding failed for \(endpoint) [\(client.clientName)]. Raw response:\n\(preview)")
+            }
+            throw error
+        }
     }
 
     // Builds the inner context dictionary sent with every API request
@@ -201,10 +279,31 @@ actor InnerTube {
         if let visitorData = visitorData {
             clientDict["visitorData"] = visitorData
         }
+        if let osName = client.osName {
+            clientDict["osName"] = osName
+        }
+        if let osVersion = client.osVersion {
+            clientDict["osVersion"] = osVersion
+        }
+        if let deviceMake = client.deviceMake {
+            clientDict["deviceMake"] = deviceMake
+        }
+        if let deviceModel = client.deviceModel {
+            clientDict["deviceModel"] = deviceModel
+        }
+        if let androidSdkVersion = client.androidSdkVersion {
+            clientDict["androidSdkVersion"] = androidSdkVersion
+        }
 
         let context: [String: Any] = [
             "client": clientDict,
-            "request": ["useSsl": true]
+            "request": [
+                "internalExperimentFlags": [] as [String],
+                "useSsl": true
+            ],
+            "user": [
+                "lockedSafetyMode": false
+            ]
         ]
 
         return context
