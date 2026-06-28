@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import CommonCrypto
 
 // Singleton actor that handles all InnerTube API communication
 actor InnerTube {
@@ -44,19 +43,11 @@ actor InnerTube {
         self.decoder = decoder
     }
 
-    // Stores auth cookies from the login WebView
-    func setCookies(_ cookies: [String: String]) {
-        self.cookies = cookies
-    }
-
-    // Sets the visitor ID used across all requests
-    func setVisitorData(_ data: String) {
-        self.visitorData = data
-    }
-
-    // Sets the SAPISID cookie value for signed-in auth headers
-    func setSAPISID(_ sapisid: String) {
-        self.sapisid = sapisid
+    // Loads persisted auth state into the session
+    func loadState(from store: CookieStore) {
+        cookies = store.cookies
+        sapisid = store.sapisid
+        visitorData = store.visitorData
     }
 
     // Fetches browse pages (home, library, artist, album, playlist)
@@ -153,37 +144,32 @@ actor InnerTube {
         return try await post(endpoint: "search", body: body, client: client)
     }
 
+    // Fetches account menu info — used to verify logged-in state
+    func accountMenu(
+        client: YouTubeClient = .webRemix,
+        locale: YouTubeLocale = .default
+    ) async throws -> [String: Any] {
+        let body: [String: Any] = [
+            "context": buildContextDict(client: client, locale: locale)
+        ]
+        return try await post(endpoint: "account/account_menu", body: body, client: client)
+    }
+
     // Core POST method — builds request, sends, parses JSON response
     private func post(
         endpoint: String,
         body: [String: Any],
         client: YouTubeClient
     ) async throws -> [String: Any] {
-        let url = baseURL.appendingPathComponent(endpoint)
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("\(client.clientId)", forHTTPHeaderField: "X-YouTube-Client-Name")
-        request.setValue(client.clientVersion, forHTTPHeaderField: "X-YouTube-Client-Version")
-        request.setValue(client.userAgent, forHTTPHeaderField: "User-Agent")
+        let request = RequestBuilder.buildRequest(
+            endpoint: endpoint,
+            body: body,
+            client: client,
+            visitorData: visitorData,
+            cookies: cookies,
+            sapisid: sapisid
+        )
 
-        if let visitorData = visitorData {
-            request.setValue(visitorData, forHTTPHeaderField: "X-Goog-Visitor-Id")
-        }
-
-        if !cookies.isEmpty {
-            let cookieString = cookies.map { "\($0.key)=\($0.value)" }.joined(separator: "; ")
-            request.setValue(cookieString, forHTTPHeaderField: "Cookie")
-        }
-
-        if let sapisid = sapisid {
-            let timestamp = Int(Date().timeIntervalSince1970)
-            let hash = sha1("\(timestamp) \(sapisid) https://music.youtube.com")
-            request.setValue("SAPISIDHASH \(timestamp)_\(hash)", forHTTPHeaderField: "Authorization")
-        }
-
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-        // Send request and await response
         let (data, response) = try await session.data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse else {
@@ -224,15 +210,6 @@ actor InnerTube {
         return context
     }
 
-    // SHA1 hash used for SAPISID authorization header generation
-    private func sha1(_ string: String) -> String {
-        let data = Data(string.utf8)
-        var digest = [UInt8](repeating: 0, count: Int(CC_SHA1_DIGEST_LENGTH))
-        data.withUnsafeBytes { buffer in
-            _ = CC_SHA1(buffer.baseAddress, CC_LONG(buffer.count), &digest)
-        }
-        return digest.map { String(format: "%02x", $0) }.joined()
-    }
 }
 
 // Error types returned by InnerTube API calls
