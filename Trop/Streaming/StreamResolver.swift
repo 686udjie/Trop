@@ -22,15 +22,47 @@ struct PlaybackResult {
 }
 
 // Resolves audio stream URLs via YouTube's /player endpoint
-// Uses direct-URL clients (ANDROID_VR) that don't need cipher deobfuscation
+// Tries WEB_REMIX first (may need cipher), falls back to ANDROID_VR
 enum StreamResolver {
 
     // Resolves the best audio stream URL for a given video
-    // Returns both the stream URL and metadata about the selected format
-    static func resolve(videoId: String, client: YouTubeClient = .androidVr1_43_32) async throws -> PlaybackResult {
+    // Tries WEB_REMIX with cipher; on failure falls back to ANDROID_VR
+    static func resolve(videoId: String, client: YouTubeClient = .webRemix) async throws -> PlaybackResult {
+        if client.useSignatureTimestamp {
+            return try await resolveWithFallback(videoId: videoId, preferredClient: client)
+        }
+        return try await resolveInternal(videoId: videoId, client: client)
+    }
+
+    private static func resolveWithFallback(videoId: String, preferredClient: YouTubeClient) async throws -> PlaybackResult {
+        do {
+            return try await resolveInternal(videoId: videoId, client: preferredClient)
+        } catch {
+            print("[StreamResolver] \(preferredClient.clientName) failed: \(error.localizedDescription). Falling back to ANDROID_VR")
+            return try await resolveInternal(videoId: videoId, client: .androidVr1_43_32)
+        }
+    }
+
+    // Core resolution: fetches player response, selects format, resolves cipher if needed
+    private static func resolveInternal(videoId: String, client: YouTubeClient) async throws -> PlaybackResult {
         print("[StreamResolver] Resolving videoId=\(videoId) client=\(client.clientName) v\(client.clientVersion)")
 
-        let response = try await InnerTube.shared.playerResponse(videoId: videoId, client: client)
+        // Fetch signature timestamp if the client requires it
+        let signatureTimestamp: Int?
+        if client.useSignatureTimestamp {
+            signatureTimestamp = try? await PlayerJsFetcher.shared.getSignatureTimestamp()
+            if signatureTimestamp != nil {
+                print("[StreamResolver] Using signatureTimestamp=\(signatureTimestamp!)")
+            }
+        } else {
+            signatureTimestamp = nil
+        }
+
+        let response = try await InnerTube.shared.playerResponse(
+            videoId: videoId,
+            client: client,
+            signatureTimestamp: signatureTimestamp
+        )
 
         // Validate playability
         guard let playabilityStatus = response.playabilityStatus else {
@@ -58,16 +90,23 @@ enum StreamResolver {
             throw StreamError.noSuitableFormat
         }
 
-        // Get the direct stream URL (ANDROID_VR clients populate format.url)
-        guard let streamUrl = selectedFormat.url, !streamUrl.isEmpty else {
-            print("[StreamResolver] Format has no direct URL — would need cipher deobfuscation")
-            if selectedFormat.signatureCipher != nil || selectedFormat.cipher != nil {
-                throw StreamError.needsCipher
-            }
+        // Resolve the stream URL (direct or via cipher)
+        let streamUrl: String
+        if let url = selectedFormat.url, !url.isEmpty {
+            streamUrl = url
+            print("[StreamResolver] Direct URL: \(streamUrl.prefix(120))...")
+        } else if let cipherText = selectedFormat.signatureCipher ?? selectedFormat.cipher {
+            print("[StreamResolver] Format requires cipher deobfuscation")
+            let playerJs = try await PlayerJsFetcher.shared.getPlayerJs()
+            streamUrl = try await CipherExecutor.shared.resolveCipherURL(
+                cipherText: cipherText,
+                playerJs: playerJs,
+                playerHash: nil
+            )
+            print("[StreamResolver] Resolved cipher URL: \(streamUrl.prefix(120))...")
+        } else {
             throw StreamError.noStreamUrl
         }
-
-        print("[StreamResolver] ✅ Stream URL: \(streamUrl.prefix(120))...")
 
         // Build result metadata
         let videoDetails = response.videoDetails
@@ -126,7 +165,6 @@ enum StreamError: Error, LocalizedError {
     case noStreams
     case noSuitableFormat
     case noStreamUrl
-    case needsCipher
 
     var errorDescription: String? {
         switch self {
@@ -137,9 +175,7 @@ enum StreamError: Error, LocalizedError {
         case .noSuitableFormat:
             return "No suitable audio format found"
         case .noStreamUrl:
-            return "Format has no direct stream URL"
-        case .needsCipher:
-            return "Stream requires cipher deobfuscation (Milestone 4)"
+            return "Format has no direct stream URL and no cipher data"
         }
     }
 }

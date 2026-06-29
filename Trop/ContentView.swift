@@ -137,20 +137,12 @@ struct ContentView: View {
 
             for videoId in videoIds {
                 do {
-                    result = try await StreamResolver.resolve(videoId: videoId, client: .androidVr1_43_32)
-                    print("[ContentView] ✅ ANDROID_VR success for videoId=\(videoId)")
+                    result = try await StreamResolver.resolve(videoId: videoId, client: .webRemix)
+                    print("[ContentView] ✅ WEB_REMIX success for videoId=\(videoId)")
                     break
                 } catch {
                     lastError = error
-                    print("[ContentView] ANDROID_VR failed for \(videoId): \(error.localizedDescription)")
-                }
-                do {
-                    result = try await StreamResolver.resolve(videoId: videoId, client: .iOS)
-                    print("[ContentView] ✅ IOS success for videoId=\(videoId)")
-                    break
-                } catch {
-                    lastError = error
-                    print("[ContentView] IOS failed for \(videoId): \(error.localizedDescription)")
+                    print("[ContentView] ✅ WEB_REMIX failed for \(videoId): \(error.localizedDescription)")
                 }
             }
 

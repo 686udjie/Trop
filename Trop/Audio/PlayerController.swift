@@ -138,12 +138,9 @@ final class PlayerController {
     private func setupRemoteCommands() {
         let center = MPRemoteCommandCenter.shared()
         center.playCommand.addTarget { [weak self] _ in
-            let url: String
-            if let mpv = self?.mpv {
-                url = URL(fileURLWithPath: "mainplaylist://mainplaylist").absoluteString
+            if self?.mpv != nil {
+                let url = URL(fileURLWithPath: "mainplaylist://mainplaylist").absoluteString
                 self?.play(url: url)
-            } else {
-                url = "file:///dev/null"
             }
             return .success
         }
