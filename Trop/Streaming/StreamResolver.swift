@@ -21,30 +21,12 @@ struct PlaybackResult {
     let clientName: String
 }
 
-// Resolves audio stream URLs via YouTube's /player endpoint
-// Tries WEB_REMIX first (may need cipher), falls back to ANDROID_VR
+// Resolves an audio stream URL for a given client.
+// PlaybackManager orchestrates the fallback chain; this is a single-client resolver.
 enum StreamResolver {
 
-    // Resolves the best audio stream URL for a given video
-    // Tries WEB_REMIX with cipher; on failure falls back to ANDROID_VR
-    static func resolve(videoId: String, client: YouTubeClient = .webRemix) async throws -> PlaybackResult {
-        if client.useSignatureTimestamp {
-            return try await resolveWithFallback(videoId: videoId, preferredClient: client)
-        }
-        return try await resolveInternal(videoId: videoId, client: client)
-    }
-
-    private static func resolveWithFallback(videoId: String, preferredClient: YouTubeClient) async throws -> PlaybackResult {
-        do {
-            return try await resolveInternal(videoId: videoId, client: preferredClient)
-        } catch {
-            print("[StreamResolver] \(preferredClient.clientName) failed: \(error.localizedDescription). Falling back to ANDROID_VR")
-            return try await resolveInternal(videoId: videoId, client: .androidVr1_43_32)
-        }
-    }
-
-    // Core resolution: fetches player response, selects format, resolves cipher if needed
-    private static func resolveInternal(videoId: String, client: YouTubeClient) async throws -> PlaybackResult {
+    // Resolves the best audio stream URL for a given video with a specific client
+    static func resolve(videoId: String, client: YouTubeClient) async throws -> PlaybackResult {
         print("[StreamResolver] Resolving videoId=\(videoId) client=\(client.clientName) v\(client.clientVersion)")
 
         // Fetch signature timestamp if the client requires it
@@ -165,6 +147,8 @@ enum StreamError: Error, LocalizedError {
     case noStreams
     case noSuitableFormat
     case noStreamUrl
+    case validationFailed(String)
+    case allClientsFailed
 
     var errorDescription: String? {
         switch self {
@@ -176,6 +160,10 @@ enum StreamError: Error, LocalizedError {
             return "No suitable audio format found"
         case .noStreamUrl:
             return "Format has no direct stream URL and no cipher data"
+        case .validationFailed(let client):
+            return "\(client) stream URL failed HEAD validation"
+        case .allClientsFailed:
+            return "All clients failed to resolve a valid stream URL"
         }
     }
 }

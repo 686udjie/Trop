@@ -39,23 +39,10 @@ struct ContentView: View {
                 }
                 .buttonStyle(.borderedProminent)
 
-                Button("Resolve Stream") {
-                    Task { await testResolve() }
+                Button("Resolve & Play") {
+                    Task { await testResolveAndPlay() }
                 }
                 .buttonStyle(.bordered)
-            }
-
-            HStack(spacing: 12) {
-                Button("Play") {
-                    guard let r = lastResult else {
-                        resultText = "Resolve a stream first"
-                        return
-                    }
-                    PlayerController.shared.play(url: r.streamUrl, title: r.title, artist: r.author)
-                    resultText = "Playing..."
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(lastResult == nil)
             }
         }
         .padding()
@@ -124,48 +111,28 @@ struct ContentView: View {
         resultText = "Initializing session..."
         do {
             try await InnerTube.shared.ensureVisitorData()
-            print("[ContentView] Visitor data ready")
         } catch {
-            print("[ContentView] Failed to get visitor data: \(error.localizedDescription)")
+            print("[ContentView] Visitor data error: \(error.localizedDescription)")
         }
 
-        resultText = "Resolving stream..."
-        do {
-            let videoIds = ["eVTXPUF4Oz4", "dQw4w9WgXcQ", "jfKfPfyJRdk"]
-            var lastError: Error?
-            var result: PlaybackResult?
+        resultText = "Resolving and playing..."
+        let videoIds = ["eVTXPUF4Oz4", "dQw4w9WgXcQ"]
 
-            for videoId in videoIds {
-                do {
-                    result = try await StreamResolver.resolve(videoId: videoId, client: .webRemix)
-                    print("[ContentView] ✅ WEB_REMIX success for videoId=\(videoId)")
-                    break
-                } catch {
-                    lastError = error
-                    print("[ContentView] ✅ WEB_REMIX failed for \(videoId): \(error.localizedDescription)")
-                }
+        for videoId in videoIds {
+            do {
+                let result = try await PlaybackManager.shared.resolveAndPlay(videoId: videoId)
+                lastResult = result
+                resultText = """
+                Playing ✅
+                Title: \(result.title ?? "?")
+                Artist: \(result.author ?? "?")
+                Client: \(result.clientName)
+                Bitrate: \(result.bitrate) bps
+                """
+                return
+            } catch {
+                resultText = "\(videoId) failed: \(error.localizedDescription)"
             }
-
-            guard let result else {
-                throw lastError ?? StreamError.noStreams
-            }
-            lastResult = result
-            let isValid = await StreamResolver.validateStream(url: result.streamUrl)
-            resultText = """
-            Resolved ✅
-            Title: \(result.title ?? "?")
-            Artist: \(result.author ?? "?")
-            Client: \(result.clientName)
-            Itag: \(result.itag)
-            Quality: \(result.audioQuality)
-            Bitrate: \(result.bitrate) bps
-            MIME: \(result.mimeType)
-            Expires: \(result.expiresInSeconds)s
-            URL valid: \(isValid)
-            URL: \(result.streamUrl.prefix(120))...
-            """
-        } catch {
-            resultText = "Resolve error: \(error.localizedDescription)"
         }
     }
 }
