@@ -13,20 +13,19 @@ struct ContentView: View {
     @StateObject private var loginModel = LoginViewModel()
     @State private var isLoggedIn = false
 
-    private let cookieStore = CookieStore()
     @State private var lastResult: PlaybackResult?
 
     var body: some View {
         VStack(spacing: 16) {
             ScrollView {
                 Text(resultText)
-                    .font(.system(.caption, design: .monospaced))
+                .font(.system(.caption, design: .monospaced))
             }
 
             HStack(spacing: 12) {
                 // Login / account status button
-                Button(isLoggedIn ? "Account" : "Login") {
-                    if isLoggedIn {
+                Button(loginModel.isLoggedIn ? "Account" : "Login") {
+                    if loginModel.isLoggedIn {
                         Task { await testAccountMenu() }
                     } else {
                         loginModel.isPresented = true
@@ -49,32 +48,22 @@ struct ContentView: View {
         .sheet(isPresented: $loginModel.isPresented) {
             NavigationStack {
                 LoginWebView(model: loginModel)
-                    .ignoresSafeArea()
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("Cancel") { loginModel.isPresented = false }
-                        }
+                .ignoresSafeArea()
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") { loginModel.isPresented = false }
                     }
+                }
             }
         }
         .onChange(of: loginModel.isLoggedIn) { _, loggedIn in
-            // Save auth state when login succeeds
+            isLoggedIn = loggedIn
             if loggedIn {
-                cookieStore.save(
-                    cookies: loginModel.cookies,
-                    sapisid: loginModel.sapisid,
-                    visitorData: loginModel.visitorData
-                )
-                isLoggedIn = true
-                Task { await InnerTube.shared.loadState(from: cookieStore) }
+                Task { await InnerTube.shared.loadState(from: CookieStore()) }
             }
         }
-        .onAppear {
-            // Restore persisted auth state on launch
-            isLoggedIn = cookieStore.isLoggedIn
-            if isLoggedIn {
-                Task { await InnerTube.shared.loadState(from: cookieStore) }
-            }
+        .task {
+            loginModel.restoreSessionIfPresent()
         }
     }
 
