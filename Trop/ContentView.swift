@@ -106,8 +106,8 @@ struct ContentView: View {
         }
     }
 
-    // Resolves a stream URL for a test video using direct-URL clients
-    private func testResolve() async {
+    // Resolves a stream URL and plays via mpv
+    private func testResolveAndPlay() async {
         resultText = "Initializing session..."
         do {
             try await InnerTube.shared.ensureVisitorData()

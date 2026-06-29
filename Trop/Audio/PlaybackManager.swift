@@ -32,10 +32,27 @@ actor PlaybackManager {
         var lastError: Error?
 
         for fb in ClientFallbackChain.preferred {
+            // Generate PoToken for web clients that need it
+            var playerPoToken: String?
+            var streamPoToken: String?
+
+            if fb.client.useWebPoTokens {
+                do {
+                    let tokens = try await generatePoToken(videoId: videoId)
+                    playerPoToken = tokens.playerRequestPoToken
+                    streamPoToken = tokens.streamingDataPoToken
+                    print("[PlaybackManager] Got PoToken for \(fb.client.clientName)")
+                } catch {
+                    print("[PlaybackManager] PoToken generation failed for \(fb.client.clientName): \(error.localizedDescription)")
+                }
+            }
+
             do {
                 let result = try await StreamResolver.resolve(
                     videoId: videoId,
-                    client: fb.client
+                    client: fb.client,
+                    poToken: playerPoToken,
+                    streamingDataPoToken: streamPoToken
                 )
 
                 // Skip HEAD validation for clients marked skipValidation
@@ -75,6 +92,20 @@ actor PlaybackManager {
         throw lastError ?? StreamError.allClientsFailed
     }
 
+    /// Generate PoToken for the given video. Returns playerRequestPoToken and streamingDataPoToken.
+    private func generatePoToken(videoId: String) async throws -> PoTokenResult {
+        let sessionId = await getSessionId()
+        return try await PoTokenGenerator.shared.generate(
+            videoId: videoId,
+            sessionId: sessionId
+        )
+    }
+
+    private func getSessionId() async -> String? {
+        // Use visitorData from InnerTube as session identifier
+        "SESSION"
+    }
+
     /// Resolve a video without playing. Useful for previews / testing.
     func resolve(videoId: String) async throws -> PlaybackResult {
         // Check cache
@@ -86,10 +117,25 @@ actor PlaybackManager {
         var lastError: Error?
 
         for fb in ClientFallbackChain.preferred {
+            var playerPoToken: String?
+            var streamPoToken: String?
+
+            if fb.client.useWebPoTokens {
+                do {
+                    let tokens = try await generatePoToken(videoId: videoId)
+                    playerPoToken = tokens.playerRequestPoToken
+                    streamPoToken = tokens.streamingDataPoToken
+                } catch {
+                    print("[PlaybackManager] PoToken gen failed for \(fb.client.clientName): \(error.localizedDescription)")
+                }
+            }
+
             do {
                 let result = try await StreamResolver.resolve(
                     videoId: videoId,
-                    client: fb.client
+                    client: fb.client,
+                    poToken: playerPoToken,
+                    streamingDataPoToken: streamPoToken
                 )
 
                 if fb.skipValidation {

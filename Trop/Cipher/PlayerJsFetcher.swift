@@ -15,11 +15,21 @@ actor PlayerJsFetcher {
     private let cacheLifetime: TimeInterval = 6 * 60 * 60  // 6 hours
 
     private var cacheDir: URL? {
-        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?
-            .appendingPathComponent("cipher_cache", isDirectory: true)
+        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+        return documents?.appendingPathComponent("Trop/Player", isDirectory: true)
     }
 
     private init() {}
+
+    // Returns the current player hash
+    func getPlayerHash() async throws -> String {
+        try ensureCacheDir()
+        if let cached = try? loadCachedHash() {
+            return cached
+        }
+        let (hash, _) = try await fetchPlayerJs()
+        return hash
+    }
 
     // Returns the current player.js content, fetching if needed
     func getPlayerJs() async throws -> String {
@@ -87,6 +97,23 @@ actor PlayerJsFetcher {
         cacheDir?.appendingPathComponent("current_hash.txt")
     }
 
+    private func loadCachedHash() throws -> String? {
+        guard let infoPath = hashInfoPath,
+              let infoData = try? Data(contentsOf: infoPath),
+              let info = String(data: infoData, encoding: .utf8) else {
+            return nil
+        }
+        let lines = info.split(separator: "\n", maxSplits: 1)
+        guard lines.count == 2,
+              let timestamp = TimeInterval(lines[1]) else {
+            return nil
+        }
+        guard Date().timeIntervalSince1970 - timestamp < cacheLifetime else {
+            return nil
+        }
+        return String(lines[0])
+    }
+
     private func loadCachedPlayerJs() throws -> String? {
         guard let infoPath = hashInfoPath,
               let infoData = try? Data(contentsOf: infoPath),
@@ -147,6 +174,7 @@ enum CipherError: Error, LocalizedError {
     case functionNotFound(String)
     case jsExecutionFailed(String)
     case configNotAvailable
+    case deobfuscationFailed(String)
 
     var errorDescription: String? {
         switch self {
@@ -157,6 +185,7 @@ enum CipherError: Error, LocalizedError {
         case .functionNotFound(let name): return "Cipher function not found: \(name)"
         case .jsExecutionFailed(let msg): return "JS execution failed: \(msg)"
         case .configNotAvailable: return "No config entry for this player hash"
+        case .deobfuscationFailed(let msg): return "Deobfuscation failed: \(msg)"
         }
     }
 }

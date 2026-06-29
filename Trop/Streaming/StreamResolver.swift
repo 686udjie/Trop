@@ -26,7 +26,11 @@ struct PlaybackResult {
 enum StreamResolver {
 
     // Resolves the best audio stream URL for a given video with a specific client
-    static func resolve(videoId: String, client: YouTubeClient) async throws -> PlaybackResult {
+    // - poToken: optional PoToken for web clients (playerRequestPoToken)
+    // - streamingDataPoToken: optional PoToken appended to stream URL (&pot=)
+    static func resolve(videoId: String, client: YouTubeClient,
+                        poToken: String? = nil,
+                        streamingDataPoToken: String? = nil) async throws -> PlaybackResult {
         print("[StreamResolver] Resolving videoId=\(videoId) client=\(client.clientName) v\(client.clientVersion)")
 
         // Fetch signature timestamp if the client requires it
@@ -43,7 +47,8 @@ enum StreamResolver {
         let response = try await InnerTube.shared.playerResponse(
             videoId: videoId,
             client: client,
-            signatureTimestamp: signatureTimestamp
+            signatureTimestamp: signatureTimestamp,
+            poToken: poToken
         )
 
         // Validate playability
@@ -90,10 +95,17 @@ enum StreamResolver {
             throw StreamError.noStreamUrl
         }
 
+        // Append &pot= for web client PoToken
+        var finalStreamUrl = streamUrl
+        if let pot = streamingDataPoToken, client.useWebPoTokens {
+            finalStreamUrl += "&pot=" + pot.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)!
+            print("[StreamResolver] Appended &pot= to stream URL")
+        }
+
         // Build result metadata
         let videoDetails = response.videoDetails
         let result = PlaybackResult(
-            streamUrl: streamUrl,
+            streamUrl: finalStreamUrl,
             itag: selectedFormat.itag ?? 0,
             mimeType: selectedFormat.mimeType ?? "",
             bitrate: selectedFormat.bitrate ?? 0,
