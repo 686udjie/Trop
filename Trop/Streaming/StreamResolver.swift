@@ -123,6 +123,23 @@ enum StreamResolver {
             + " quality=\(result.audioQuality)"
             + " bitrate=\(result.bitrate)")
 
+        // Cache format info for playback tracking
+        let trackingUrl = response.playbackTracking?.videostatsPlaybackUrl?.baseUrl
+        let contentLength = (selectedFormat.contentLength as NSString?)?.longLongValue ?? 0
+        let formatEntity = FormatEntity(
+            id: videoId,
+            itag: selectedFormat.itag ?? 0,
+            mimeType: selectedFormat.mimeType ?? "",
+            codecs: selectedFormat.codec,
+            bitrate: selectedFormat.bitrate ?? 0,
+            sampleRate: 0,
+            contentLength: contentLength,
+            loudnessDb: selectedFormat.loudnessDb,
+            perceptualLoudnessDb: nil,
+            playbackUrl: trackingUrl
+        )
+        _ = try? await DatabaseService.shared.insertOrReplace(formatEntity)
+
         return result
     }
 

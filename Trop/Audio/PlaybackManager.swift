@@ -23,7 +23,8 @@ actor PlaybackManager {
             PlayerController.shared.play(
                 url: cached.streamUrl,
                 title: cached.title,
-                artist: cached.author
+                artist: cached.author,
+                videoId: videoId
             )
             return cached
         }
@@ -62,7 +63,8 @@ actor PlaybackManager {
                     PlayerController.shared.play(
                         url: result.streamUrl,
                         title: result.title,
-                        artist: result.author
+                        artist: result.author,
+                        videoId: videoId
                     )
                     return result
                 }
@@ -79,7 +81,8 @@ actor PlaybackManager {
                 PlayerController.shared.play(
                     url: result.streamUrl,
                     title: result.title,
-                    artist: result.author
+                    artist: result.author,
+                    videoId: videoId
                 )
                 return result
 

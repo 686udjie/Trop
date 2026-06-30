@@ -267,6 +267,56 @@ actor InnerTube {
         }
     }
 
+    // Like or unlike a video
+    func like(videoId: String, client: YouTubeClient = .webRemix, locale: YouTubeLocale = .default) async throws -> [String: Any] {
+        let session = Session(cookies: cookies, sapisid: sapisid, visitorData: visitorData)
+        return try await post(endpoint: "like/like", body: ["context": buildContextDict(client: client, locale: locale), "target": ["videoId": videoId]], client: client, session: session)
+    }
+
+    func unlike(videoId: String, client: YouTubeClient = .webRemix, locale: YouTubeLocale = .default) async throws -> [String: Any] {
+        let session = Session(cookies: cookies, sapisid: sapisid, visitorData: visitorData)
+        return try await post(endpoint: "like/removelike", body: ["context": buildContextDict(client: client, locale: locale), "target": ["videoId": videoId]], client: client, session: session)
+    }
+
+    // Send feedback tokens (library add/remove)
+    func feedback(tokens: [String], client: YouTubeClient = .webRemix, locale: YouTubeLocale = .default) async throws -> [String: Any] {
+        let session = Session(cookies: cookies, sapisid: sapisid, visitorData: visitorData)
+        return try await post(endpoint: "feedback", body: ["context": buildContextDict(client: client, locale: locale), "feedbackTokens": tokens], client: client, session: session)
+    }
+
+    // Edit a playlist (add, remove, or reorder videos)
+    func editPlaylist(playlistId: String, actions: [[String: Any]],
+                      client: YouTubeClient = .webRemix,
+                      locale: YouTubeLocale = .default) async throws -> [String: Any] {
+        let session = Session(cookies: cookies, sapisid: sapisid, visitorData: visitorData)
+        let body: [String: Any] = [
+            "context": buildContextDict(client: client, locale: locale),
+            "playlistId": playlistId,
+            "actions": actions
+        ]
+        return try await post(endpoint: "browse/edit_playlist", body: body, client: client, session: session)
+    }
+
+    // Create a new playlist
+    func createPlaylist(title: String, description: String? = nil, client: YouTubeClient = .webRemix, locale: YouTubeLocale = .default) async throws -> [String: Any] {
+        let session = Session(cookies: cookies, sapisid: sapisid, visitorData: visitorData)
+        var body: [String: Any] = ["context": buildContextDict(client: client, locale: locale), "title": title]
+        if let description { body["description"] = description }
+        return try await post(endpoint: "playlist/create", body: body, client: client, session: session)
+    }
+
+    // Delete a playlist
+    func deletePlaylist(playlistId: String, client: YouTubeClient = .webRemix, locale: YouTubeLocale = .default) async throws -> [String: Any] {
+        let session = Session(cookies: cookies, sapisid: sapisid, visitorData: visitorData)
+        return try await post(endpoint: "playlist/delete", body: ["context": buildContextDict(client: client, locale: locale), "playlistId": playlistId], client: client, session: session)
+    }
+
+    // Get search suggestions (autocomplete)
+    func searchSuggestions(input: String, client: YouTubeClient = .webRemix, locale: YouTubeLocale = .default) async throws -> [String: Any] {
+        let session = Session(cookies: cookies, sapisid: sapisid, visitorData: visitorData)
+        return try await post(endpoint: "music/get_search_suggestions", body: ["context": buildContextDict(client: client, locale: locale), "input": input], client: client, session: session)
+    }
+
     // Builds the inner context dictionary sent with every API request
     private func buildContextDict(
         client: YouTubeClient,

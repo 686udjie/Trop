@@ -17,6 +17,7 @@ final class PlayerController {
     private var mpv: OpaquePointer?
     private var playbackQueue = DispatchQueue(label: "com.686udjie.PlayerController")
     private var isRunning = false
+    private var currentVideoId: String?
 
     // State for UI
     let playState = CurrentValueSubject<State, Never>(.stopped)
@@ -46,14 +47,19 @@ final class PlayerController {
     }
 
     // Start playback of a stream URL
-    func play(url: String, title: String? = nil, artist: String? = nil) {
+    func play(url: String, title: String? = nil, artist: String? = nil, videoId: String? = nil) {
         guard let url = URL(string: url) else {
             print("[Player] Invalid URL: \(url)")
             return
         }
         print("[Player] Playing: \(url.lastPathComponent)")
 
-        if isRunning { cleanup() }
+        if isRunning { stopTracking() }
+
+        currentVideoId = videoId
+        if let videoId {
+            Task { await PlaybackStateService.shared.startTracking(videoId: videoId) }
+        }
 
         playbackQueue.async { [weak self] in
             guard let self else { return }
@@ -91,8 +97,17 @@ final class PlayerController {
 
     // Cleanup (kills mpv and ends event loop)
     func cleanup() {
+        stopTracking()
         isRunning = false
         destroyMpv()
+    }
+
+    private func stopTracking() {
+        let videoId = currentVideoId
+        currentVideoId = nil
+        if videoId != nil {
+            Task { await PlaybackStateService.shared.stopTracking() }
+        }
     }
 
     private func destroyMpv() {
@@ -122,6 +137,7 @@ final class PlayerController {
             case MPV_EVENT_END_FILE:
                 print("[Player] End file")
                 isRunning = false
+                self.stopTracking()
                 self.destroyMpv()
                 DispatchQueue.main.async {
                     self.playState.send(.stopped)
