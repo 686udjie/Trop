@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		14B578D92FF1AB43006B3990 /* MPVKit in Frameworks */ = {isa = PBXBuildFile; productRef = 14B578D82FF1AB43006B3990 /* MPVKit */; };
+		14B578DC2FF20002006B3990 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = 14B578DB2FF20001006B3990 /* GRDB */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -28,6 +29,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				14B578D92FF1AB43006B3990 /* MPVKit in Frameworks */,
+				14B578DC2FF20002006B3990 /* GRDB in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -72,6 +74,7 @@
 			name = Trop;
 			packageProductDependencies = (
 				14B578D82FF1AB43006B3990 /* MPVKit */,
+				14B578DB2FF20001006B3990 /* GRDB */,
 			);
 			productName = Trop;
 			productReference = 14B5762F2FF190EF006B3990 /* Trop.app */;
@@ -103,6 +106,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				14B578D72FF1AB43006B3990 /* XCRemoteSwiftPackageReference "MPVKit" */,
+				14B578DA2FF20000006B3990 /* XCRemoteSwiftPackageReference "GRDB" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 14B576302FF190EF006B3990 /* Products */;
@@ -374,6 +378,14 @@
 				minimumVersion = 0.41.0;
 			};
 		};
+		14B578DA2FF20000006B3990 /* XCRemoteSwiftPackageReference "GRDB" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/groue/GRDB.swift.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 6.0.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -381,6 +393,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 14B578D72FF1AB43006B3990 /* XCRemoteSwiftPackageReference "MPVKit" */;
 			productName = MPVKit;
+		};
+		14B578DB2FF20001006B3990 /* GRDB */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 14B578DA2FF20000006B3990 /* XCRemoteSwiftPackageReference "GRDB" */;
+			productName = GRDB;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
