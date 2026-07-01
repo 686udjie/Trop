@@ -92,4 +92,11 @@ enum DatabaseMigrations {
             t.column("playback_url", .text)
         }
     }
+
+    static let v2: (Database) throws -> Void = { db in
+        try db.alter(table: "song") { t in
+            t.add(column: "artist_name", .text)
+            t.add(column: "album_name", .text)
+        }
+    }
 }

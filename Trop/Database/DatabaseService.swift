@@ -23,6 +23,7 @@ actor DatabaseService {
         dbPool = try! DatabasePool(path: url.path)
         var migrator = DatabaseMigrator()
         migrator.registerMigration("v1", migrate: DatabaseMigrations.v1)
+        migrator.registerMigration("v2", migrate: DatabaseMigrations.v2)
         // swiftlint:disable:next force_try
         try! migrator.migrate(dbPool)
     }
@@ -175,6 +176,88 @@ extension DatabaseService {
             try db.execute(
                 sql: "DELETE FROM song WHERE id = ?",
                 arguments: [sourceSongId])
+        }
+    }
+}
+
+// MARK: Personalization Queries
+
+extension DatabaseService {
+
+    /// Liked songs ordered by play count (for QuickPicks)
+    func fetchLikedSongs() async throws -> [SongEntity] {
+        try await dbPool.read { db in
+            try SongEntity
+                .filter(Column("liked") == true)
+                .order(Column("total_play_time").desc)
+                .limit(25)
+                .fetchAll(db)
+        }
+    }
+
+    /// Recently played songs (for KeepListening)
+    func fetchRecentSongs(days: Int = 30, limit: Int = 20) async throws -> [SongEntity] {
+        try await dbPool.read { db in
+            let cutoff = Calendar.current.date(byAdding: .day, value: -days, to: Date()) ?? Date()
+            let recentIds = try Event
+                .filter(Column("timestamp") > cutoff)
+                .select(Column("song_id"))
+                .distinct()
+                .order(Column("timestamp").desc)
+                .limit(limit)
+                .asRequest(of: String.self)
+                .fetchAll(db)
+            guard !recentIds.isEmpty else { return [] }
+            let placeholders = recentIds.map { _ in "?" }.joined(separator: ",")
+            return try SongEntity.fetchAll(db, sql: "SELECT * FROM song WHERE id IN (\(placeholders))", arguments: StatementArguments(recentIds))
+        }
+    }
+
+    /// Forgotten favorites: liked songs not played in N days
+    func fetchForgottenFavorites(days: Int = 60, limit: Int = 15) async throws -> [SongEntity] {
+        try await dbPool.read { db in
+            let cutoff = Calendar.current.date(byAdding: .day, value: -days, to: Date()) ?? Date()
+            let df = ISO8601DateFormatter()
+            let cutoffStr = df.string(from: cutoff)
+            return try SongEntity.fetchAll(db, sql: """
+                SELECT * FROM song
+                WHERE liked = 1
+                AND id NOT IN (SELECT DISTINCT song_id FROM event WHERE timestamp > ?)
+                ORDER BY total_play_time ASC
+                LIMIT ?
+                """, arguments: [cutoffStr, limit])
+        }
+    }
+
+    /// Most played albums (from liked/bookmarked albums)
+    func fetchAlbums(limit: Int = 10) async throws -> [AlbumEntity] {
+        try await dbPool.read { db in
+            try AlbumEntity
+                .order(Column("bookmarked_at").desc)
+                .limit(limit)
+                .fetchAll(db)
+        }
+    }
+
+    /// Most played artists (from subscribed artists)
+    func fetchArtists(limit: Int = 10) async throws -> [ArtistEntity] {
+        try await dbPool.read { db in
+            try ArtistEntity
+                .filter(Column("bookmarked_at") != nil)
+                .order(Column("name").asc)
+                .limit(limit)
+                .fetchAll(db)
+        }
+    }
+
+    /// User's playlists
+    func fetchPlaylists(limit: Int = 10) async throws -> [PlaylistEntity] {
+        try await dbPool.read { db in
+            try PlaylistEntity
+                .filter(Column("bookmarked_at") != nil)
+                .order(Column("bookmarked_at").desc)
+                .limit(limit)
+                .fetchAll(db)
         }
     }
 }

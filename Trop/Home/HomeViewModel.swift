@@ -25,10 +25,18 @@ final class HomeViewModel {
     var isLoginSheetPresented = false
     var isAccountSheetPresented = false
 
+    var hideExplicit = false {
+        didSet { mergeSections() }
+    }
+
     private var isHomeDataLoaded = false
     private var isLoadingMore = false
     private var previousHomePage: HomePage?
     private let cookieStore = CookieStore()
+    private let personalization = PersonalizationService.shared
+
+    private var cachedLocalSections: [HomeSection] = []
+    private var cachedPhase2Sections: [HomeSection] = []
 
     func loadHomeData() {
         guard !isHomeDataLoaded else { return }
@@ -40,6 +48,8 @@ final class HomeViewModel {
         guard !isRefreshing else { return }
         isRefreshing = true
         Task {
+            cachedLocalSections = []
+            cachedPhase2Sections = []
             await load()
             isRefreshing = false
         }
@@ -61,6 +71,7 @@ final class HomeViewModel {
             await InnerTube.shared.loadState(from: cookieStore)
             if isLoggedIn {
                 await fetchAccountInfo()
+                await loadPhase2Sections()
             }
         }
     }
@@ -72,6 +83,8 @@ final class HomeViewModel {
             accountName = "Guest"
             accountImageUrl = nil
             isAccountSheetPresented = false
+            cachedPhase2Sections = []
+            mergeSections()
         }
     }
 
@@ -99,20 +112,68 @@ final class HomeViewModel {
         isLoading = true
         error = nil
 
+        async let serverTask: Void = loadServerSections()
+        async let localTask: Void = loadLocalSections()
+
+        _ = await (serverTask, localTask)
+
+        isLoading = false
+
+        Task { await loadPhase2Sections() }
+    }
+
+    private func loadServerSections() async {
         do {
             let json = try await InnerTube.shared.browse(browseId: "FEmusic_home")
             guard let page = HomePageParser.parseHomePage(from: json) else {
                 error = InnerTubeError.decodingFailed
-                isLoading = false
                 return
             }
             homePage = page
-            recomputeSections()
-            isLoading = false
+            let serverSections = page.sections.enumerated().map { mapServerSection($1, index: $0) }
+            let existingLocal = cachedLocalSections
+            let existingPhase2 = cachedPhase2Sections
+            homeSections = orderSections(existingLocal + serverSections + existingPhase2)
         } catch {
             self.error = error
-            isLoading = false
         }
+    }
+
+    private func loadLocalSections() async {
+        async let qp: HomeSection = personalization.buildQuickPicks()
+        async let kl: HomeSection = personalization.buildKeepListening()
+        async let ff: HomeSection = personalization.buildForgottenFavorites()
+
+        let (qpResult, klResult, ffResult) = await (qp, kl, ff)
+
+        var local: [HomeSection] = []
+        if !qpResult.items.isEmpty { local.append(qpResult) }
+        if !klResult.items.isEmpty { local.append(klResult) }
+        if !ffResult.items.isEmpty { local.append(ffResult) }
+        cachedLocalSections = local
+
+        let serverSections = homePage?.sections.enumerated().map { mapServerSection($1, index: $0) } ?? []
+        let existingPhase2 = cachedPhase2Sections
+        homeSections = orderSections(local + serverSections + existingPhase2)
+    }
+
+    private func loadPhase2Sections() async {
+        guard isLoggedIn else { return }
+
+        async let ap: HomeSection = personalization.buildAccountPlaylists()
+        async let dd: HomeSection = personalization.buildDailyDiscover()
+        async let ct: HomeSection = personalization.buildFromTheCommunity()
+        async let sr: [HomeSection] = personalization.buildSimilarRecommendations()
+
+        let (apResult, ddResult, ctResult, srResults) = await (ap, dd, ct, sr)
+        var phase2: [HomeSection] = []
+        if !apResult.items.isEmpty { phase2.append(apResult) }
+        if !ddResult.items.isEmpty { phase2.append(ddResult) }
+        if !ctResult.items.isEmpty { phase2.append(ctResult) }
+        phase2.append(contentsOf: srResults)
+        cachedPhase2Sections = phase2
+
+        mergeSections()
     }
 
     func toggleChip(_ chip: HomePage.Chip?) {
@@ -120,7 +181,7 @@ final class HomeViewModel {
             homePage = previousHomePage
             previousHomePage = nil
             selectedChip = nil
-            recomputeSections()
+            mergeSections()
             return
         }
 
@@ -137,13 +198,13 @@ final class HomeViewModel {
                 )
                 if let page = HomePageParser.parseHomePage(from: json) {
                     homePage?.sections = page.sections
-                    recomputeSections()
+                    mergeSections()
                 }
             } catch {
                 homePage = previousHomePage
                 previousHomePage = nil
                 selectedChip = nil
-                recomputeSections()
+                mergeSections()
             }
         }
     }
@@ -160,7 +221,7 @@ final class HomeViewModel {
                 if let (newSections, newContinuation) = HomePageParser.parseContinuationSections(from: json) {
                     homePage?.sections.append(contentsOf: newSections)
                     homePage?.continuation = newContinuation
-                    recomputeSections()
+                    mergeSections()
                 }
             } catch {
                 print("[HomeViewModel] Continuation error: \(error)")
@@ -168,17 +229,12 @@ final class HomeViewModel {
         }
     }
 
-    private func recomputeSections() {
-        guard let page = homePage else {
-            homeSections = []
-            return
-        }
-        var sections: [HomeSection] = []
-        for (index, section) in page.sections.enumerated() {
-            let mapped = mapServerSection(section, index: index)
-            sections.append(mapped)
-        }
-        homeSections = orderSections(sections)
+    // MARK: - Section Management
+
+    private func mergeSections() {
+        let serverSections = homePage?.sections.enumerated().map { mapServerSection($1, index: $0) } ?? []
+        let all = cachedLocalSections + serverSections + cachedPhase2Sections
+        homeSections = orderSections(all)
     }
 
     private func mapServerSection(_ section: HomePage.Section, index: Int) -> HomeSection {
@@ -196,25 +252,55 @@ final class HomeViewModel {
     }
 
     private func orderSections(_ sections: [HomeSection]) -> [HomeSection] {
-        sections.sorted { a, b in
-            let weightA = sectionWeight(a)
-            let weightB = sectionWeight(b)
-            return weightA > weightB
+        let filtered = sections.compactMap { section -> HomeSection? in
+            let f = applyFilters(section)
+            if case .homePageSection = f { return f }
+            return f.items.isEmpty ? nil : f
+        }
+
+        return filtered.sorted { a, b in
+            sectionWeight(a) > sectionWeight(b)
+        }
+    }
+
+    private func applyFilters(_ section: HomeSection) -> HomeSection {
+        let filteredItems = section.items.filter { item in
+            if hideExplicit {
+                switch item {
+                case .song(let s) where s.isExplicit: return false
+                case .album(let a) where a.isExplicit: return false
+                default: break
+                }
+            }
+            return true
+        }
+
+        switch section {
+        case .quickPicks: return .quickPicks(items: filteredItems)
+        case .keepListening: return .keepListening(items: filteredItems)
+        case .forgottenFavorites: return .forgottenFavorites(items: filteredItems)
+        case .homePageSection(let s, let i): return .homePageSection(s, index: i)
+        case .accountPlaylists: return .accountPlaylists(items: filteredItems)
+        case .similarRecommendation(_, let t): return .similarRecommendation(items: filteredItems, title: t)
+        case .dailyDiscover: return .dailyDiscover(items: filteredItems)
+        case .fromTheCommunity: return .fromTheCommunity(items: filteredItems)
+        case .speedDial: return .speedDial(items: filteredItems)
+        case .moodAndGenres: return .moodAndGenres(items: filteredItems)
         }
     }
 
     private func sectionWeight(_ section: HomeSection) -> Int {
         switch section {
-        case .quickPicks:
-            return 100
-        case .keepListening:
-            return 80
-        case .forgottenFavorites:
-            return 60
-        case .homePageSection(_, let index):
-            return 40 - index
-        default:
-            return 0
+        case .quickPicks: return 100
+        case .keepListening: return 80
+        case .forgottenFavorites: return 60
+        case .homePageSection(_, let index): return 40 - index
+        case .dailyDiscover: return 50
+        case .similarRecommendation: return 35
+        case .accountPlaylists: return 30
+        case .fromTheCommunity: return 25
+        case .speedDial: return 20
+        case .moodAndGenres: return 15
         }
     }
 }

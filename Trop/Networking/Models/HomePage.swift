@@ -92,8 +92,11 @@ enum HomeSection: Identifiable {
 
     var isSongsOnly: Bool {
         switch self {
+        case .quickPicks, .forgottenFavorites, .dailyDiscover: return true
+        case .similarRecommendation: return true
+        case .keepListening: return true
         case .homePageSection(let section, _): return section.isSongsOnly
-        default: return false
+        case .accountPlaylists, .fromTheCommunity, .speedDial, .moodAndGenres: return false
         }
     }
 }

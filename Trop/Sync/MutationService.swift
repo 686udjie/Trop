@@ -15,7 +15,8 @@ actor MutationService {
 
     private func emptySong(id: String, liked: Bool, addToken: String = "") -> SongEntity {
         SongEntity(
-            id: id, title: "", duration: 0, thumbnailUrl: nil,
+            id: id, title: "", artistName: nil, albumName: nil,
+            duration: 0, thumbnailUrl: nil,
             liked: liked, totalPlayTime: 0, inLibrary: nil,
             libraryAddToken: addToken, libraryRemoveToken: "",
             isEpisode: false, isUploaded: false, isVideo: false,

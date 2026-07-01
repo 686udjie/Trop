@@ -57,6 +57,8 @@ actor SearchService {
                 let entity = SongEntity(
                     id: song.videoId,
                     title: song.title,
+                    artistName: existing?.artistName ?? song.artists.first,
+                    albumName: existing?.albumName ?? song.album,
                     duration: song.duration,
                     thumbnailUrl: song.thumbnailUrl ?? existing?.thumbnailUrl,
                     liked: existing?.liked ?? song.isLiked,

@@ -11,6 +11,8 @@ import GRDB
 struct SongEntity: Codable, Hashable, FetchableRecord, PersistableRecord {
     var id: String
     var title: String
+    var artistName: String?
+    var albumName: String?
     var duration: Int
     var thumbnailUrl: String?
     var liked: Bool
@@ -29,6 +31,8 @@ struct SongEntity: Codable, Hashable, FetchableRecord, PersistableRecord {
     enum CodingKeys: String, CodingKey {
         case id
         case title
+        case artistName = "artist_name"
+        case albumName = "album_name"
         case duration
         case thumbnailUrl = "thumbnail_url"
         case liked

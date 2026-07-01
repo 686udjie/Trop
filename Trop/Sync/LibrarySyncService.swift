@@ -40,6 +40,8 @@ extension LibrarySyncService {
                 let entity = SongEntity(
                     id: item.videoId,
                     title: item.title,
+                    artistName: item.artists.first,
+                    albumName: item.album,
                     duration: item.duration,
                     thumbnailUrl: item.thumbnailUrl,
                     liked: true,

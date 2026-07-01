@@ -194,6 +194,54 @@ struct EpisodeItem {
     }
 }
 
+// MARK: - Convenience Init from Entities
+
+extension SongItem {
+    init(entity: SongEntity) {
+        self.videoId = entity.id
+        self.title = entity.title
+        self.artists = entity.artistName.map { [YTArtist(name: $0)] } ?? []
+        self.album = entity.albumName
+        self.albumId = nil
+        self.duration = entity.duration
+        self.thumbnailUrl = entity.thumbnailUrl
+        self.isExplicit = false
+        self.playlistId = nil
+        self.likeStatus = nil
+    }
+}
+
+extension AlbumItem {
+    init(entity: AlbumEntity) {
+        self.browseId = entity.id
+        self.title = entity.title
+        self.artists = []
+        self.year = nil
+        self.thumbnailUrl = entity.thumbnailUrl
+        self.playlistId = entity.playlistId
+        self.isExplicit = false
+    }
+}
+
+extension ArtistItem {
+    init(entity: ArtistEntity) {
+        self.browseId = entity.id
+        self.name = entity.name
+        self.thumbnailUrl = entity.thumbnailUrl
+        self.isSubscribed = entity.bookmarkedAt != nil
+    }
+}
+
+extension PlaylistItem {
+    init(entity: PlaylistEntity) {
+        self.id = entity.id
+        self.title = entity.name
+        self.author = nil
+        self.thumbnailUrl = nil
+        self.songCount = entity.remoteSongCount
+    }
+}
+
 // MARK: - Extract Helpers
 
 private func extractVideoId(_ renderer: [String: Any]) -> String? {
