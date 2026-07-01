@@ -62,7 +62,7 @@ actor InnerTube {
 
     // Fetches browse pages (home, library, artist, album, playlist)
     func browse(
-        browseId: String,
+        browseId: String? = nil,
         params: String? = nil,
         continuation: String? = nil,
         client: YouTubeClient = .webRemix,
@@ -70,7 +70,7 @@ actor InnerTube {
     ) async throws -> [String: Any] {
         let ctx = buildContextDict(client: client, locale: locale)
         var body: [String: Any] = ["context": ctx]
-        body["browseId"] = browseId
+        if let browseId = browseId { body["browseId"] = browseId }
         if let params = params { body["params"] = params }
         if let continuation = continuation { body["continuation"] = continuation }
         let session = Session(cookies: cookies, sapisid: sapisid, visitorData: visitorData)
@@ -171,6 +171,45 @@ actor InnerTube {
     ) async throws -> [String: Any] {
         let session = Session(cookies: cookies, sapisid: sapisid, visitorData: visitorData)
         return try await post(endpoint: "account/account_menu", body: ["context": buildContextDict(client: client, locale: locale)], client: client, session: session)
+    }
+
+    // Fetches account info (name, email, profile picture)
+    func accountInfo(
+        client: YouTubeClient = .webRemix,
+        locale: YouTubeLocale = .default
+    ) async throws -> AccountInfo {
+        let json = try await accountMenu(client: client, locale: locale)
+        return extractAccountInfo(from: json)
+    }
+
+    private func extractRunsText(_ dict: [String: Any]?) -> String? {
+        guard let runs = dict?["runs"] as? [[String: Any]], let first = runs.first else { return nil }
+        return first["text"] as? String
+    }
+
+    private func extractThumbnailUrl(_ dict: [String: Any]?) -> String? {
+        guard let thumb = dict?["thumbnails"] as? [[String: Any]],
+              let last = thumb.last,
+              let url = last["url"] as? String else { return nil }
+        return url
+    }
+
+    // Parses account menu response to extract AccountInfo
+    private func extractAccountInfo(from json: [String: Any]) -> AccountInfo {
+        guard let actions = json["actions"] as? [[String: Any]],
+              let first = actions.first,
+              let openPopup = first["openPopupAction"] as? [String: Any],
+              let popup = openPopup["popup"] as? [String: Any],
+              let multiPageMenu = popup["multiPageMenuRenderer"] as? [String: Any],
+              let header = multiPageMenu["header"] as? [String: Any],
+              let activeAccount = header["activeAccountHeaderRenderer"] as? [String: Any] else {
+            return AccountInfo(name: "Guest")
+        }
+        let name = extractRunsText(activeAccount["accountName"] as? [String: Any]) ?? "Guest"
+        let email = extractRunsText(activeAccount["email"] as? [String: Any])
+        let handle = extractRunsText(activeAccount["channelHandle"] as? [String: Any])
+        let photoUrl = extractThumbnailUrl(activeAccount["accountPhoto"] as? [String: Any])
+        return AccountInfo(name: name, email: email, channelHandle: handle, thumbnailUrl: photoUrl)
     }
 
     // Core POST method — builds request, sends, parses JSON response
