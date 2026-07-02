@@ -11,6 +11,42 @@ struct YouTubeGridItemView: View {
     var item: YTItem
     var onTap: () -> Void
 
+    @State private var resolvedDuration: Int = 0
+
+    private var videoId: String? {
+        switch item {
+        case .song(let s): return s.videoId
+        case .episode(let e): return e.videoId
+        default: return nil
+        }
+    }
+
+    private var subtitleText: String {
+        switch item {
+        case .song(let s):
+            let artistStr = s.artists.map(\.name).joined(separator: ", ")
+            let effectiveDuration = s.duration > 0 ? s.duration : resolvedDuration
+            let durationStr = effectiveDuration.formattedDuration
+            let result: String
+            if artistStr.isEmpty { result = durationStr }
+            else if durationStr.isEmpty { result = artistStr }
+            else { result = "\(artistStr) • \(durationStr)" }
+            return result
+        case .episode(let e):
+            let artistStr = e.artists.map(\.name).joined(separator: ", ")
+            let effectiveDuration = e.duration > 0 ? e.duration : resolvedDuration
+            let durationStr = effectiveDuration.formattedDuration
+            if artistStr.isEmpty { return durationStr }
+            if durationStr.isEmpty { return artistStr }
+            return "\(artistStr) • \(durationStr)"
+        case .album(let a):
+            let names = a.artists.map(\.name)
+            return names.isEmpty ? "" : names.joined(separator: ", ")
+        default:
+            return ""
+        }
+    }
+
     var body: some View {
         Button(action: onTap) {
             VStack(alignment: .leading, spacing: 4) {
@@ -25,20 +61,86 @@ struct YouTubeGridItemView: View {
                     .foregroundColor(.primary)
                     .lineLimit(2)
 
-                Text(item.subtitle)
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
+                if !subtitleText.isEmpty {
+                    Text(subtitleText)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
             }
             .frame(width: 140)
         }
         .buttonStyle(.plain)
+        .task { await resolveDuration() }
+        .onReceive(NotificationCenter.default.publisher(for: .durationDidUpdate)) { notification in
+            guard let vid = notification.userInfo?["videoId"] as? String, vid == videoId else { return }
+            resolvedDuration = DurationCache.get(vid) ?? 0
+        }
+    }
+
+    private func resolveDuration() async {
+        guard let vid = videoId else { return }
+        switch item {
+        case .song(let s) where s.duration > 0:
+            resolvedDuration = s.duration
+            return
+        case .episode(let e) where e.duration > 0:
+            resolvedDuration = e.duration
+            return
+        default: break
+        }
+        if let cached = DurationCache.get(vid), cached > 0 {
+            resolvedDuration = cached
+            return
+        }
+        guard !DurationCache.isPending(vid) else { return }
+        DurationCache.markPending(vid)
+        do {
+            let duration = try await InnerTube.shared.fetchDuration(videoId: vid)
+            resolvedDuration = duration
+        } catch {
+            print("[Debug] Duration fetch failed for \(vid): \(error)")
+            DurationCache.clearPending(vid)
+        }
     }
 }
 
 struct YouTubeListItemView: View {
     var item: YTItem
     var onTap: () -> Void
+
+    @State private var resolvedDuration: Int = 0
+
+    private var videoId: String? {
+        switch item {
+        case .song(let s): return s.videoId
+        case .episode(let e): return e.videoId
+        default: return nil
+        }
+    }
+
+    private var subtitleText: String {
+        switch item {
+        case .song(let s):
+            let artistStr = s.artists.map(\.name).joined(separator: ", ")
+            let effectiveDuration = s.duration > 0 ? s.duration : resolvedDuration
+            let durationStr = effectiveDuration.formattedDuration
+            if artistStr.isEmpty { return durationStr }
+            if durationStr.isEmpty { return artistStr }
+            return "\(artistStr) • \(durationStr)"
+        case .episode(let e):
+            let artistStr = e.artists.map(\.name).joined(separator: ", ")
+            let effectiveDuration = e.duration > 0 ? e.duration : resolvedDuration
+            let durationStr = effectiveDuration.formattedDuration
+            if artistStr.isEmpty { return durationStr }
+            if durationStr.isEmpty { return artistStr }
+            return "\(artistStr) • \(durationStr)"
+        case .album(let a):
+            return a.artists.map(\.name).joined(separator: ", ")
+        default:
+            return ""
+        }
+    }
 
     var body: some View {
         Button(action: onTap) {
@@ -54,7 +156,7 @@ struct YouTubeListItemView: View {
                         .foregroundColor(.primary)
                         .lineLimit(1)
 
-                    Text(item.subtitle)
+                    Text(subtitleText)
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .lineLimit(1)
@@ -65,5 +167,36 @@ struct YouTubeListItemView: View {
             .padding(.horizontal, 16)
         }
         .buttonStyle(.plain)
+        .task { await resolveDuration() }
+        .onReceive(NotificationCenter.default.publisher(for: .durationDidUpdate)) { notification in
+            guard let vid = notification.userInfo?["videoId"] as? String, vid == videoId else { return }
+            resolvedDuration = DurationCache.get(vid) ?? 0
+        }
+    }
+
+    private func resolveDuration() async {
+        guard let vid = videoId else { return }
+        switch item {
+        case .song(let s) where s.duration > 0:
+            resolvedDuration = s.duration
+            return
+        case .episode(let e) where e.duration > 0:
+            resolvedDuration = e.duration
+            return
+        default: break
+        }
+        if let cached = DurationCache.get(vid), cached > 0 {
+            resolvedDuration = cached
+            return
+        }
+        guard !DurationCache.isPending(vid) else { return }
+        DurationCache.markPending(vid)
+        do {
+            let duration = try await InnerTube.shared.fetchDuration(videoId: vid)
+            resolvedDuration = duration
+        } catch {
+            print("[Debug] Duration fetch failed for \(vid): \(error)")
+            DurationCache.clearPending(vid)
+        }
     }
 }

@@ -217,7 +217,17 @@ extension LibraryBrowseParser {
               let videoId = renderer["videoId"] as? String else { return nil }
         let title = flexText(renderer, index: 0) ?? "Unknown"
         let artistsText = allFlexTextRuns(renderer, index: 1)
-        let artists = artistsText.filter { $0 != " • " && !$0.hasPrefix("http") }
+        let nonArtistLabels: Set<String> = ["song", "video", "track", "music", "podcast", "episode"]
+        let conjunctions: Set<String> = [",", "&", "and", "feat.", "ft.", "featuring"]
+        let artists = artistsText.filter {
+            let trimmed = $0.trimmingCharacters(in: .whitespaces)
+            let lower = trimmed.lowercased()
+            guard trimmed != " • " && !trimmed.hasPrefix("http") else { return false }
+            if nonArtistLabels.contains(lower) { return false }
+            if conjunctions.contains(lower) { return false }
+            if lower.range(of: "^\\d+(\\.\\d+)?[KMBT]?\\s*(views|downloads|listeners|subscribers)$", options: [.regularExpression, .caseInsensitive]) != nil { return false }
+            return true
+        }
         let albumRun = allFlexTextRuns(renderer, index: 2).filter { $0 != " • " && !$0.hasPrefix("http") }
         let album = albumRun.first
         let tokens = libraryTokens(renderer)

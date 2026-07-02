@@ -161,15 +161,31 @@ actor PersonalizationService {
             guard let renderer = entry["playlistPanelVideoRenderer"] as? [String: Any],
                   let videoId = renderer["videoId"] as? String else { continue }
             let title = extractRunsText(renderer["title"] as? [String: Any]) ?? "Unknown"
-            let subtitleRuns = extractRunsTextArray(renderer["longBylineText"] as? [String: Any] ?? renderer["shortBylineText"] as? [String: Any])
-            let artists = subtitleRuns.map { YTArtist(name: $0) }
+            let bylineRuns = extractRawRuns(renderer["longBylineText"] as? [String: Any] ?? renderer["shortBylineText"] as? [String: Any])
+            let nonArtistLabels: Set<String> = ["song", "video", "track", "music", "podcast", "episode"]
+            let conjunctions: Set<String> = [",", "&", "and", "feat.", "ft.", "featuring"]
+            let artists: [YTArtist] = bylineRuns.compactMap { run in
+                guard let text = run["text"] as? String else { return nil }
+                let trimmed = text.trimmingCharacters(in: .whitespaces)
+                let lower = trimmed.lowercased()
+                if trimmed.isEmpty || trimmed == "•" || trimmed == "·" { return nil }
+                if nonArtistLabels.contains(lower) { return nil }
+                if conjunctions.contains(lower) { return nil }
+                if lower.range(of: "^\\d+(\\.\\d+)?[KMBT]?\\s*(views|downloads|listeners|subscribers)$", options: [.regularExpression, .caseInsensitive]) != nil { return nil }
+                if let nav = run["navigationEndpoint"] as? [String: Any],
+                   let browse = nav["browseEndpoint"] as? [String: Any],
+                   let bid = browse["browseId"] as? String,
+                   bid.hasPrefix("MPREb_") { return nil }
+                return YTArtist(name: trimmed)
+            }
             let thumbnail = extractThumbnailFrom(renderer["thumbnail"] as? [String: Any])
 
+            let duration = parseDurationFromRenderer(renderer)
             let song = SongItem(
                 videoId: videoId,
                 title: title,
                 artists: artists,
-                duration: 0,
+                duration: duration,
                 thumbnailUrl: thumbnail,
                 isExplicit: false
             )
@@ -194,19 +210,10 @@ actor PersonalizationService {
                   let contents = shelf["contents"] as? [[String: Any]] else { continue }
             for entry in contents {
                 if items.count >= 10 { break }
-                if let renderer = entry["musicResponsiveListItemRenderer"] as? [String: Any],
-                   let videoId = renderer["videoId"] as? String {
-                    let title = extractRunsText(renderer["title"] as? [String: Any]) ?? "Unknown"
-                    let sub = extractRunsTextArray(renderer["subtitle"] as? [String: Any])
-                    let song = SongItem(
-                        videoId: videoId,
-                        title: title,
-                        artists: sub.map { YTArtist(name: $0) },
-                        duration: 0,
-                        thumbnailUrl: extractThumbnailFrom(renderer["thumbnail"] as? [String: Any]),
-                        isExplicit: false
-                    )
-                    items.append(.song(song))
+                if let renderer = entry["musicResponsiveListItemRenderer"] as? [String: Any] {
+                    if let song = SongItem.from(renderer) {
+                        items.append(.song(song))
+                    }
                 }
             }
         }
@@ -230,4 +237,9 @@ private func extractThumbnailFrom(_ dict: [String: Any]?) -> String? {
           let last = thumb.last,
           let url = last["url"] as? String else { return nil }
     return url
+}
+
+private func extractRawRuns(_ dict: [String: Any]?) -> [[String: Any]] {
+    guard let runs = dict?["runs"] as? [[String: Any]] else { return [] }
+    return runs
 }

@@ -416,11 +416,6 @@
 			package = 14B578DD2FF20DCC006B3990 /* XCRemoteSwiftPackageReference "Nuke" */;
 			productName = Nuke;
 		};
-		14B578E02FF20E2F006B3990 /* NukeUI */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 14B578DD2FF20DCC006B3990 /* XCRemoteSwiftPackageReference "Nuke" */;
-			productName = NukeUI;
-		};
 /* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 14B576272FF190EF006B3990 /* Project object */;

@@ -12,6 +12,104 @@ struct YTArtist {
     var id: String?
 }
 
+extension Int {
+    var formattedDuration: String {
+        guard self > 0 else { return "" }
+        let hours = self / 3600
+        let minutes = (self % 3600) / 60
+        let secs = self % 60
+        if hours > 0 {
+            return "\(hours):\(String(format: "%02d", minutes)):\(String(format: "%02d", secs))"
+        }
+        return "\(minutes):\(String(format: "%02d", secs))"
+    }
+}
+
+func parseDurationFromRenderer(_ renderer: [String: Any]) -> Int {
+    // 1. fixedColumns[0] — primary source for MusicResponsiveListItemRenderer
+    if let fixedColumns = renderer["fixedColumns"] as? [[String: Any]] {
+        for col in fixedColumns {
+            if let fixed = col["musicResponsiveListItemFixedColumnRenderer"] as? [String: Any],
+               let textDict = fixed["text"] as? [String: Any],
+               let runs = textDict["runs"] as? [[String: Any]],
+               let first = runs.first,
+               let text = first["text"] as? String,
+               let parsed = parseTime(text) {
+                return parsed
+            }
+        }
+    }
+
+    // 2. lengthSeconds — raw seconds string from player response
+    if let lengthSeconds = renderer["lengthSeconds"] as? String, let seconds = Int(lengthSeconds) {
+        return seconds
+    }
+    if let lengthSeconds = renderer["lengthSeconds"] as? Int {
+        return lengthSeconds
+    }
+
+    // 3. lengthText — used by PlaylistPanelVideoRenderer (up next / queue)
+    if let lengthText = renderer["lengthText"] as? [String: Any],
+       let runs = lengthText["runs"] as? [[String: Any]],
+       let first = runs.first,
+       let text = first["text"] as? String,
+       let parsed = parseTime(text) {
+        return parsed
+    }
+
+    // 4. Badges — thumbnail badges with duration
+    if let badges = renderer["badges"] as? [[String: Any]] {
+        for badgeDict in badges {
+            if let badge = badgeDict["musicInlineBadgeRenderer"] as? [String: Any],
+               let text = badge["text"] as? [String: Any],
+               let runs = text["runs"] as? [[String: Any]],
+               let first = runs.first,
+               let textStr = first["text"] as? String,
+               let parsed = parseTime(textStr) {
+                return parsed
+            }
+        }
+    }
+
+    // 5. Subtitle runs — last segment after "•" separator may be duration
+    if let subtitle = renderer["subtitle"] as? [String: Any],
+       let runs = subtitle["runs"] as? [[String: Any]] {
+        let allText = runs.compactMap { $0["text"] as? String }
+        let segments = allText.split { $0 == " • " || $0.trimmingCharacters(in: .whitespaces) == "•" }
+        if let lastSegment = segments.last,
+           let lastText = lastSegment.last(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }),
+           let parsed = parseTime(lastText.trimmingCharacters(in: .whitespaces)) {
+            return parsed
+        }
+    }
+
+    // 6. flexColumns[1] subtitle text (for MusicResponsiveListItemRenderer)
+    if let flexColumns = renderer["flexColumns"] as? [[String: Any]], flexColumns.count > 1 {
+        let col = flexColumns[1]
+        let flexRenderer = (col["musicResponsiveListItemFlexColumnRenderer"] as? [String: Any])
+            ?? (col["musicResponsiveListItemColumnRenderer"] as? [String: Any])
+        if let textDict = flexRenderer?["text"] as? [String: Any],
+           let runs = textDict["runs"] as? [[String: Any]] {
+            let allText = runs.compactMap { $0["text"] as? String }
+            let segments = allText.split { $0 == " • " || $0.trimmingCharacters(in: .whitespaces) == "•" }
+            if let lastSegment = segments.last,
+               let lastText = lastSegment.last(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }),
+               let parsed = parseTime(lastText.trimmingCharacters(in: .whitespaces)) {
+                return parsed
+            }
+        }
+    }
+
+    return 0
+}
+
+private func parseTime(_ text: String) -> Int? {
+    let parts = text.components(separatedBy: CharacterSet(charactersIn: ":.,")).compactMap { Int($0) }
+    guard parts.count == 2 || parts.count == 3 else { return nil }
+    if parts.count == 2 { return parts[0] * 60 + parts[1] }
+    return parts[0] * 3600 + parts[1] * 60 + parts[2]
+}
+
 enum YTItem {
     case song(SongItem)
     case album(AlbumItem)
@@ -55,12 +153,26 @@ enum YTItem {
 
     var subtitle: String {
         switch self {
-        case .song(let s): return s.artists.map(\.name).joined(separator: ", ")
-        case .album(let a): return a.artists.map(\.name).joined(separator: ", ")
-        case .artist: return "Artist"
-        case .playlist(let p): return p.author ?? "Playlist"
-        case .podcast(let p): return p.author ?? "Podcast"
-        case .episode(let e): return e.artists.map(\.name).joined(separator: ", ")
+        case .song(let s):
+            let artistStr = s.artists.map(\.name).joined(separator: ", ")
+            let effectiveDuration = s.duration > 0 ? s.duration : (DurationCache.get(s.videoId) ?? 0)
+            let durationStr = effectiveDuration.formattedDuration
+            if artistStr.isEmpty { return durationStr }
+            if durationStr.isEmpty { return artistStr }
+            return "\(artistStr) • \(durationStr)"
+        case .album(let a):
+            let names = a.artists.map(\.name)
+            return names.isEmpty ? "" : names.joined(separator: ", ")
+        case .artist: return ""
+        case .playlist: return ""
+        case .podcast: return ""
+        case .episode(let e):
+            let artistStr = e.artists.map(\.name).joined(separator: ", ")
+            let effectiveDuration = e.duration > 0 ? e.duration : (DurationCache.get(e.videoId) ?? 0)
+            let durationStr = effectiveDuration.formattedDuration
+            if artistStr.isEmpty { return durationStr }
+            if durationStr.isEmpty { return artistStr }
+            return "\(artistStr) • \(durationStr)"
         }
     }
 
@@ -87,20 +199,101 @@ struct SongItem {
 
     static func from(_ renderer: [String: Any]) -> SongItem? {
         guard let videoId = extractVideoId(renderer) else { return nil }
-        let title = extractRunsText(renderer["title"] as? [String: Any]) ?? "Unknown"
-        let subtitleRuns = extractRunsTextArray(renderer["subtitle"] as? [String: Any])
-        let thumbnailUrl = extractTwoRowThumbnail(renderer)
+        let duration = parseDurationFromRenderer(renderer)
         let playlistId = extractPlaylistId(renderer)
 
+        if let flexColumns = renderer["flexColumns"] as? [[String: Any]] {
+            return fromResponsiveListItem(renderer: renderer, flexColumns: flexColumns, videoId: videoId, duration: duration, playlistId: playlistId)
+        }
+        return fromTwoRowItem(renderer: renderer, videoId: videoId, duration: duration, playlistId: playlistId)
+    }
+
+    private static let nonArtistLabels: Set<String> = ["song", "video", "track", "music", "podcast", "episode"]
+    private static let nonArtistPatterns: [String] = [
+        "^\\d+(\\.\\d+)?[KMBT]?\\s*(views|downloads|listeners|subscribers)$",
+    ]
+    private static let conjunctions: Set<String> = [",", "&", "and", "feat.", "ft.", "featuring"]
+
+    private static func isViewCountOrJunk(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        let lower = trimmed.lowercased()
+        if lower.isEmpty || lower == "•" || lower == "·" { return true }
+        if conjunctions.contains(lower) || nonArtistLabels.contains(lower) { return true }
+        for pattern in nonArtistPatterns {
+            if lower.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil { return true }
+        }
+        return false
+    }
+
+    private static func isArtistSegment(_ text: String) -> Bool {
+        return !isViewCountOrJunk(text)
+    }
+
+    private static func isArtistRun(_ run: [String: Any]) -> Bool {
+        guard let text = run["text"] as? String else { return false }
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        if isViewCountOrJunk(trimmed) { return false }
+        if let nav = run["navigationEndpoint"] as? [String: Any],
+           let browse = nav["browseEndpoint"] as? [String: Any],
+           let bid = browse["browseId"] as? String,
+           bid.hasPrefix("MPREb_") { return false }
+        return true
+    }
+
+    private static func fromResponsiveListItem(renderer: [String: Any], flexColumns: [[String: Any]], videoId: String, duration: Int, playlistId: String?) -> SongItem? {
+        let title = flexText(flexColumns, index: 0) ?? "Unknown"
+        let runs = flexTextRuns(flexColumns, index: 1)
+        let segments = splitRunsBySeparator(runs)
+        let artists: [YTArtist]
+        let album: String?
+        if !segments.isEmpty {
+            let artistSegments = segments.drop { seg in
+                seg.allSatisfy { !isArtistSegment($0) }
+            }
+            if artistSegments.isEmpty {
+                artists = segments[0].filter { isArtistSegment($0) }.map { YTArtist(name: $0) }
+                album = segments.count > 1 ? segments[1].first : nil
+            } else {
+                artists = artistSegments.first!.filter { isArtistSegment($0) }.map { YTArtist(name: $0) }
+                album = artistSegments.dropFirst().first?.first
+            }
+        } else {
+            artists = []
+            album = nil
+        }
+        let thumbnailUrl = extractResponsiveThumbnail(renderer)
+        print("[SongItem] responsive: title=\(title) artists=\(artists.map(\.name)) album=\(album ?? "nil") duration=\(duration)")
         return SongItem(
-            videoId: videoId,
-            title: title,
-            artists: [],
-            album: subtitleRuns.first,
-            duration: 0,
-            thumbnailUrl: thumbnailUrl,
-            isExplicit: false,
-            playlistId: playlistId
+            videoId: videoId, title: title, artists: artists, album: album,
+            duration: duration, thumbnailUrl: thumbnailUrl, isExplicit: false, playlistId: playlistId
+        )
+    }
+
+    private static func fromTwoRowItem(renderer: [String: Any], videoId: String, duration: Int, playlistId: String?) -> SongItem? {
+        let title = extractRunsText(renderer["title"] as? [String: Any]) ?? "Unknown"
+        let thumbnailUrl = extractTwoRowThumbnail(renderer)
+        var artists: [YTArtist] = []
+        var album: String?
+        if let subtitleDict = renderer["subtitle"] as? [String: Any],
+           let runs = subtitleDict["runs"] as? [[String: Any]] {
+            for run in runs {
+                guard let text = run["text"] as? String else { continue }
+                let trimmed = text.trimmingCharacters(in: .whitespaces)
+                if trimmed.isEmpty || trimmed == "•" { continue }
+                if let nav = run["navigationEndpoint"] as? [String: Any],
+                   let browse = nav["browseEndpoint"] as? [String: Any],
+                   let bid = browse["browseId"] as? String,
+                   bid.hasPrefix("MPREb_") {
+                    album = trimmed
+                } else if isArtistRun(run) {
+                    artists.append(YTArtist(name: trimmed))
+                }
+            }
+        }
+        print("[SongItem] twoRow: title=\(title) artists=\(artists.map(\.name)) album=\(album ?? "nil") duration=\(duration)")
+        return SongItem(
+            videoId: videoId, title: title, artists: artists, album: album,
+            duration: duration, thumbnailUrl: thumbnailUrl, isExplicit: false, playlistId: playlistId
         )
     }
 }
@@ -190,7 +383,8 @@ struct EpisodeItem {
         guard let videoId = extractVideoId(renderer) else { return nil }
         let title = extractRunsText(renderer["title"] as? [String: Any]) ?? "Unknown"
         let thumbnailUrl = extractTwoRowThumbnail(renderer)
-        return EpisodeItem(videoId: videoId, title: title, artists: [], duration: 0, thumbnailUrl: thumbnailUrl)
+        let duration = parseDurationFromRenderer(renderer)
+        return EpisodeItem(videoId: videoId, title: title, artists: [], duration: duration, thumbnailUrl: thumbnailUrl)
     }
 }
 
@@ -294,4 +488,68 @@ private func extractRunsTextArray(_ dict: [String: Any]?) -> [String] {
     guard let runs = dict?["runs"] as? [[String: Any]] else { return [] }
     return runs.compactMap { $0["text"] as? String }
         .filter { $0 != " • " && !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+}
+
+// MARK: - Responsive List Item Helpers
+
+private func flexText(_ flexColumns: [[String: Any]], index: Int) -> String? {
+    guard index < flexColumns.count else { return nil }
+    let col = flexColumns[index]
+    let flexRenderer = (col["musicResponsiveListItemFlexColumnRenderer"] as? [String: Any])
+        ?? (col["musicResponsiveListItemColumnRenderer"] as? [String: Any])
+    guard let textDict = flexRenderer?["text"] as? [String: Any],
+          let runs = textDict["runs"] as? [[String: Any]],
+          let first = runs.first,
+          let text = first["text"] as? String else { return nil }
+    return text
+}
+
+private func flexTextRuns(_ flexColumns: [[String: Any]], index: Int) -> [[String: Any]] {
+    guard index < flexColumns.count else { return [] }
+    let col = flexColumns[index]
+    let flexRenderer = (col["musicResponsiveListItemFlexColumnRenderer"] as? [String: Any])
+        ?? (col["musicResponsiveListItemColumnRenderer"] as? [String: Any])
+    guard let textDict = flexRenderer?["text"] as? [String: Any],
+          let runs = textDict["runs"] as? [[String: Any]] else { return [] }
+    return runs
+}
+
+private func splitRunsBySeparator(_ runs: [[String: Any]]) -> [[String]] {
+    let separators: Set<String> = ["•", "·", ",", "&", "and", "feat.", "ft.", "featuring"]
+    var segments: [[String]] = []
+    var current: [String] = []
+    for run in runs {
+        guard let text = run["text"] as? String else { continue }
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        if separators.contains(trimmed.lowercased()) {
+            if !current.isEmpty {
+                segments.append(current)
+                current = []
+            }
+        } else if !trimmed.isEmpty {
+            current.append(trimmed)
+        }
+    }
+    if !current.isEmpty {
+        segments.append(current)
+    }
+    return segments
+}
+
+private func extractResponsiveThumbnail(_ renderer: [String: Any]) -> String? {
+    if let thumbnail = renderer["thumbnail"] as? [String: Any] {
+        if let musicThumb = thumbnail["musicThumbnailRenderer"] as? [String: Any],
+           let thumb = musicThumb["thumbnail"] as? [String: Any],
+           let thumbnails = thumb["thumbnails"] as? [[String: Any]],
+           let last = thumbnails.last,
+           let url = last["url"] as? String {
+            return url
+        }
+        if let thumbnails = thumbnail["thumbnails"] as? [[String: Any]],
+           let last = thumbnails.last,
+           let url = last["url"] as? String {
+            return url
+        }
+    }
+    return nil
 }

@@ -130,6 +130,18 @@ actor InnerTube {
         return try await postDecodable(endpoint: "player", body: body, client: client, session: session)
     }
 
+    // Lightweight duration-only fetch — no stream resolution
+    // Uses iOS client which doesn't require signature timestamp
+    func fetchDuration(videoId: String) async throws -> Int {
+        let response = try await playerResponse(videoId: videoId, client: .iOS)
+        guard let lengthSeconds = response.videoDetails?.lengthSeconds,
+              let duration = Int(lengthSeconds) else {
+            throw InnerTubeError.decodingFailed
+        }
+        DurationCache.set(videoId, duration)
+        return duration
+    }
+
     // Fetches queue data (playlist contents, related songs, radio)
     func next(
         videoId: String? = nil,

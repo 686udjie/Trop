@@ -17,6 +17,7 @@ struct PlaybackResult {
     let videoId: String
     let title: String?
     let author: String?
+    let duration: Int?
     let expiresInSeconds: Int
     let clientName: String
 }
@@ -104,6 +105,7 @@ enum StreamResolver {
 
         // Build result metadata
         let videoDetails = response.videoDetails
+        let duration = videoDetails?.lengthSeconds.flatMap(Int.init)
         let result = PlaybackResult(
             streamUrl: finalStreamUrl,
             itag: selectedFormat.itag ?? 0,
@@ -113,9 +115,14 @@ enum StreamResolver {
             videoId: videoDetails?.videoId ?? videoId,
             title: videoDetails?.title,
             author: videoDetails?.author,
+            duration: duration,
             expiresInSeconds: streamingData.expiresInSeconds.flatMap(Int.init) ?? 0,
             clientName: client.clientName
         )
+
+        if let duration, let vid = videoDetails?.videoId {
+            DurationCache.set(vid, duration)
+        }
 
         print("[StreamResolver] Result: title=\"\(result.title ?? "?")\""
             + " author=\"\(result.author ?? "?")\""
