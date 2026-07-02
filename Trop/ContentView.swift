@@ -8,8 +8,24 @@
 import SwiftUI
 
 struct ContentView: View {
+
     var body: some View {
-        HomeScreenView()
+        TabView {
+
+            Tab("Home", systemImage: "music.note.house.fill") {
+                HomeScreenView()
+            }
+
+            Tab("Library", systemImage: "music.note.square.stack") {
+                Color(.systemBackground)
+                    .ignoresSafeArea()
+            }
+
+            Tab("Search", systemImage: "magnifyingglass", role: .search) {
+                Color(.systemBackground)
+                    .ignoresSafeArea()
+            }
+        }
     }
 }
 
