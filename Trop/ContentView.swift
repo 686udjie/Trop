@@ -6,12 +6,13 @@
 //
 
 import SwiftUI
+import LNPopupUI
 
 struct ContentView: View {
+    @State private var nowPlaying = NowPlaying.shared
 
     var body: some View {
         TabView {
-
             Tab("Home", systemImage: "music.note.house.fill") {
                 HomeScreenView()
             }
@@ -26,6 +27,15 @@ struct ContentView: View {
                     .ignoresSafeArea()
             }
         }
+        .tabBarMinimizeBehavior(.onScrollDown)
+        .popup(isBarPresented: .init(
+            get: { nowPlaying.isBarPresented },
+            set: { _ in }
+        ), isPopupOpen: $nowPlaying.isPopupOpen) {
+            MiniPlayerView()
+        }
+        .popupBarStyle(.floatingCompact)
+        .popupBarProgressViewStyle(.bottom)
     }
 }
 

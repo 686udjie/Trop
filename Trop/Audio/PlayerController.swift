@@ -37,7 +37,7 @@ final class PlayerController {
     }
 
     enum State: Equatable {
-        case stopped, playing
+        case stopped, playing, paused
     }
 
     private init() {}
@@ -53,6 +53,10 @@ final class PlayerController {
             return
         }
         print("[Player] Playing: \(url.lastPathComponent)")
+
+        if let videoId, let title {
+            NowPlaying.shared.update(title: title, artist: artist, videoId: videoId)
+        }
 
         if isRunning { stopTracking() }
 
@@ -141,6 +145,7 @@ final class PlayerController {
                 self.destroyMpv()
                 DispatchQueue.main.async {
                     self.playState.send(.stopped)
+                    NowPlaying.shared.stopped()
                 }
                 return
             default:
@@ -175,6 +180,18 @@ final class PlayerController {
             guard let self, let mpv = self.mpv else { return }
             var val = time
             mpv_set_property(mpv, "time-pos", MPV_FORMAT_DOUBLE, &val)
+        }
+    }
+
+    func togglePlayPause() {
+        let willBePlaying = playState.value == .paused || playState.value == .stopped
+        playState.send(willBePlaying ? .playing : .paused)
+        NowPlaying.shared.isPlaying = willBePlaying
+
+        playbackQueue.async { [weak self] in
+            guard let self, let mpv = self.mpv else { return }
+            var flag: Int = willBePlaying ? 0 : 1
+            mpv_set_property(mpv, "pause", MPV_FORMAT_FLAG, &flag)
         }
     }
 }
