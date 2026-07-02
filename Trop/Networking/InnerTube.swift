@@ -68,7 +68,7 @@ actor InnerTube {
         client: YouTubeClient = .webRemix,
         locale: YouTubeLocale = .default
     ) async throws -> [String: Any] {
-        let ctx = buildContextDict(client: client, locale: locale)
+        let ctx = buildContextDict(client: client, locale: locale, visitorData: visitorData)
         var body: [String: Any] = ["context": ctx]
         if let browseId = browseId { body["browseId"] = browseId }
         if let params = params { body["params"] = params }
@@ -77,7 +77,6 @@ actor InnerTube {
         let json = try await post(endpoint: "browse", body: body, client: client, session: session)
         if let rctx = json["responseContext"] as? [String: Any], let vd = rctx["visitorData"] as? String {
             visitorData = vd
-            print("[InnerTube] Extracted visitorData from browse response")
         }
         return json
     }
@@ -92,7 +91,7 @@ actor InnerTube {
         poToken: String? = nil
     ) async throws -> [String: Any] {
         var body: [String: Any] = [
-            "context": buildContextDict(client: client, locale: locale),
+            "context": buildContextDict(client: client, locale: locale, visitorData: visitorData),
             "videoId": videoId, "contentCheckOk": true, "racyCheckOk": true
         ]
         if let playlistId = playlistId { body["playlistId"] = playlistId }
@@ -116,7 +115,7 @@ actor InnerTube {
         poToken: String? = nil
     ) async throws -> PlayerResponse {
         var body: [String: Any] = [
-            "context": buildContextDict(client: client, locale: locale),
+            "context": buildContextDict(client: client, locale: locale, visitorData: visitorData),
             "videoId": videoId, "contentCheckOk": true, "racyCheckOk": true
         ]
         if let playlistId = playlistId { body["playlistId"] = playlistId }
@@ -151,7 +150,7 @@ actor InnerTube {
         locale: YouTubeLocale = .default
     ) async throws -> [String: Any] {
         var body: [String: Any] = [
-            "context": buildContextDict(client: client, locale: locale)
+            "context": buildContextDict(client: client, locale: locale, visitorData: visitorData)
         ]
         if let videoId = videoId { body["videoId"] = videoId }
         if let playlistId = playlistId { body["playlistId"] = playlistId }
@@ -168,7 +167,7 @@ actor InnerTube {
         locale: YouTubeLocale = .default
     ) async throws -> [String: Any] {
         var body: [String: Any] = [
-            "context": buildContextDict(client: client, locale: locale),
+            "context": buildContextDict(client: client, locale: locale, visitorData: visitorData),
             "query": query
         ]
         if let params = params { body["params"] = params }
@@ -182,7 +181,7 @@ actor InnerTube {
         locale: YouTubeLocale = .default
     ) async throws -> [String: Any] {
         let session = Session(cookies: cookies, sapisid: sapisid, visitorData: visitorData)
-        return try await post(endpoint: "account/account_menu", body: ["context": buildContextDict(client: client, locale: locale)], client: client, session: session)
+        return try await post(endpoint: "account/account_menu", body: ["context": buildContextDict(client: client, locale: locale, visitorData: visitorData)], client: client, session: session)
     }
 
     // Fetches account info (name, email, profile picture)
@@ -253,13 +252,21 @@ actor InnerTube {
                 return try await operation()
             } catch {
                 lastError = error
-                guard attempt < maxAttempts - 1 else { break }
+                guard attempt < maxAttempts - 1,
+                      isRetryable(error) else { break }
                 let delay = backoffBase * pow(backoffFactor, Double(attempt))
-                print("[InnerTube] Attempt \(attempt + 1)/\(maxAttempts) failed for \(error.localizedDescription). Retrying in \(delay)...")
+                print("[InnerTube] Retry \(attempt + 1)/\(maxAttempts - 1) for \(error.localizedDescription)")
                 try? await Task.sleep(for: delay)
             }
         }
         throw lastError ?? InnerTubeError.httpError(statusCode: -1, data: Data())
+    }
+
+    private func isRetryable(_ error: Error) -> Bool {
+        if case InnerTubeError.httpError(let code, _) = error {
+            return code >= 500
+        }
+        return true
     }
 
     // Core POST returning raw Data for typed decoding
@@ -282,18 +289,15 @@ actor InnerTube {
             throw InnerTubeError.invalidResponse
         }
         if !(200...299).contains(httpResponse.statusCode) {
-            if let bodyStr = String(data: request.httpBody ?? Data(), encoding: .utf8) {
-                print("[InnerTube] ❌ Request body for \(endpoint) [\(client.clientName)]:\n\(bodyStr)")
+            let message: String
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let error = json["error"] as? [String: Any],
+               let msg = error["message"] as? String {
+                message = msg
+            } else {
+                message = "HTTP \(httpResponse.statusCode)"
             }
-        print("[InnerTube] ❌ Request headers:")
-        if let headers = request.allHTTPHeaderFields {
-            for (key, value) in headers {
-                print("[InnerTube] \(key): \(value)")
-            }
-        }
-            if let bodyStr = String(data: data, encoding: .utf8) {
-                print("[InnerTube] ❌ Response body:\n\(bodyStr)")
-            }
+            print("[InnerTube] HTTP \(httpResponse.statusCode) | \(endpoint) [\(client.clientName)]: \(message)")
             throw InnerTubeError.httpError(statusCode: httpResponse.statusCode, data: data)
         }
         return (data, httpResponse)
@@ -321,18 +325,21 @@ actor InnerTube {
     // Like or unlike a video
     func like(videoId: String, client: YouTubeClient = .webRemix, locale: YouTubeLocale = .default) async throws -> [String: Any] {
         let session = Session(cookies: cookies, sapisid: sapisid, visitorData: visitorData)
-        return try await post(endpoint: "like/like", body: ["context": buildContextDict(client: client, locale: locale), "target": ["videoId": videoId]], client: client, session: session)
+        let body: [String: Any] = ["context": buildContextDict(client: client, locale: locale, visitorData: visitorData), "target": ["videoId": videoId]]
+        return try await post(endpoint: "like/like", body: body, client: client, session: session)
     }
 
     func unlike(videoId: String, client: YouTubeClient = .webRemix, locale: YouTubeLocale = .default) async throws -> [String: Any] {
         let session = Session(cookies: cookies, sapisid: sapisid, visitorData: visitorData)
-        return try await post(endpoint: "like/removelike", body: ["context": buildContextDict(client: client, locale: locale), "target": ["videoId": videoId]], client: client, session: session)
+        let body: [String: Any] = ["context": buildContextDict(client: client, locale: locale, visitorData: visitorData), "target": ["videoId": videoId]]
+        return try await post(endpoint: "like/removelike", body: body, client: client, session: session)
     }
 
     // Send feedback tokens (library add/remove)
     func feedback(tokens: [String], client: YouTubeClient = .webRemix, locale: YouTubeLocale = .default) async throws -> [String: Any] {
         let session = Session(cookies: cookies, sapisid: sapisid, visitorData: visitorData)
-        return try await post(endpoint: "feedback", body: ["context": buildContextDict(client: client, locale: locale), "feedbackTokens": tokens], client: client, session: session)
+        let body: [String: Any] = ["context": buildContextDict(client: client, locale: locale, visitorData: visitorData), "feedbackTokens": tokens]
+        return try await post(endpoint: "feedback", body: body, client: client, session: session)
     }
 
     // Edit a playlist (add, remove, or reorder videos)
@@ -341,7 +348,7 @@ actor InnerTube {
                       locale: YouTubeLocale = .default) async throws -> [String: Any] {
         let session = Session(cookies: cookies, sapisid: sapisid, visitorData: visitorData)
         let body: [String: Any] = [
-            "context": buildContextDict(client: client, locale: locale),
+            "context": buildContextDict(client: client, locale: locale, visitorData: visitorData),
             "playlistId": playlistId,
             "actions": actions
         ]
@@ -351,7 +358,7 @@ actor InnerTube {
     // Create a new playlist
     func createPlaylist(title: String, description: String? = nil, client: YouTubeClient = .webRemix, locale: YouTubeLocale = .default) async throws -> [String: Any] {
         let session = Session(cookies: cookies, sapisid: sapisid, visitorData: visitorData)
-        var body: [String: Any] = ["context": buildContextDict(client: client, locale: locale), "title": title]
+        var body: [String: Any] = ["context": buildContextDict(client: client, locale: locale, visitorData: visitorData), "title": title]
         if let description { body["description"] = description }
         return try await post(endpoint: "playlist/create", body: body, client: client, session: session)
     }
@@ -359,13 +366,15 @@ actor InnerTube {
     // Delete a playlist
     func deletePlaylist(playlistId: String, client: YouTubeClient = .webRemix, locale: YouTubeLocale = .default) async throws -> [String: Any] {
         let session = Session(cookies: cookies, sapisid: sapisid, visitorData: visitorData)
-        return try await post(endpoint: "playlist/delete", body: ["context": buildContextDict(client: client, locale: locale), "playlistId": playlistId], client: client, session: session)
+        let body: [String: Any] = ["context": buildContextDict(client: client, locale: locale, visitorData: visitorData), "playlistId": playlistId]
+        return try await post(endpoint: "playlist/delete", body: body, client: client, session: session)
     }
 
     // Get search suggestions (autocomplete)
     func searchSuggestions(input: String, client: YouTubeClient = .webRemix, locale: YouTubeLocale = .default) async throws -> [String: Any] {
         let session = Session(cookies: cookies, sapisid: sapisid, visitorData: visitorData)
-        return try await post(endpoint: "music/get_search_suggestions", body: ["context": buildContextDict(client: client, locale: locale), "input": input], client: client, session: session)
+        let body: [String: Any] = ["context": buildContextDict(client: client, locale: locale, visitorData: visitorData), "input": input]
+        return try await post(endpoint: "music/get_search_suggestions", body: body, client: client, session: session)
     }
 
     // Builds the inner context dictionary sent with every API request
@@ -405,9 +414,7 @@ enum InnerTubeError: Error, LocalizedError {
     var errorDescription: String? {
         switch self {
         case .invalidResponse: return "Invalid response from server"
-        case .httpError(let statusCode, let data):
-            let body = String(data: data, encoding: .utf8) ?? "empty"
-            return "HTTP \(statusCode): \(body)"
+        case .httpError(let statusCode, _): return "HTTP \(statusCode)"
         case .decodingFailed: return "Failed to decode response JSON"
         }
     }

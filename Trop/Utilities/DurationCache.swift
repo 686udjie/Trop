@@ -23,15 +23,11 @@ enum DurationCache {
 
     static func get(_ videoId: String) -> Int? {
         lock.lock(); defer { lock.unlock() }
-        let val = cache[videoId]
-        if let v = val { print("[Debug] DurationCache hit: \(videoId) → \(v)s") }
-        else { print("[Debug] DurationCache miss: \(videoId)") }
-        return val
+        return cache[videoId]
     }
 
     static func set(_ videoId: String, _ duration: Int) {
         lock.lock()
-        print("[Debug] DurationCache set: \(videoId) → \(duration)s")
         cache[videoId] = duration
         pending.remove(videoId)
         lock.unlock()

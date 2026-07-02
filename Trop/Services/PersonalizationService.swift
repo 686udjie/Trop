@@ -117,20 +117,31 @@ actor PersonalizationService {
 
     func buildFromTheCommunity() async -> HomeSection {
         guard await isLoggedIn() else { return .fromTheCommunity(items: []) }
-        do {
-            let json = try await innerTube.browse(browseId: "FEmusic_community_playlists")
-            let items = LibraryBrowseParser.parsePlaylists(from: json)
-            let ytItems = items.map {
-                YTItem.playlist(PlaylistItem(
-                    id: $0.browseId, title: $0.title,
-                    author: nil, thumbnailUrl: $0.thumbnailUrl,
-                    songCount: $0.songCount
-                ))
-            }
-            return .fromTheCommunity(items: ytItems)
-        } catch {
+        guard let topArtists = try? await db.fetchArtists(limit: 3), !topArtists.isEmpty else {
             return .fromTheCommunity(items: [])
         }
+
+        var seenIds = Set<String>()
+        var communityPlaylists: [YTItem] = []
+
+        for artist in topArtists {
+            guard communityPlaylists.count < 5 else { break }
+            guard let json = try? await innerTube.browse(browseId: artist.id) else { continue }
+            let playlists = extractCommunityPlaylists(from: json)
+            for playlist in playlists {
+                let pid = normalizePlaylistId(playlist.browseId)
+                guard !seenIds.contains(pid) else { continue }
+                seenIds.insert(pid)
+                communityPlaylists.append(.playlist(PlaylistItem(
+                    id: pid, title: playlist.title,
+                    author: nil, thumbnailUrl: playlist.thumbnailUrl,
+                    songCount: playlist.songCount
+                )))
+                if communityPlaylists.count >= 5 { break }
+            }
+        }
+
+        return .fromTheCommunity(items: communityPlaylists)
     }
 
     // MARK: - Helpers
@@ -192,6 +203,43 @@ actor PersonalizationService {
             items.append(.song(song))
         }
         return items
+    }
+
+    private func extractCommunityPlaylists(from json: [String: Any]) -> [ParsedPlaylist] {
+        guard let contents = json["contents"] as? [String: Any],
+              let singleColumn = contents["singleColumnBrowseResultsRenderer"] as? [String: Any],
+              let tabs = singleColumn["tabs"] as? [[String: Any]],
+              let firstTab = tabs.first,
+              let tabRenderer = firstTab["tabRenderer"] as? [String: Any],
+              let content = tabRenderer["content"] as? [String: Any],
+              let sectionList = content["sectionListRenderer"] as? [String: Any],
+              let sections = sectionList["contents"] as? [[String: Any]] else { return [] }
+
+        var playlists: [ParsedPlaylist] = []
+        for section in sections {
+            guard playlists.count < 10 else { break }
+            guard let shelf = section["musicShelfRenderer"] as? [String: Any],
+                  let contents = shelf["contents"] as? [[String: Any]] else { continue }
+            for entry in contents {
+                guard playlists.count < 10 else { break }
+                guard let renderer = entry["musicResponsiveListItemRenderer"] as? [String: Any] else { continue }
+                guard let nav = renderer["navigationEndpoint"] as? [String: Any],
+                      let browse = nav["browseEndpoint"] as? [String: Any],
+                      let bid = browse["browseId"] as? String else { continue }
+                let stripped = bid.hasPrefix("VL") ? String(bid.dropFirst(2)) : bid
+                guard !stripped.hasPrefix("RD"),
+                      !stripped.hasPrefix("OLAK"),
+                      !stripped.hasPrefix("MPREb_") else { continue }
+                if let playlist = LibraryBrowseParser.parsePlaylist(entry) {
+                    playlists.append(playlist)
+                }
+            }
+        }
+        return playlists
+    }
+
+    private func normalizePlaylistId(_ id: String) -> String {
+        id.hasPrefix("VL") ? String(id.dropFirst(2)) : id
     }
 
     private func parseRelatedItems(from json: [String: Any]) -> [YTItem]? {

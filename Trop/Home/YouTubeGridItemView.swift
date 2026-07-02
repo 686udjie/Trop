@@ -99,7 +99,6 @@ struct YouTubeGridItemView: View {
             let duration = try await InnerTube.shared.fetchDuration(videoId: vid)
             resolvedDuration = duration
         } catch {
-            print("[Debug] Duration fetch failed for \(vid): \(error)")
             DurationCache.clearPending(vid)
         }
     }
@@ -195,7 +194,6 @@ struct YouTubeListItemView: View {
             let duration = try await InnerTube.shared.fetchDuration(videoId: vid)
             resolvedDuration = duration
         } catch {
-            print("[Debug] Duration fetch failed for \(vid): \(error)")
             DurationCache.clearPending(vid)
         }
     }

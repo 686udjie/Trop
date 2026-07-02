@@ -262,7 +262,6 @@ struct SongItem {
             album = nil
         }
         let thumbnailUrl = extractResponsiveThumbnail(renderer)
-        print("[SongItem] responsive: title=\(title) artists=\(artists.map(\.name)) album=\(album ?? "nil") duration=\(duration)")
         return SongItem(
             videoId: videoId, title: title, artists: artists, album: album,
             duration: duration, thumbnailUrl: thumbnailUrl, isExplicit: false, playlistId: playlistId
@@ -290,7 +289,6 @@ struct SongItem {
                 }
             }
         }
-        print("[SongItem] twoRow: title=\(title) artists=\(artists.map(\.name)) album=\(album ?? "nil") duration=\(duration)")
         return SongItem(
             videoId: videoId, title: title, artists: artists, album: album,
             duration: duration, thumbnailUrl: thumbnailUrl, isExplicit: false, playlistId: playlistId
