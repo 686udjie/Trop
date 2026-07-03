@@ -23,8 +23,7 @@ struct ContentView: View {
             }
 
             Tab("Search", systemImage: "magnifyingglass", role: .search) {
-                Color(.systemBackground)
-                    .ignoresSafeArea()
+                SearchView()
             }
         }
         .tabBarMinimizeBehavior(.onScrollDown)

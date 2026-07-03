@@ -183,6 +183,179 @@ enum YTItem {
         default: return nil
         }
     }
+
+    static func fromResponsiveListItem(_ renderer: [String: Any]) -> YTItem? {
+        guard let flexColumns = renderer["flexColumns"] as? [[String: Any]], !flexColumns.isEmpty else { return nil }
+
+        let title = flexText(flexColumns, index: 0) ?? "Unknown"
+        let thumbnailUrl = extractResponsiveThumbnail(renderer)
+        let pageType = HomePageParser.extractPageType(renderer)
+        let hasWatch = HomePageParser.hasWatchEndpoint(renderer)
+
+        // Determine isEpisode
+        let isNonMusicAudioTrack = (pageType == "MUSIC_PAGE_TYPE_NON_MUSIC_AUDIO_TRACK_PAGE")
+        var isFirstSubtitleEpisode = false
+        if flexColumns.count > 1 {
+            let runs = flexTextRuns(flexColumns, index: 1)
+            if let firstRun = runs.first, let text = firstRun["text"] as? String, text.trimmingCharacters(in: .whitespaces) == "Episode" {
+                isFirstSubtitleEpisode = true
+            }
+        }
+        var hasPodcastLink = false
+        if flexColumns.count > 1 {
+            let runs = flexTextRuns(flexColumns, index: 1)
+            for run in runs {
+                if let nav = run["navigationEndpoint"] as? [String: Any],
+                   let browse = nav["browseEndpoint"] as? [String: Any],
+                   let configs = browse["browseEndpointContextSupportedConfigs"] as? [String: Any],
+                   let musicConfig = configs["browseEndpointContextMusicConfig"] as? [String: Any],
+                   let pType = musicConfig["pageType"] as? String,
+                   pType == "MUSIC_PAGE_TYPE_PODCAST_SHOW_DETAIL_PAGE" {
+                    hasPodcastLink = true
+                    break
+                }
+            }
+        }
+        let isEpisode = isNonMusicAudioTrack || isFirstSubtitleEpisode || hasPodcastLink
+
+        if isEpisode {
+            let videoId = extractVideoId(renderer) ?? ""
+            if !videoId.isEmpty {
+                let runs = flexTextRuns(flexColumns, index: 1)
+                let segments = splitRunsBySeparator(runs)
+                var podcastName: String? = nil
+                if let lastSeg = segments.last {
+                    podcastName = lastSeg.joined(separator: " ")
+                }
+                
+                let episodeItem = EpisodeItem(
+                    videoId: videoId,
+                    title: title,
+                    artists: podcastName.map { [YTArtist(name: $0)] } ?? [],
+                    duration: parseDurationFromRenderer(renderer),
+                    thumbnailUrl: thumbnailUrl,
+                    publishDate: nil
+                )
+                return .episode(episodeItem)
+            }
+        }
+
+        if hasWatch || pageType == nil {
+            if let song = SongItem.from(renderer) {
+                return .song(song)
+            }
+        }
+
+        guard let browseId = extractTwoRowBrowseId(renderer) else {
+            if hasWatch, let song = SongItem.from(renderer) {
+                return .song(song)
+            }
+            return nil
+        }
+
+        switch pageType {
+        case "MUSIC_PAGE_TYPE_ALBUM", "MUSIC_PAGE_TYPE_AUDIOBOOK":
+            let runs = flexTextRuns(flexColumns, index: 1)
+            let segments = splitRunsBySeparator(runs)
+            var artists: [YTArtist] = []
+            var year: Int? = nil
+
+            for seg in segments {
+                if let firstWord = seg.first {
+                    if let y = Int(firstWord), y > 1900 && y < 2100 {
+                        year = y
+                    } else if firstWord != "Album" && firstWord != "EP" && firstWord != "Single" {
+                        for artistName in seg {
+                            artists.append(YTArtist(name: artistName, id: nil))
+                        }
+                    }
+                }
+            }
+
+            let albumItem = AlbumItem(
+                browseId: browseId,
+                title: title,
+                artists: artists,
+                year: year,
+                thumbnailUrl: thumbnailUrl,
+                playlistId: extractPlaylistId(renderer),
+                isExplicit: false
+            )
+            return .album(albumItem)
+
+        case "MUSIC_PAGE_TYPE_ARTIST":
+            let artistItem = ArtistItem(
+                browseId: browseId,
+                name: title,
+                thumbnailUrl: thumbnailUrl,
+                isSubscribed: false
+            )
+            return .artist(artistItem)
+
+        case "MUSIC_PAGE_TYPE_PLAYLIST":
+            let runs = flexTextRuns(flexColumns, index: 1)
+            let segments = splitRunsBySeparator(runs)
+            var author: String? = nil
+            if let firstSeg = segments.first {
+                author = firstSeg.joined(separator: " ")
+            }
+            let playlistItem = PlaylistItem(
+                id: browseId,
+                title: title,
+                author: author,
+                thumbnailUrl: thumbnailUrl,
+                songCount: nil
+            )
+            return .playlist(playlistItem)
+
+        case "MUSIC_PAGE_TYPE_PODCAST_SHOW_DETAIL_PAGE":
+            let podcastItem = PodcastItem(
+                browseId: browseId,
+                title: title,
+                author: nil,
+                thumbnailUrl: thumbnailUrl
+            )
+            return .podcast(podcastItem)
+
+        case "MUSIC_PAGE_TYPE_NON_MUSIC_AUDIO_TRACK_PAGE":
+            if let episode = EpisodeItem.from(renderer) {
+                return .episode(episode)
+            }
+
+        default:
+            if browseId.hasPrefix("FElike_") || browseId.hasPrefix("VL") {
+                let playlistItem = PlaylistItem(
+                    id: browseId,
+                    title: title,
+                    author: nil,
+                    thumbnailUrl: thumbnailUrl,
+                    songCount: nil
+                )
+                return .playlist(playlistItem)
+            } else if browseId.hasPrefix("UC") {
+                let artistItem = ArtistItem(
+                    browseId: browseId,
+                    name: title,
+                    thumbnailUrl: thumbnailUrl,
+                    isSubscribed: false
+                )
+                return .artist(artistItem)
+            } else if browseId.hasPrefix("MPREb_") {
+                let albumItem = AlbumItem(
+                    browseId: browseId,
+                    title: title,
+                    artists: [],
+                    year: nil,
+                    thumbnailUrl: thumbnailUrl,
+                    playlistId: nil,
+                    isExplicit: false
+                )
+                return .album(albumItem)
+            }
+        }
+
+        return nil
+    }
 }
 
 struct SongItem {
