@@ -434,7 +434,7 @@ struct PlaylistDetailView: View {
                             .frame(width: 40, height: 40)
                             .clipShape(RoundedRectangle(cornerRadius: 4))
 
-                        // Title and artist
+                        // Title and subtitle (artists • duration)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(song.title)
                                 .font(.subheadline)
@@ -442,7 +442,11 @@ struct PlaylistDetailView: View {
                                 .foregroundColor(.primary)
                                 .lineLimit(1)
 
-                            Text(song.artists.map(\.name).joined(separator: ", "))
+                            let artistStr = song.artists.map(\.name).joined(separator: ", ")
+                            let durationStr = song.duration.formattedDuration
+                            let subtitleText = artistStr.isEmpty ? durationStr : (durationStr.isEmpty ? artistStr : "\(artistStr) • \(durationStr)")
+
+                            Text(subtitleText)
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                                 .lineLimit(1)
@@ -450,10 +454,10 @@ struct PlaylistDetailView: View {
 
                         Spacer()
 
-                        // Duration
-                        Text(song.duration.formattedDuration)
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
+                        // Options ellipsis
+                        Image(systemName: "ellipsis")
+                            .font(.body)
+                            .foregroundStyle(.blue)
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 6)
