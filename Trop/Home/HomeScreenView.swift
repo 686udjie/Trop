@@ -10,9 +10,10 @@ import SwiftUI
 struct HomeScreenView: View {
     @State private var viewModel = HomeViewModel()
     @StateObject private var loginModel = LoginViewModel()
+    @State private var navigationPath = NavigationPath()
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $navigationPath) {
             VStack(spacing: 0) {
                 HStack(alignment: .center) {
                     Text("Home")
@@ -39,7 +40,17 @@ struct HomeScreenView: View {
                 }
             }
             .frame(maxHeight: .infinity, alignment: .top)
-            .navigationBarHidden(true)
+            .toolbar(.hidden, for: .navigationBar)
+            .navigationDestination(for: DetailRoute.self) { route in
+                switch route {
+                case .album(let browseId):
+                    AlbumDetailView(browseId: browseId)
+                case .artist(let browseId):
+                    ArtistDetailView(browseId: browseId)
+                case .playlist(let playlistId):
+                    PlaylistDetailView(playlistId: playlistId)
+                }
+            }
             .sheet(isPresented: $viewModel.isLoginSheetPresented) {
                 NavigationStack {
                     LoginWebView(model: loginModel)
@@ -198,7 +209,7 @@ struct HomeScreenView: View {
                 LazyHGrid(rows: Array(repeating: GridItem(.fixed(60)), count: 4), spacing: 12) {
                     ForEach(section.items.indices, id: \.self) { i in
                         let item = section.items[i]
-                        YouTubeListItemView(item: item, onTap: { playItem(item) })
+                        YouTubeListItemView(item: item, onTap: { handleItemTap(item) })
                             .frame(width: 280)
                     }
                 }
@@ -215,7 +226,7 @@ struct HomeScreenView: View {
                 LazyHGrid(rows: Array(repeating: GridItem(.fixed(60)), count: 4), spacing: 12) {
                     ForEach(section.items.indices, id: \.self) { i in
                         let item = section.items[i]
-                        YouTubeListItemView(item: item, onTap: { playItem(item) })
+                        YouTubeListItemView(item: item, onTap: { handleItemTap(item) })
                             .frame(width: 280)
                     }
                 }
@@ -232,7 +243,7 @@ struct HomeScreenView: View {
                 HStack(spacing: 12) {
                     ForEach(section.items.indices, id: \.self) { i in
                         let item = section.items[i]
-                        YouTubeGridItemView(item: item, onTap: { playItem(item) })
+                        YouTubeGridItemView(item: item, onTap: { handleItemTap(item) })
                     }
                 }
                 .padding(.horizontal, 16)
@@ -241,11 +252,43 @@ struct HomeScreenView: View {
         .padding(.top, 8)
     }
 
-    private func playItem(_ item: YTItem) {
-        guard let videoId = item.videoId else { return }
+    private func handleItemTap(_ item: YTItem) {
+        print("[HomeScreenView] Tapped item: \(item.title) type=\(typeName(item))")
+        switch item {
+        case .song(let s):
+            playVideo(videoId: s.videoId)
+        case .episode(let e):
+            playVideo(videoId: e.videoId)
+        case .album(let a):
+            print("[HomeScreenView] Navigating to album: \(a.browseId)")
+            navigationPath.append(DetailRoute.album(browseId: a.browseId))
+        case .artist(let a):
+            print("[HomeScreenView] Navigating to artist: \(a.browseId)")
+            navigationPath.append(DetailRoute.artist(browseId: a.browseId))
+        case .playlist(let p):
+            print("[HomeScreenView] Navigating to playlist: \(p.id)")
+            navigationPath.append(DetailRoute.playlist(playlistId: p.id))
+        case .podcast(let p):
+            print("[HomeScreenView] Podcast tap not handled yet: \(p.browseId)")
+        }
+    }
+
+    private func typeName(_ item: YTItem) -> String {
+        switch item {
+        case .song: return "song"
+        case .album: return "album"
+        case .artist: return "artist"
+        case .playlist: return "playlist"
+        case .podcast: return "podcast"
+        case .episode: return "episode"
+        }
+    }
+
+    private func playVideo(videoId: String) {
         Task {
             do {
                 try await PlaybackManager.shared.resolveAndPlay(videoId: videoId)
+                print("[HomeScreenView] Playing videoId=\(videoId)")
             } catch {
                 print("[HomeScreenView] Playback failed: \(error)")
             }

@@ -437,11 +437,38 @@ extension PlaylistItem {
 // MARK: - Extract Helpers
 
 private func extractVideoId(_ renderer: [String: Any]) -> String? {
+    // 1. Top-level videoId (rare, search result items)
     if let videoId = renderer["videoId"] as? String { return videoId }
-    guard let nav = renderer["navigationEndpoint"] as? [String: Any],
-          let watch = nav["watchEndpoint"] as? [String: Any],
-          let videoId = watch["videoId"] as? String else { return nil }
-    return videoId
+
+    // 2. playlistItemData.videoId — primary for playlist / album track rows
+    if let pid = renderer["playlistItemData"] as? [String: Any],
+       let videoId = pid["videoId"] as? String { return videoId }
+
+    // 3. flexColumns[0] run navigationEndpoint.watchEndpoint.videoId
+    if let flexColumns = renderer["flexColumns"] as? [[String: Any]],
+       let firstCol = flexColumns.first,
+       let colRenderer = firstCol["musicResponsiveListItemFlexColumnRenderer"] as? [String: Any],
+       let runs = (colRenderer["text"] as? [String: Any])?["runs"] as? [[String: Any]],
+       let firstRun = runs.first,
+       let nav = firstRun["navigationEndpoint"] as? [String: Any],
+       let watch = nav["watchEndpoint"] as? [String: Any],
+       let videoId = watch["videoId"] as? String { return videoId }
+
+    // 4. overlay musicPlayButtonRenderer.playNavigationEndpoint.watchEndpoint.videoId
+    if let overlay = renderer["overlay"] as? [String: Any],
+       let overlayRenderer = overlay["musicItemThumbnailOverlayRenderer"] as? [String: Any],
+       let content = overlayRenderer["content"] as? [String: Any],
+       let playButton = content["musicPlayButtonRenderer"] as? [String: Any],
+       let nav = playButton["playNavigationEndpoint"] as? [String: Any],
+       let watch = nav["watchEndpoint"] as? [String: Any],
+       let videoId = watch["videoId"] as? String { return videoId }
+
+    // 5. navigationEndpoint.watchEndpoint.videoId (legacy)
+    if let nav = renderer["navigationEndpoint"] as? [String: Any],
+       let watch = nav["watchEndpoint"] as? [String: Any],
+       let videoId = watch["videoId"] as? String { return videoId }
+
+    return nil
 }
 
 private func extractTwoRowBrowseId(_ renderer: [String: Any]) -> String? {
