@@ -154,7 +154,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "if which swiftlint > /dev/null; then swiftlint; fi\n";
+			shellScript = "if [ \"${SKIP_SWIFTLINT}\" != \"YES\" ] && which swiftlint > /dev/null; then swiftlint; fi\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
