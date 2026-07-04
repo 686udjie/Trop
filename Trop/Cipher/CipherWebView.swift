@@ -40,21 +40,39 @@ actor CipherWebView: NSObject {
 
         let sigConfig: String?
         let nClass: String?
+        let nJsExpression: String?
+        let isExpression: Bool
         if let config = await PlayerConfigStore.shared.config(for: hash) {
             sigConfig = config.sigFunction.body
             nClass = config.nFunction.varName
-            print("[CipherWebView] Config found: sig=\(sigConfig ?? "?"), nClass=\(nClass ?? "?")")
+            nJsExpression = config.nJsExpression
+            isExpression = true
+            print("[CipherWebView] Config found: sig=\(sigConfig ?? "?"), nClass=\(nClass ?? "?"), hasNtransform=\(nJsExpression != nil)")
         } else {
-            sigConfig = nil
+            print("[CipherWebView] No config for hash \(hash), trying heuristic extraction")
+            let extracted = try? await FunctionNameExtractor.shared.extract(from: playerJs, playerHash: hash)
+            if let js = extracted?.sigJs {
+                // Strip the outer parens to get the raw function declaration
+                let raw = js.hasPrefix("(") && js.hasSuffix(")") ? String(js.dropFirst().dropLast()) : js
+                sigConfig = raw
+                isExpression = false
+                print("[CipherWebView] Heuristic extraction succeeded")
+            } else {
+                sigConfig = nil
+                isExpression = false
+                print("[CipherWebView] Heuristic extraction failed, using fallback")
+            }
             nClass = nil
-            print("[CipherWebView] No config for hash \(hash)")
+            nJsExpression = nil
         }
 
         // Patch player.js to expose cipher functions on window
         let patchedJs = CipherHTMLBuilder.patchPlayerJs(
             playerJs: playerJs,
             sigConfig: sigConfig,
+            sigIsExpression: isExpression,
             nClass: nClass,
+            nJsExpression: nJsExpression,
             playerHash: hash
         )
 
@@ -139,6 +157,25 @@ actor CipherWebView: NSObject {
             url = normalized
         }
 
+        // n-transform: transform the n-parameter value via the URL builder class
+        // to avoid CDN throttling/403. Required for WEB_REMIX, WEB, etc.
+        if let nValue = extractNParam(from: url) {
+            print("[CipherWebView] n-param found, transforming: \(nValue)")
+            if let transformed = try? await evaluateJS(
+                "transformN(\(escapeJs(nValue)))"
+            ), !transformed.isEmpty, transformed != nValue {
+                // Replace the n= param with the transformed value
+                let pattern = "(?<=[?&])n=\(NSRegularExpression.escapedPattern(for: nValue))(?=&|$)"
+                if let regex = try? NSRegularExpression(pattern: pattern, options: []) {
+                    let range = NSRange(url.startIndex..., in: url)
+                    url = regex.stringByReplacingMatches(in: url, range: range, withTemplate: "n=\(transformed)")
+                }
+                print("[CipherWebView] n-transform: \(nValue) -> \(transformed)")
+            } else {
+                print("[CipherWebView] n-transform returned same value or failed, keeping original")
+            }
+        }
+
         return url
     }
 
@@ -189,6 +226,18 @@ actor CipherWebView: NSObject {
             }
         }
         return result
+    }
+
+    /// Extracts the value of the `n` parameter from a URL, or nil if not present.
+    private func extractNParam(from url: String) -> String? {
+        guard let regex = try? NSRegularExpression(pattern: "[?&]n=([^&]+)", options: []) else { return nil }
+        let range = NSRange(url.startIndex..., in: url)
+        if let match = regex.firstMatch(in: url, range: range) {
+            let valueRange = match.range(at: 1)
+            guard valueRange.location != NSNotFound else { return nil }
+            return (url as NSString).substring(with: valueRange)
+        }
+        return nil
     }
 
     fileprivate func handleReady() {

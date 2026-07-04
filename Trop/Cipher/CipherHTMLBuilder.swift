@@ -14,35 +14,58 @@ enum CipherHTMLBuilder {
     static func patchPlayerJs(
         playerJs: String,
         sigConfig: String?,
+        sigIsExpression: Bool = true,
         nClass: String?,
+        nJsExpression: String?,
         playerHash: String?
     ) -> String {
         var exports: [String] = []
 
         if let config = sigConfig {
-            let sigExpr = config
-                .replacingOccurrences(of: "INPUT", with: "sig")
-            exports.append(
-                "window._cipherSigFunc=function(sig){try{return \(sigExpr)}catch(e){return null}}"
-            )
+            if sigIsExpression {
+                let sigExpr = config.replacingOccurrences(of: "INPUT", with: "sig")
+                exports.append(
+                    "window._cipherSigFunc=function(sig){try{return \(sigExpr)}catch(e){return null}}"
+                )
+            } else {
+                // config is a raw function declaration — export directly
+                exports.append(
+                    "window._cipherSigFunc=\(config)"
+                )
+            }
         }
 
         // URL builder that mimics YouTube's `s2` function:
-        //   new g.lq(url,true) → set("alr","yes") → fJ(24,1210,sig) → set(sp, sig) → toString()
+        //   new g.<nClass>(url,true) → set("alr","yes") → <sigExpr> → set(sp, sig) → toString()
+        let nClassName = nClass ?? "lq"
+        let urlBuilderSig: String
+        if let config = sigConfig, sigIsExpression {
+            // Use sig expression from config (e.g. ci(21,5350,d)) instead of hardcoded fJ(24,1210,d)
+            urlBuilderSig = config.replacingOccurrences(of: "INPUT", with: "d")
+        } else {
+            urlBuilderSig = "fJ(24,1210,d)"
+        }
         let urlBuilder = "window._buildSignedUrl=function(url,sp,sig){try{" +
-            "var u=new g.lq(url,true);u.set(\"alr\",\"yes\");" +
+            "var u=new g.\(nClassName)(url,true);u.set(\"alr\",\"yes\");" +
             "if(sig){var d;try{d=decodeURIComponent(sig)}catch(e){d=sig};" +
-            "u.set(sp,fJ(24,1210,d))}return u.yq()}catch(e){return null}}"
+            "u.set(sp,\(urlBuilderSig))}return u.yq()}catch(e){return null}}"
         exports.append(urlBuilder)
 
+        // n-transform: uses the URL builder class to transform the n-parameter value.
+        // Creates a dummy URL with ?n=<value>, reads it back via .get('n'),
+        // which triggers the class's internal n-transform.
+        if let nExpr = nJsExpression {
+            let expr = nExpr.replacingOccurrences(of: "INPUT", with: "n")
+            exports.append("window._nTransformFunc=function(n){try{return \(expr)}catch(e){return n}}")
+        }
+
         // n-normalization (YouTube's gN$ syncs /n/ path with ?n= param)
-        // The actual n-value is NOT transformed in this player version.
         exports.append("""
         window._normalizeUrl=function(url){try{if(typeof gN$==='function')return gN$(url)}catch(e){}return url}
         """)
 
-        // Expose _yt_player and fJ on window for discovery
-        exports.append("window._exportedCipher={sigFuncName:'fJ',nFuncClass:'\(nClass ?? "?")'}")
+        // Expose metadata for discovery
+        exports.append("window._exportedCipher={sigFuncName:'\(sigConfig ?? "?")',nFuncClass:'\(nClass ?? "?")'}")
 
         let marker = "})(_yt_player);"
         let exportCode = exports.isEmpty ? "" : "; " + exports.joined(separator: "; ")
@@ -83,15 +106,24 @@ enum CipherHTMLBuilder {
         }
 
         // ============================================================
-        // N-PARAMETER TRANSFORM (no-op for this player version)
+        // N-PARAMETER TRANSFORM
         // ============================================================
         function transformN(nValue) {
-            return nValue;
+            var func = window._nTransformFunc;
+            if (typeof func !== 'function') return nValue;
+            try {
+                var result = func(nValue);
+                if (result === undefined || result === null || result === '') return nValue;
+                var resultStr = String(result);
+                return (resultStr.length > 0) ? resultStr : nValue;
+            } catch(e) {
+                return nValue;
+            }
         }
 
         // ============================================================
-        // FULL URL BUILDER — uses player's own g.lq to construct URL
-        // identical to YouTube's s2 function.
+        // FULL URL BUILDER — uses player's own URL builder class to
+        // construct URL identical to YouTube's s2 function.
         // Pass baseUrl (decoded), sp param name, and URL-encoded sig.
         // Returns the fully constructed URL string.
         // ============================================================
@@ -115,11 +147,12 @@ enum CipherHTMLBuilder {
         // ============================================================
         // READY SIGNAL
         // ============================================================
+        var hasTransformN = typeof window._nTransformFunc === 'function';
         var info = {
             type: 'discovery',
-            sigFuncName: typeof _cipherSigFunc === 'function' ? 'exported_fJ' : 'NOT_FOUND',
-            nFuncName: typeof gN$ === 'function' ? 'gN$' : 'noop',
-            info: 'player_loaded lq=' + (typeof _yt_player !== 'undefined' && typeof _yt_player.lq === 'function')
+            sigFuncName: typeof _cipherSigFunc === 'function' ? 'exported_sig' : 'NOT_FOUND',
+            nFuncName: hasTransformN ? 'exported_n' : (typeof gN$ === 'function' ? 'gN$' : 'noop'),
+            info: 'n_transform=' + hasTransformN
         };
         window.webkit.messageHandlers.cipher.postMessage(
             JSON.stringify(info)
@@ -137,13 +170,17 @@ enum CipherHTMLBuilder {
     static func buildHTML(
         playerJs: String,
         sigConfig: String?,
+        sigIsExpression: Bool = true,
         nClass: String?,
+        nJsExpression: String?,
         playerHash: String?
     ) -> String {
         let modifiedJs = patchPlayerJs(
             playerJs: playerJs,
             sigConfig: sigConfig,
+            sigIsExpression: sigIsExpression,
             nClass: nClass,
+            nJsExpression: nJsExpression,
             playerHash: playerHash
         )
         return buildDiscoveryHtml(playerJs: modifiedJs)

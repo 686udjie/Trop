@@ -17,15 +17,14 @@ struct FallbackClient {
 // Each entry gets its own /player call; the first that returns a valid URL wins.
 enum ClientFallbackChain {
 
-    /// Fallback chain with WEB_REMIX as LAST RESORT (requires cipher + PoToken).
-    /// Clients returning direct URLs (no cipher) are tried first.
+    /// Fallback chain — direct-URL clients first, cipher clients last.
     static let preferred: [FallbackClient] = [
-        FallbackClient(client: .visionOS, skipValidation: false),     // direct URLs
-        FallbackClient(client: .androidVr1_61_48, skipValidation: false), // direct URLs
-        FallbackClient(client: .androidVr1_43_32, skipValidation: false), // direct URLs
-        FallbackClient(client: .iOS, skipValidation: false),          // direct URLs
-        FallbackClient(client: .mobile, skipValidation: false),       // signatureTimestamp only
-        FallbackClient(client: .web, skipValidation: true),           // cipher + PoToken
-        FallbackClient(client: .webRemix, skipValidation: true),      // cipher + PoToken (last resort)
+        FallbackClient(client: .visionOS, skipValidation: false),
+        FallbackClient(client: .androidVr1_61_48, skipValidation: false),
+        FallbackClient(client: .androidVr1_43_32, skipValidation: false),
+        FallbackClient(client: .iOS, skipValidation: false),
+        FallbackClient(client: .mobile, skipValidation: false),
+        FallbackClient(client: .web, skipValidation: true),
+        FallbackClient(client: .webRemix, skipValidation: true),
     ]
 }

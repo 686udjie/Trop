@@ -20,6 +20,14 @@ struct PlayerConfig: Codable, Sendable {
     var nFunction: ExtractedFunction {
         ExtractedFunction(body: nil, varName: nClass)
     }
+
+    /// Builds an n-transform IIFE from nClass.
+    /// Creates a URL builder instance, injects the n-value, and reads it back via .get('n')
+    /// — the builder's class transforms the n-value internally.
+    var nJsExpression: String? {
+        guard let nClass = nClass else { return nil }
+        return "(function(n){try{var u=new g.\(nClass)('https://x.googlevideo.com/videoplayback?n='+n,true);var t=u.get('n');return(t&&t!==n)?t:n;}catch(e){return n;}})(INPUT)"
+    }
 }
 
 struct ExtractedFunction: Codable, Sendable {
