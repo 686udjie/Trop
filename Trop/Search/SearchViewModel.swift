@@ -22,11 +22,31 @@ final class SearchViewModel {
 
     var searchSections: [SearchSection] = []
 
+    var searchHistory: [SearchHistoryEntity] = []
+
     var isLoading = false
     var error: Error?
 
     private var suggestionsTask: Task<Void, Never>?
     private var localSearchTask: Task<Void, Never>?
+
+    private static let historyKey = "Search.history"
+    private static let maxHistoryEntries = 20
+
+    init() {
+        searchHistory = (UserDefaults.standard.stringArray(forKey: Self.historyKey) ?? []).map {
+            SearchHistoryEntity(query: $0, timestamp: Date())
+        }
+    }
+
+    private func saveHistory() {
+        UserDefaults.standard.set(searchHistory.map(\.query), forKey: Self.historyKey)
+    }
+
+    func loadSearchHistory() {
+        let queries = UserDefaults.standard.stringArray(forKey: Self.historyKey) ?? []
+        searchHistory = queries.map { SearchHistoryEntity(query: $0, timestamp: Date()) }
+    }
 
     func onSearchTextChange() {
         suggestionsTask?.cancel()
@@ -86,6 +106,8 @@ final class SearchViewModel {
         isLoading = true
         error = nil
 
+        updateHistory(query: query)
+
         Task { [weak self] in
             guard let self = self else { return }
             do {
@@ -110,6 +132,28 @@ final class SearchViewModel {
         searchText = ""
         searchSections = []
         clearSuggestions()
+    }
+
+    func clearSearchHistory() {
+        searchHistory = []
+        saveHistory()
+    }
+
+    private func updateHistory(query: String) {
+        guard !query.isEmpty else { return }
+
+        var newHistory = searchHistory.map(\.query)
+        if let index = newHistory.firstIndex(of: query) {
+            newHistory.remove(at: index)
+        }
+        newHistory.append(query)
+
+        if newHistory.count > Self.maxHistoryEntries {
+            newHistory.removeFirst()
+        }
+
+        UserDefaults.standard.set(newHistory, forKey: Self.historyKey)
+        searchHistory = newHistory.map { SearchHistoryEntity(query: $0, timestamp: Date()) }
     }
 
     // MARK: - Private

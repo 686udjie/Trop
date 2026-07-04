@@ -10,7 +10,7 @@
 		14B578D92FF1AB43006B3990 /* MPVKit in Frameworks */ = {isa = PBXBuildFile; productRef = 14B578D82FF1AB43006B3990 /* MPVKit */; };
 		14B578DC2FF20002006B3990 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = 14B578DB2FF20001006B3990 /* GRDB */; };
 		14B578DF2FF20DCD006B3990 /* Nuke in Frameworks */ = {isa = PBXBuildFile; productRef = 14B578DE2FF20DCC006B3990 /* Nuke */; };
-		14B578E22FF20DD0006B3990 /* LNPopupUI in Frameworks */ = {isa = PBXBuildFile; productRef = 14B578E12FF20DCF006B3990 /* LNPopupUI */; };
+		14B578E22FF20DD0006B3990 /* LNPopupUI-Static in Frameworks */ = {isa = PBXBuildFile; productRef = 14B578E12FF20DCF006B3990 /* LNPopupUI-Static */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -33,7 +33,7 @@
 				14B578D92FF1AB43006B3990 /* MPVKit in Frameworks */,
 				14B578DC2FF20002006B3990 /* GRDB in Frameworks */,
 				14B578DF2FF20DCD006B3990 /* Nuke in Frameworks */,
-				14B578E22FF20DD0006B3990 /* LNPopupUI in Frameworks */,
+				14B578E22FF20DD0006B3990 /* LNPopupUI-Static in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -80,7 +80,7 @@
 				14B578D82FF1AB43006B3990 /* MPVKit */,
 				14B578DB2FF20001006B3990 /* GRDB */,
 				14B578DE2FF20DCC006B3990 /* Nuke */,
-				14B578E12FF20DCF006B3990 /* LNPopupUI */,
+				14B578E12FF20DCF006B3990 /* LNPopupUI-Static */,
 			);
 			productName = Trop;
 			productReference = 14B5762F2FF190EF006B3990 /* Trop.app */;
@@ -430,10 +430,10 @@
 			package = 14B578DD2FF20DCC006B3990 /* XCRemoteSwiftPackageReference "Nuke" */;
 			productName = Nuke;
 		};
-		14B578E12FF20DCF006B3990 /* LNPopupUI */ = {
+		14B578E12FF20DCF006B3990 /* LNPopupUI-Static */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 14B578E02FF20DCE006B3990 /* XCRemoteSwiftPackageReference "LNPopupUI" */;
-			productName = LNPopupUI;
+			productName = "LNPopupUI-Static";
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

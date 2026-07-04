@@ -19,6 +19,7 @@ extension View {
         enabled: Binding<Bool> = .constant(true),
         focused: Binding<Bool?> = .constant(nil),
         hideCancelButton: Bool = false,
+        hideClearButton: Bool = false,
         hidesNavigationBarDuringPresentation: Bool = true,
         hidesSearchBarWhenScrolling: Bool = true,
         stacked: Bool = true,
@@ -33,6 +34,7 @@ extension View {
                 enabled: enabled,
                 focused: focused,
                 hideCancelButton: hideCancelButton,
+                hideClearButton: hideClearButton,
                 hidesNavigationBarDuringPresentation: hidesNavigationBarDuringPresentation,
                 hidesSearchBarWhenScrolling: hidesSearchBarWhenScrolling,
                 stacked: stacked,
@@ -55,6 +57,7 @@ private struct CustomSearchBar: UIViewControllerRepresentable {
     @Binding var enabled: Bool
     @Binding var focused: Bool?
     let hideCancelButton: Bool
+    let hideClearButton: Bool
     let hidesNavigationBarDuringPresentation: Bool
     let hidesSearchBarWhenScrolling: Bool
     let stacked: Bool
@@ -109,6 +112,9 @@ private struct CustomSearchBar: UIViewControllerRepresentable {
         searchController.searchBar.delegate = context.coordinator
         searchController.searchResultsUpdater = context.coordinator
         searchController.searchBar.autocorrectionType = autocorrectionDisabled ? .no : .yes
+        if hideClearButton {
+            searchController.searchBar.searchTextField.clearButtonMode = .never
+        }
         searchController.navigationItem.hidesSearchBarWhenScrolling = hidesSearchBarWhenScrolling
         if let bookmarkIcon = bookmarkIcon {
             searchController.searchBar.showsBookmarkButton = true
@@ -130,6 +136,9 @@ private struct CustomSearchBar: UIViewControllerRepresentable {
         }
         if hideCancelButton {
             controller.searchController.searchBar.showsCancelButton = false
+        }
+        if hideClearButton {
+            controller.searchController.searchBar.searchTextField.clearButtonMode = .never
         }
         controller.searchController.hidesNavigationBarDuringPresentation = hidesNavigationBarDuringPresentation
         if let focused = focused {

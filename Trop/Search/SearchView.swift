@@ -10,7 +10,8 @@ import SwiftUI
 struct SearchView: View {
     @State private var viewModel = SearchViewModel()
     @State private var navigationPath = NavigationPath()
-    
+    var onExitSearch: (() -> Void)?
+
     var body: some View {
         NavigationStack(path: $navigationPath) {
             VStack(spacing: 0) {
@@ -20,22 +21,27 @@ struct SearchView: View {
                     Spacer()
                 } else if let error = viewModel.error {
                     errorView(error)
-                } else if viewModel.isFocused == true || (viewModel.searchSections.isEmpty && !viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
-                    suggestionsAndLocalView
                 } else if !viewModel.searchSections.isEmpty {
                     searchResultsView
+                } else if !viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    suggestionsAndLocalView
+                } else if !viewModel.searchHistory.isEmpty {
+                    searchHistoryView
                 } else {
-                    initialPromptView
+                    noRecentSearchesView
                 }
             }
             .navigationTitle("Search")
             .customSearchable(
                 text: $viewModel.searchText,
                 focused: $viewModel.isFocused,
+                hideCancelButton: false,
+                hideClearButton: true,
                 onSubmit: {
                     viewModel.performSearch()
                 },
                 onCancel: {
+                    onExitSearch?()
                     viewModel.clearSearch()
                 }
             )
@@ -52,13 +58,56 @@ struct SearchView: View {
                     PlaylistDetailView(playlistId: playlistId)
                 }
             }
+            .onAppear {
+                if navigationPath.isEmpty {
+                    viewModel.isFocused = true
+                }
+                viewModel.loadSearchHistory()
+            }
         }
     }
-    
+
+    private var searchHistoryView: some View {
+        List {
+            Section {
+                ForEach(viewModel.searchHistory, id: \.query) { entry in
+                    Button {
+                        viewModel.searchText = entry.query
+                        viewModel.performSearch()
+                    } label: {
+                        HStack {
+                            Image(systemName: "clock.arrow.trianglehead.counterclockwise.rotate.90")
+                                .foregroundColor(.blue)
+                            Text(entry.query)
+                                .foregroundColor(.primary)
+                            Spacer()
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            } header: {
+                HStack {
+                    Text("Recently searched")
+                        .textCase(nil)
+                        .font(.headline)
+                        .foregroundColor(.primary)
+                    Spacer()
+                    Button("Clear") {
+                        viewModel.clearSearchHistory()
+                    }
+                    .font(.subheadline)
+                    .foregroundColor(.blue)
+                }
+            }
+        }
+        .listStyle(.plain)
+    }
+
     private var suggestionsAndLocalView: some View {
         List {
-            // Local results section
-            if !viewModel.localSongs.isEmpty || !viewModel.localArtists.isEmpty || !viewModel.localAlbums.isEmpty || !viewModel.localPlaylists.isEmpty {
+            if !viewModel.localSongs.isEmpty || !viewModel.localArtists.isEmpty
+                || !viewModel.localAlbums.isEmpty || !viewModel.localPlaylists.isEmpty {
                 Section(header: Text("In Library").textCase(.uppercase)) {
                     ForEach(viewModel.localSongs, id: \.id) { song in
                         let item = YTItem.song(SongItem(
@@ -76,7 +125,7 @@ struct SearchView: View {
                         .listRowInsets(EdgeInsets())
                         .padding(.vertical, 4)
                     }
-                    
+
                     ForEach(viewModel.localArtists, id: \.id) { artist in
                         let item = YTItem.artist(ArtistItem(
                             browseId: artist.id,
@@ -90,7 +139,7 @@ struct SearchView: View {
                         .listRowInsets(EdgeInsets())
                         .padding(.vertical, 4)
                     }
-                    
+
                     ForEach(viewModel.localAlbums, id: \.id) { album in
                         let item = YTItem.album(AlbumItem(
                             browseId: album.id,
@@ -107,7 +156,7 @@ struct SearchView: View {
                         .listRowInsets(EdgeInsets())
                         .padding(.vertical, 4)
                     }
-                    
+
                     ForEach(viewModel.localPlaylists, id: \.id) { playlist in
                         let item = YTItem.playlist(PlaylistItem(
                             id: playlist.browseId ?? playlist.id,
@@ -124,15 +173,14 @@ struct SearchView: View {
                     }
                 }
             }
-            
-            // Autocomplete suggestions section
+
             if !viewModel.suggestions.isEmpty {
                 Section(header: Text("Suggestions").textCase(.uppercase)) {
                     ForEach(viewModel.suggestions, id: \.self) { suggestion in
-                        Button(action: {
+                        Button {
                             viewModel.searchText = suggestion
                             viewModel.performSearch()
-                        }) {
+                        } label: {
                             HStack {
                                 Image(systemName: "magnifyingglass")
                                     .foregroundColor(.secondary)
@@ -152,7 +200,7 @@ struct SearchView: View {
         }
         .listStyle(.plain)
     }
-    
+
     private var searchResultsView: some View {
         List {
             ForEach(viewModel.searchSections) { section in
@@ -169,15 +217,15 @@ struct SearchView: View {
         }
         .listStyle(.plain)
     }
-    
-    private var initialPromptView: some View {
+
+    private var noRecentSearchesView: some View {
         ContentUnavailableView(
-            "Search YouTube Music",
+            "No Recent Searches",
             systemImage: "magnifyingglass",
-            description: Text("Find songs, albums, artists, and playlists")
+            description: Text("Your recent searches will appear here.")
         )
     }
-    
+
     private func errorView(_ error: Error) -> some View {
         ContentUnavailableView(
             "Search failed",
@@ -185,7 +233,7 @@ struct SearchView: View {
             description: Text(error.localizedDescription)
         )
     }
-    
+
     private func handleItemTap(_ item: YTItem) {
         switch item {
         case .song(let s):    playVideo(videoId: s.videoId)
@@ -196,7 +244,7 @@ struct SearchView: View {
         case .podcast: break
         }
     }
-    
+
     private func playVideo(videoId: String) {
         Task {
             try? await PlaybackManager.shared.resolveAndPlay(videoId: videoId)
