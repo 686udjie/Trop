@@ -67,10 +67,9 @@ enum LibraryBrowseParser {
                            let items = itemsFrom(firstSection) {
                             return items
                         }
-                        _ = 0
-                    } else { _ = 0 }
-                } else { _ = 0 }
-            } else { _ = 0 }
+                    }
+                }
+            }
         }
 
         // Try flat contents structure (FEmusic_library_privately_owned_*)

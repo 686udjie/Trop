@@ -197,8 +197,8 @@ actor CipherWebView: NSObject {
                         }
                         if let result = result as? String {
                             cont.resume(returning: result)
-                        } else if let result = result {
-                            cont.resume(returning: String(describing: result))
+                        } else if result is NSNull {
+                            cont.resume(returning: nil)
                         } else {
                             cont.resume(returning: nil)
                         }
