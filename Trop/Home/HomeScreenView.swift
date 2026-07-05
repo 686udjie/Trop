@@ -83,6 +83,10 @@ struct HomeScreenView: View {
             .task {
                 await viewModel.restoreSession()
                 viewModel.loadHomeData()
+                // Trigger library sync in background
+                Task {
+                    await IncrementalSyncService.shared.checkAndSyncIfStale()
+                }
             }
         }
     }
@@ -122,6 +126,7 @@ struct HomeScreenView: View {
         .refreshable {
             viewModel.refresh()
             await refreshTask()
+            await IncrementalSyncService.shared.checkAndSyncIfStale()
         }
     }
 

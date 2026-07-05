@@ -19,8 +19,7 @@ struct ContentView: View {
             }
 
             Tab("Library", systemImage: "music.note.square.stack", value: 1) {
-                Color(.systemBackground)
-                    .ignoresSafeArea()
+                LibraryView()
             }
 
             Tab("Search", systemImage: "magnifyingglass", value: 2, role: .search) {

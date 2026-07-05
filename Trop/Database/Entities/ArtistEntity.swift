@@ -14,6 +14,7 @@ struct ArtistEntity: Codable, Hashable, FetchableRecord, PersistableRecord {
     var thumbnailUrl: String?
     var bookmarkedAt: Date?
     var isPodcastChannel: Bool
+    var channelId: String?
 
     static let databaseTableName = "artist"
 
@@ -23,5 +24,6 @@ struct ArtistEntity: Codable, Hashable, FetchableRecord, PersistableRecord {
         case thumbnailUrl = "thumbnail_url"
         case bookmarkedAt = "bookmarked_at"
         case isPodcastChannel = "is_podcast_channel"
+        case channelId = "channel_id"
     }
 }

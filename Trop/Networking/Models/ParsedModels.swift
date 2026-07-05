@@ -36,6 +36,7 @@ struct ParsedArtist {
     var name: String
     var thumbnailUrl: String?
     var isSubscribed: Bool
+    var channelId: String?
 }
 
 struct ParsedPlaylist {
@@ -43,4 +44,22 @@ struct ParsedPlaylist {
     var title: String
     var songCount: Int?
     var thumbnailUrl: String?
+}
+
+struct ParsedPodcast {
+    var browseId: String
+    var name: String
+    var thumbnailUrl: String?
+    var isSubscribed: Bool
+}
+
+struct ParsedEpisode {
+    var videoId: String
+    var title: String
+    var duration: Int
+    var thumbnailUrl: String?
+    var podcastId: String?
+    var podcastName: String?
+    var isPlayed: Bool
+    var savedAt: Date?
 }

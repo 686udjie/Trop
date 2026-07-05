@@ -14,7 +14,7 @@ actor IncrementalSyncService {
     private let defaults = UserDefaults.standard
 
     private let lastSyncKey = "lastSyncTimestamp"
-    private let syncThreshold: TimeInterval = 15 * 60 // 15 minutes
+    private let syncThreshold: TimeInterval = 30 * 60 // 30 minutes
 
     private init() {}
 
@@ -22,26 +22,20 @@ actor IncrementalSyncService {
         defaults.object(forKey: lastSyncKey) as? Date
     }
 
-    func checkAndSyncIfStale() async throws -> Bool {
+    func checkAndSyncIfStale() async {
         let lastSync = lastSyncDate ?? .distantPast
         guard Date().timeIntervalSince(lastSync) >= syncThreshold else {
-            print("[Sync] Last sync was recent, skipping")
-            return false
-        }
-        try await forceFullSync()
-        return true
-    }
-
-    func forceFullSync() async throws {
-        // Verify login first
-        guard (try? await innerTube.accountMenu()) != nil else {
-            print("[Sync] Not logged in, skipping sync")
             return
         }
+        await forceFullSync()
+    }
 
-        let result = try await librarySync.syncAll()
+    func forceFullSync() async {
+        // Verify login first
+        guard (try? await innerTube.accountMenu()) != nil else { return }
+
+        _ = await librarySync.syncAll()
         defaults.set(Date(), forKey: lastSyncKey)
-        print("[Sync] Full sync complete: \(result.songIds.count) songs, \(result.albumIds.count) albums, \(result.artistIds.count) artists, \(result.playlistIds.count) playlists")
     }
 
     // Token-based incremental sync: send feedback tokens to push local state changes

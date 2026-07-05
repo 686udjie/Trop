@@ -63,47 +63,56 @@ extension PlaylistDetailViewModel {
         var songs: [SongItem] = []
 
         let contents = json["contents"] as? [String: Any]
-
-        // Resolve which column layout the API returned.
-        // Modern YouTube Music uses twoColumnBrowseResultsRenderer for playlists;
-        // legacy / mobile may still use singleColumnBrowseResultsRenderer.
         let singleColumn = contents?["singleColumnBrowseResultsRenderer"] as? [String: Any]
-        let twoColumn   = contents?["twoColumnBrowseResultsRenderer"]   as? [String: Any]
+        let twoColumn = contents?["twoColumnBrowseResultsRenderer"] as? [String: Any]
 
-        // --- Header / Metadata ---
-        // In the two-column layout the header row lives inside the first tab's
-        // sectionListRenderer (as musicResponsiveHeaderRenderer or the editable
-        // variant); fall back to the top-level "header" key used by the single-
-        // column layout and older API responses.
         let tabsArray: [[String: Any]]? = {
             if let tabs = twoColumn?["tabs"] as? [[String: Any]] { return tabs }
             if let tabs = singleColumn?["tabs"] as? [[String: Any]] { return tabs }
             return nil
         }()
-        let firstTabSection: [String: Any]? = tabsArray?
+        let firstTabSectionInner = tabsArray?
             .first
             .flatMap { $0["tabRenderer"] as? [String: Any] }
             .flatMap { $0["content"] as? [String: Any] }
             .flatMap { $0["sectionListRenderer"] as? [String: Any] }
             .flatMap { ($0["contents"] as? [[String: Any]])?.first }
+        let firstTabSection = firstTabSectionInner
+            .flatMap { $0["itemSectionRenderer"] as? [String: Any] }
+            .flatMap { ($0["contents"] as? [[String: Any]])?.first }
+            ?? firstTabSectionInner
 
-        // musicResponsiveHeaderRenderer (modern two-column playlists)
-        if let responsiveHeader = firstTabSection?["musicResponsiveHeaderRenderer"] as? [String: Any] {
-            title = DetailParser.extractRunsText(responsiveHeader["title"] as? [String: Any]) ?? title
+        let headerRenderer: [String: Any]? =
+            firstTabSection?["musicResponsiveHeaderRenderer"] as? [String: Any]
+            ?? (firstTabSection?["musicEditablePlaylistDetailHeaderRenderer"] as? NSDictionary)
+                .flatMap { ($0 as? [String: Any]) }
+                .flatMap { ($0["header"] as? NSDictionary) as? [String: Any] }
+                .flatMap { $0["musicDetailHeaderRenderer"] as? [String: Any]
+                        ?? $0["musicResponsiveHeaderRenderer"] as? [String: Any] }
+            ?? (json["header"] as? [String: Any]).flatMap {
+                $0["musicDetailHeaderRenderer"] as? [String: Any]
+                ?? $0["musicResponsiveHeaderRenderer"] as? [String: Any]
+            }
 
-            // Author from straplineTextOne runs
-            if let strapline = responsiveHeader["straplineTextOne"] as? [String: Any],
-               let runs = strapline["runs"] as? [[String: Any]],
-               let firstRun = runs.first,
-               let text = firstRun["text"] as? String {
-                authorName = text
-                if let browse = (firstRun["navigationEndpoint"] as? [String: Any])?["browseEndpoint"] as? [String: Any] {
-                    authorBrowseId = browse["browseId"] as? String
+        if let detailHeader = headerRenderer {
+            title = DetailParser.extractRunsText(detailHeader["title"] as? [String: Any]) ?? title
+            thumbnailUrl = DetailParser.extractMusicThumbnail(detailHeader)
+            descriptionText = detailHeader["description"]
+                .flatMap { $0 as? [String: Any] }
+                .flatMap { DetailParser.extractRunsText($0) }
+
+            if let strapline = detailHeader["straplineTextOne"] as? [String: Any],
+               let runs = strapline["runs"] as? [[String: Any]] {
+                if let firstRun = runs.first,
+                   let text = firstRun["text"] as? String {
+                    authorName = text
+                    authorBrowseId = (firstRun["navigationEndpoint"] as? [String: Any])
+                        .flatMap { $0["browseEndpoint"] as? [String: Any] }
+                        .flatMap { $0["browseId"] as? String }
                 }
             }
-            // Author fallback from subtitle runs
             if authorName == nil,
-               let subtitle = responsiveHeader["subtitle"] as? [String: Any],
+               let subtitle = detailHeader["subtitle"] as? [String: Any],
                let runs = subtitle["runs"] as? [[String: Any]] {
                 for run in runs {
                     guard let text = run["text"] as? String else { continue }
@@ -111,17 +120,14 @@ extension PlaylistDetailViewModel {
                     if trimmed.isEmpty || trimmed == "•" { continue }
                     if let browse = (run["navigationEndpoint"] as? [String: Any])?["browseEndpoint"] as? [String: Any],
                        let bid = browse["browseId"] as? String {
-                        authorName = trimmed
-                        authorBrowseId = bid
-                        break
+                        authorName = trimmed; authorBrowseId = bid; break
                     } else if authorName == nil {
                         authorName = trimmed
                     }
                 }
             }
 
-            // Song count / duration from secondSubtitle
-            if let secondSubtitle = responsiveHeader["secondSubtitle"] as? [String: Any],
+            if let secondSubtitle = detailHeader["secondSubtitle"] as? [String: Any],
                let runs = secondSubtitle["runs"] as? [[String: Any]] {
                 for run in runs {
                     guard let text = run["text"] as? String else { continue }
@@ -129,71 +135,12 @@ extension PlaylistDetailViewModel {
                     if trimmed.contains("song") || trimmed.contains("Song") ||
                        trimmed.contains("track") || trimmed.contains("Track") ||
                        trimmed.contains("video") || trimmed.contains("Video") {
-                        let nums = trimmed.components(separatedBy: CharacterSet.decimalDigits.inverted).compactMap(Int.init)
-                        if let count = nums.first { songCount = count }
+                        if let count = trimmed.components(separatedBy: CharacterSet.decimalDigits.inverted).compactMap(Int.init).first {
+                            songCount = count
+                        }
                     } else if trimmed.contains(":") {
                         duration = DetailParser.parseDuration(trimmed)
                     }
-                }
-            }
-
-            thumbnailUrl = DetailParser.extractMusicThumbnail(responsiveHeader)
-
-            // Description
-            if let descShelf = responsiveHeader["description"] as? [String: Any],
-               let descRenderer = descShelf["musicDescriptionShelfRenderer"] as? [String: Any],
-               let descRuns = (descRenderer["description"] as? [String: Any])?["runs"] as? [[String: Any]] {
-                descriptionText = descRuns.compactMap { $0["text"] as? String }.joined()
-            }
-        }
-
-        // --- Header fallback: musicDetailHeaderRenderer (legacy / single-column) ---
-        if title == "Unknown Playlist" {
-            let legacyHeader: [String: Any]? =
-                (json["header"] as? [String: Any])?["musicDetailHeaderRenderer"] as? [String: Any]
-                ?? firstTabSection?["musicEditablePlaylistDetailHeaderRenderer"].flatMap {
-                    ($0 as? [String: Any])?["header"] as? [String: Any]
-                }.flatMap { $0["musicDetailHeaderRenderer"] as? [String: Any] }
-
-            if let detailHeader = legacyHeader {
-                title = DetailParser.extractRunsText(detailHeader["title"] as? [String: Any]) ?? title
-
-                if let subtitle = detailHeader["subtitle"] as? [String: Any],
-                   let runs = subtitle["runs"] as? [[String: Any]] {
-                    for run in runs {
-                        guard let text = run["text"] as? String else { continue }
-                        let trimmed = text.trimmingCharacters(in: .whitespaces)
-                        if trimmed.isEmpty || trimmed == "•" { continue }
-                        let nav = run["navigationEndpoint"] as? [String: Any]
-                        if let browse = nav?["browseEndpoint"] as? [String: Any],
-                           let bid = browse["browseId"] as? String {
-                            authorName = trimmed; authorBrowseId = bid
-                        } else if authorName == nil {
-                            authorName = trimmed
-                        }
-                    }
-                }
-
-                if let secondSubtitle = detailHeader["secondSubtitle"] as? [String: Any],
-                   let runs = secondSubtitle["runs"] as? [[String: Any]] {
-                    for run in runs {
-                        guard let text = run["text"] as? String else { continue }
-                        let trimmed = text.trimmingCharacters(in: .whitespaces)
-                        if trimmed.contains("song") || trimmed.contains("Song") ||
-                           trimmed.contains("track") || trimmed.contains("Track") ||
-                           trimmed.contains("video") || trimmed.contains("Video") {
-                            let nums = trimmed.components(separatedBy: CharacterSet.decimalDigits.inverted).compactMap(Int.init)
-                            if let count = nums.first { songCount = count }
-                        } else if trimmed.contains(":") {
-                            duration = DetailParser.parseDuration(trimmed)
-                        }
-                    }
-                }
-
-                if thumbnailUrl == nil { thumbnailUrl = DetailParser.extractMusicThumbnail(detailHeader) }
-                if descriptionText == nil,
-                   let desc = detailHeader["description"] as? [String: Any] {
-                    descriptionText = DetailParser.extractRunsText(desc)
                 }
             }
         }
@@ -228,7 +175,11 @@ extension PlaylistDetailViewModel {
                let sectionList = secondary["sectionListRenderer"] as? [String: Any],
                let secondarySection = sectionList["contents"] as? [[String: Any]] {
                 for section in secondarySection {
-                    songs += parseSongsFromShelf(section)
+                    // Unwrap itemSectionRenderer wrapper
+                    let unwrapped = (section["itemSectionRenderer"] as? [String: Any])
+                        .flatMap { ($0["contents"] as? [[String: Any]])?.first }
+                        ?? section
+                    songs += parseSongsFromShelf(unwrapped)
                 }
             }
         } else if let singleCol = singleColumn {
@@ -239,7 +190,10 @@ extension PlaylistDetailViewModel {
                 .flatMap({ $0["sectionListRenderer"] as? [String: Any] })
                 .flatMap({ $0["contents"] as? [[String: Any]] }) {
                 for section in sections {
-                    songs += parseSongsFromShelf(section)
+                    let unwrapped = (section["itemSectionRenderer"] as? [String: Any])
+                        .flatMap { ($0["contents"] as? [[String: Any]])?.first }
+                        ?? section
+                    songs += parseSongsFromShelf(unwrapped)
                 }
             }
         }

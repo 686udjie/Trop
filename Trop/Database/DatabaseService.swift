@@ -24,6 +24,8 @@ actor DatabaseService {
         var migrator = DatabaseMigrator()
         migrator.registerMigration("v1", migrate: DatabaseMigrations.v1)
         migrator.registerMigration("v2", migrate: DatabaseMigrations.v2)
+        migrator.registerMigration("v3", migrate: DatabaseMigrations.v3)
+        migrator.registerMigration("v4", migrate: DatabaseMigrations.v4)
         // swiftlint:disable:next force_try
         try! migrator.migrate(dbPool)
     }

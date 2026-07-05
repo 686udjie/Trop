@@ -8,8 +8,6 @@
 import Foundation
 
 struct LibrarySyncResult {
-    var songIds: Set<String> = []
-    var albumIds: Set<String> = []
     var artistIds: Set<String> = []
     var playlistIds: Set<String> = []
 }

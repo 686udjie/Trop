@@ -16,6 +16,7 @@ struct AlbumEntity: Codable, Hashable, FetchableRecord, PersistableRecord {
     var songCount: Int
     var duration: Int
     var bookmarkedAt: Date?
+    var isUploaded: Bool = false
 
     static let databaseTableName = "album"
 
@@ -27,5 +28,6 @@ struct AlbumEntity: Codable, Hashable, FetchableRecord, PersistableRecord {
         case songCount = "song_count"
         case duration
         case bookmarkedAt = "bookmarked_at"
+        case isUploaded = "is_uploaded"
     }
 }

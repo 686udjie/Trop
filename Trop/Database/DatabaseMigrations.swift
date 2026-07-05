@@ -99,4 +99,54 @@ enum DatabaseMigrations {
             t.add(column: "album_name", .text)
         }
     }
+
+    static let v3: (Database) throws -> Void = { db in
+        print("[DB] Running v3 migration")
+        try db.alter(table: "artist") { t in
+            t.add(column: "channel_id", .text)
+        }
+
+        try db.alter(table: "album") { t in
+            t.add(column: "is_uploaded", .integer).notNull().defaults(to: false)
+        }
+
+        try db.alter(table: "playlist") { t in
+            t.add(column: "is_auto_sync", .integer).notNull().defaults(to: false)
+        }
+
+        try db.create(table: "episode") { t in
+            t.column("id", .text).primaryKey()
+            t.column("title", .text).notNull()
+            t.column("duration", .integer).notNull()
+            t.column("thumbnail_url", .text)
+            t.column("podcast_id", .text)
+            t.column("podcast_name", .text)
+            t.column("is_played", .integer).notNull().defaults(to: false)
+            t.column("saved_at", .text)
+        }
+
+        try db.create(table: "podcast") { t in
+            t.column("id", .text).primaryKey()
+            t.column("name", .text).notNull()
+            t.column("thumbnail_url", .text)
+            t.column("subscribed_at", .text)
+        }
+
+        try db.create(table: "podcast_episode_map") { t in
+            t.autoIncrementedPrimaryKey("id")
+            t.column("podcast_id", .text).notNull()
+            t.column("episode_id", .text).notNull()
+            t.column("position", .integer).notNull()
+            t.uniqueKey(["podcast_id", "episode_id"])
+        }
+        print("[DB] v3 migration complete")
+    }
+
+    static let v4: (Database) throws -> Void = { db in
+        print("[DB] Running v4 migration")
+        try db.alter(table: "playlist") { t in
+            t.add(column: "thumbnail_url", .text)
+        }
+        print("[DB] v4 migration complete")
+    }
 }

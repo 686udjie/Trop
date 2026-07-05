@@ -150,6 +150,34 @@ actor MutationService {
         }
     }
 
+    func subscribeArtist(channelId: String, artistId: String) async throws {
+        guard var entity = try await db.fetchOne(ArtistEntity.self, key: artistId) else { return }
+        entity.bookmarkedAt = Date()
+        entity.channelId = channelId
+        _ = try? await db.update(entity)
+        do {
+            _ = try await innerTube.subscribe(channelId: channelId)
+        } catch {
+            entity.bookmarkedAt = nil
+            entity.channelId = nil
+            _ = try? await db.update(entity)
+            throw error
+        }
+    }
+
+    func unsubscribeArtist(channelId: String, artistId: String) async throws {
+        guard var entity = try await db.fetchOne(ArtistEntity.self, key: artistId) else { return }
+        entity.bookmarkedAt = nil
+        _ = try? await db.update(entity)
+        do {
+            _ = try await innerTube.unsubscribe(channelId: channelId)
+        } catch {
+            entity.bookmarkedAt = entity.bookmarkedAt ?? Date()
+            _ = try? await db.update(entity)
+            throw error
+        }
+    }
+
     private func extractPlaylistId(from json: [String: Any]) -> String? {
         if let playlistId = json["playlistId"] as? String { return playlistId }
         if let response = json["response"] as? [String: Any],

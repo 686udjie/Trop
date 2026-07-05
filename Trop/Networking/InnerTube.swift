@@ -370,6 +370,20 @@ actor InnerTube {
         return try await post(endpoint: "playlist/delete", body: body, client: client, session: session)
     }
 
+    // Subscribe to a channel
+    func subscribe(channelId: String, client: YouTubeClient = .webRemix, locale: YouTubeLocale = .default) async throws -> [String: Any] {
+        let session = Session(cookies: cookies, sapisid: sapisid, visitorData: visitorData)
+        let body: [String: Any] = ["context": buildContextDict(client: client, locale: locale, visitorData: visitorData), "channelIds": [channelId]]
+        return try await post(endpoint: "subscription/subscribe", body: body, client: client, session: session)
+    }
+
+    // Unsubscribe from a channel
+    func unsubscribe(channelId: String, client: YouTubeClient = .webRemix, locale: YouTubeLocale = .default) async throws -> [String: Any] {
+        let session = Session(cookies: cookies, sapisid: sapisid, visitorData: visitorData)
+        let body: [String: Any] = ["context": buildContextDict(client: client, locale: locale, visitorData: visitorData), "channelIds": [channelId]]
+        return try await post(endpoint: "subscription/unsubscribe", body: body, client: client, session: session)
+    }
+
     // Get search suggestions (autocomplete)
     func searchSuggestions(input: String, client: YouTubeClient = .webRemix, locale: YouTubeLocale = .default) async throws -> [String: Any] {
         let session = Session(cookies: cookies, sapisid: sapisid, visitorData: visitorData)
