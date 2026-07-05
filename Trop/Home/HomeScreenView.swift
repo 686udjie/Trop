@@ -256,7 +256,16 @@ struct HomeScreenView: View {
         print("[HomeScreenView] Tapped item: \(item.title) type=\(typeName(item))")
         switch item {
         case .song(let s):
+            NowPlaying.shared.setQueue([s], startIndex: 0)
             playVideo(videoId: s.videoId)
+            Task {
+                guard let radio = try? await PersonalizationService.shared.fetchRadio(videoId: s.videoId),
+                      radio.songs.count > 1 else { return }
+                guard NowPlaying.shared.videoId == s.videoId else { return }
+                NowPlaying.shared.queueSongs = radio.songs
+                NowPlaying.shared.queueIndex = radio.currentIndex
+                print("[HomeScreenView] Set radio queue with \(radio.songs.count) songs at index \(radio.currentIndex)")
+            }
         case .episode(let e):
             playVideo(videoId: e.videoId)
         case .album(let a):

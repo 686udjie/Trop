@@ -17,6 +17,8 @@ struct MiniPlayerView: View {
     @State private var duration: TimeInterval = 0
     @State private var progress: Float = 0
     @State private var playState: PlayerController.State = .stopped
+    @State private var isEditingSlider = false
+    @State private var activeItemId = ""
 
     private let timer = Timer.publish(every: 0.25, on: .main, in: .common).autoconnect()
 
@@ -45,10 +47,11 @@ struct MiniPlayerView: View {
             progressSlider
 
             HStack(spacing: 40) {
-                Button {} label: {
+                Button { player.stop(); np.playPrevious() } label: {
                     Image(systemName: "backward.fill")
                         .font(.title2)
                 }
+                .disabled(!np.hasPrevious)
 
                 Button {
                     player.togglePlayPause()
@@ -57,39 +60,50 @@ struct MiniPlayerView: View {
                         .font(.system(size: 56))
                 }
 
-                Button {} label: {
+                Button { player.stop(); np.playNext() } label: {
                     Image(systemName: "forward.fill")
                         .font(.title2)
                 }
+                .disabled(!np.hasNext)
             }
-            .foregroundStyle(.primary)
+            .foregroundStyle(.blue)
 
             Spacer()
         }
-        .popupTitle(verbatim: np.title, subtitle: np.artist.isEmpty ? nil : np.artist)
-        .popupImage(np.thumbnailImage)
-        .popupProgress(progress)
         .popupBarCustomizer { bar in
             bar.imageView.contentMode = .scaleAspectFill
             bar.imageView.cornerRadius = 6
         }
-        .popupBarTrailingItems {
-            Button {
-                player.togglePlayPause()
-            } label: {
-                Image(systemName: playState == .playing ? "pause.fill" : "play.fill")
+        .popupItems(selection: $activeItemId) {
+            for song in np.queueSongs {
+                PopupItem(id: song.videoId, verbatimTitle: song.title, verbatimSubtitle: song.artists.map(\.name).joined(separator: ", "), image: np.thumbnailImage, progress: progress) {
+                    ToolbarItemGroup(placement: .popupBar) {
+                        Button {
+                            player.togglePlayPause()
+                        } label: {
+                            Image(systemName: playState == .playing ? "pause.fill" : "play.fill")
+                        }
+                    }
+                }
             }
         }
+        .onChange(of: activeItemId) { _, newId in
+            guard newId != np.videoId else { return }
+            guard let idx = np.queueSongs.firstIndex(where: { $0.videoId == newId }) else { return }
+            np.queueIndex = idx
+            let song = np.queueSongs[idx]
+            np.update(title: song.title, artist: song.artists.map(\.name).joined(separator: ", "), videoId: song.videoId)
+            Task { try? await PlaybackManager.shared.resolveAndPlay(videoId: song.videoId) }
+        }
+        .onChange(of: np.videoId) { _, newId in activeItemId = newId ?? "" }
+        .onChange(of: np.queueSongs.count) { _, _ in activeItemId = np.videoId ?? "" }
         .onReceive(timer) { _ in
+            guard !isEditingSlider else { return }
             currentTime = player.currentTime
             duration = player.duration
             progress = player.duration > 0 ? Float(player.currentTime / player.duration) : 0
             playState = player.playState.value
         }
-    }
-
-    private var isPlaying: Bool {
-        playState == .playing
     }
 
     private var artwork: some View {
@@ -100,18 +114,18 @@ struct MiniPlayerView: View {
 
     private var progressSlider: some View {
         VStack(spacing: 4) {
-            Slider(value: Binding(
-                get: { progress },
-                set: { player.seek(to: TimeInterval($0) * player.duration) }
-            ))
-            .tint(.primary)
+            Slider(value: $progress, onEditingChanged: { editing in
+                if !editing { player.seek(to: TimeInterval(progress) * player.duration) }
+                isEditingSlider = editing
+            })
+            .tint(.blue)
 
             HStack {
-                Text(formattedTime(currentTime))
+                Text(timeString(currentTime))
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
                 Spacer()
-                Text(formattedTime(duration))
+                Text(timeString(duration))
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
             }
@@ -119,11 +133,8 @@ struct MiniPlayerView: View {
         .padding(.horizontal, 40)
     }
 
-    private func formattedTime(_ time: TimeInterval) -> String {
-        guard !time.isNaN, !time.isInfinite else { return "0:00" }
-        let total = Int(time)
-        let m = total / 60
-        let s = total % 60
-        return "\(m):\(String(format: "%02d", s))"
+    private func timeString(_ t: TimeInterval) -> String {
+        guard t.isFinite else { return "0:00" }
+        return "\(Int(t) / 60):\(String(format: "%02d", Int(t) % 60))"
     }
 }

@@ -437,6 +437,7 @@ struct ArtistDetailView: View {
 
     private func playTopSong(_ artist: ArtistDetailInfo) {
         guard let first = artist.songs.first else { return }
+        NowPlaying.shared.setQueue(artist.songs, startIndex: 0)
         Task {
             do {
                 try await PlaybackManager.shared.resolveAndPlay(videoId: first.videoId)
@@ -449,11 +450,13 @@ struct ArtistDetailView: View {
 
     private func shufflePlay(_ artist: ArtistDetailInfo) {
         guard !artist.songs.isEmpty else { return }
-        let randomSong = artist.songs.randomElement()!
+        let shuffled = artist.songs.shuffled()
+        let first = shuffled[0]
+        NowPlaying.shared.setQueue(shuffled, startIndex: 0)
         Task {
             do {
-                try await PlaybackManager.shared.resolveAndPlay(videoId: randomSong.videoId)
-                print("[ArtistDetailView] Shuffle playing \(randomSong.title)")
+                try await PlaybackManager.shared.resolveAndPlay(videoId: first.videoId)
+                print("[ArtistDetailView] Shuffle playing \(first.title)")
             } catch {
                 print("[ArtistDetailView] Shuffle playback failed: \(error)")
             }
@@ -461,6 +464,9 @@ struct ArtistDetailView: View {
     }
 
     private func playSong(_ song: SongItem) {
+        guard let artist = viewModel.artist,
+              let index = artist.songs.firstIndex(where: { $0.videoId == song.videoId }) else { return }
+        NowPlaying.shared.setQueue(artist.songs, startIndex: index)
         Task {
             do {
                 try await PlaybackManager.shared.resolveAndPlay(videoId: song.videoId)

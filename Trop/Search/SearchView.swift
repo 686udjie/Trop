@@ -120,7 +120,16 @@ struct SearchView: View {
                             isExplicit: false
                         ))
                         YouTubeListItemView(item: item, onTap: {
+                            guard case .song(let s) = item else { return }
+                            NowPlaying.shared.setQueue([s], startIndex: 0)
                             playVideo(videoId: song.id)
+                            Task {
+                                guard let radio = try? await PersonalizationService.shared.fetchRadio(videoId: s.videoId),
+                                      radio.songs.count > 1 else { return }
+                                guard NowPlaying.shared.videoId == s.videoId else { return }
+                                NowPlaying.shared.queueSongs = radio.songs
+                                NowPlaying.shared.queueIndex = radio.currentIndex
+                            }
                         })
                         .listRowInsets(EdgeInsets())
                         .padding(.vertical, 4)
@@ -236,7 +245,16 @@ struct SearchView: View {
 
     private func handleItemTap(_ item: YTItem) {
         switch item {
-        case .song(let s):    playVideo(videoId: s.videoId)
+        case .song(let s):
+            NowPlaying.shared.setQueue([s], startIndex: 0)
+            playVideo(videoId: s.videoId)
+            Task {
+                guard let radio = try? await PersonalizationService.shared.fetchRadio(videoId: s.videoId),
+                      radio.songs.count > 1 else { return }
+                guard NowPlaying.shared.videoId == s.videoId else { return }
+                NowPlaying.shared.queueSongs = radio.songs
+                NowPlaying.shared.queueIndex = radio.currentIndex
+            }
         case .episode(let e): playVideo(videoId: e.videoId)
         case .album(let a):   navigationPath.append(DetailRoute.album(browseId: a.browseId))
         case .artist(let a):  navigationPath.append(DetailRoute.artist(browseId: a.browseId))
@@ -247,7 +265,11 @@ struct SearchView: View {
 
     private func playVideo(videoId: String) {
         Task {
-            try? await PlaybackManager.shared.resolveAndPlay(videoId: videoId)
+            do {
+                try await PlaybackManager.shared.resolveAndPlay(videoId: videoId)
+            } catch {
+                print("[SearchView] Playback failed: \(error)")
+            }
         }
     }
 }

@@ -25,6 +25,18 @@ final class NowPlaying {
     var isPopupOpen = false
     var thumbnailImage: Image?
 
+    // Queue
+    var queueSongs: [SongItem] = []
+    var queueIndex = 0
+
+    var hasNext: Bool {
+        queueIndex + 1 < queueSongs.count
+    }
+
+    var hasPrevious: Bool {
+        queueIndex > 0
+    }
+
     var isBarPresented: Bool {
         videoId != nil
     }
@@ -33,20 +45,60 @@ final class NowPlaying {
 
     private init() {}
 
+    func setQueue(_ songs: [SongItem], startIndex: Int) {
+        queueSongs = songs
+        queueIndex = startIndex
+    }
+
+    func playNext() {
+        guard hasNext else { return }
+        queueIndex += 1
+        let song = queueSongs[queueIndex]
+        let displayArtist = song.artists.map(\.name).joined(separator: ", ")
+        update(title: song.title, artist: displayArtist, videoId: song.videoId)
+        Task {
+            do {
+                try await PlaybackManager.shared.resolveAndPlay(videoId: song.videoId)
+            } catch {
+                print("[NowPlaying] playNext failed: \(error)")
+            }
+        }
+    }
+
+    func playPrevious() {
+        guard hasPrevious else { return }
+        queueIndex -= 1
+        let song = queueSongs[queueIndex]
+        let displayArtist = song.artists.map(\.name).joined(separator: ", ")
+        update(title: song.title, artist: displayArtist, videoId: song.videoId)
+        Task {
+            do {
+                try await PlaybackManager.shared.resolveAndPlay(videoId: song.videoId)
+            } catch {
+                print("[NowPlaying] playPrevious failed: \(error)")
+            }
+        }
+    }
+
     func update(title: String, artist: String?, videoId: String) {
         self.title = title
         self.artist = artist ?? ""
         self.videoId = videoId
         self.isPlaying = true
-        startTimer()
+        DispatchQueue.main.async { [weak self] in
+            self?.startTimer()
+        }
         loadThumbnail(videoId: videoId)
     }
 
     func stopped() {
-        isPlaying = false
-        videoId = nil
-        thumbnailImage = nil
-        stopTimer()
+        if hasNext {
+            playNext()
+        } else {
+            isPlaying = false
+            thumbnailImage = nil
+            stopTimer()
+        }
     }
 
     private func loadThumbnail(videoId: String) {

@@ -86,7 +86,9 @@ actor PersonalizationService {
 
         for song in seeds {
             guard discovered.count < 10 else { break }
-            guard let related = try? await fetchRelatedSongs(videoId: song.id) else { continue }
+            guard let radio = try? await fetchRadio(videoId: song.id),
+                  !radio.songs.isEmpty else { continue }
+            let related = radio.songs.map { YTItem.song($0) }
             for item in related {
                 if let videoId = item.videoId, !seenIds.contains(videoId) {
                     seenIds.insert(videoId)
@@ -151,58 +153,95 @@ actor PersonalizationService {
         return await store.isLoggedIn()
     }
 
-    private func fetchRelatedSongs(videoId: String) async throws -> [YTItem] {
-        let json = try await innerTube.next(videoId: videoId)
-        // Extract related songs from next endpoint response
+    func fetchRadio(videoId: String) async throws -> (songs: [SongItem], currentIndex: Int) {
+        let playlistId = "RDAMVM\(videoId)"
+        let json = try await innerTube.next(videoId: videoId, playlistId: playlistId)
+        let panel = try extractPlaylistPanel(from: json)
+        var songs: [(SongItem, Bool)] = []
+        for entry in panel.contents {
+            guard songs.count < 50 else { break }
+            if let renderer = entry["playlistPanelVideoRenderer"] as? [String: Any],
+               let song = parsePlaylistPanelVideoRenderer(renderer) {
+                songs.append((song, renderer["selected"] as? Bool ?? false))
+            }
+        }
+        guard !songs.isEmpty else { throw NSError(domain: "fetchRadio", code: 1, userInfo: [:]) }
+        let currentIndex = songs.firstIndex(where: { $0.1 }) ?? 0
+        let resultSongs = songs.map(\.0)
+        if let automixItems = await tryResolveAutomix(from: panel) {
+            let deduped = automixItems.filter { a in !resultSongs.contains(where: { $0.videoId == a.videoId }) }
+            return (resultSongs + deduped, currentIndex)
+        }
+        return (resultSongs, currentIndex)
+    }
+
+    private struct PlaylistPanel { let contents: [[String: Any]] }
+
+    private func extractPlaylistPanel(from json: [String: Any]) throws -> PlaylistPanel {
         guard let contents = json["contents"] as? [String: Any],
               let singleColumn = contents["singleColumnMusicWatchNextResultsRenderer"] as? [String: Any],
-              let tab = singleColumn["tab"] as? [String: Any],
-              let tabRenderer = tab["tabRenderer"] as? [String: Any],
+              let tabbed = singleColumn["tabbedRenderer"] as? [String: Any],
+              let watchNext = tabbed["watchNextTabbedResultsRenderer"] as? [String: Any],
+              let tabs = watchNext["tabs"] as? [[String: Any]],
+              let firstTab = tabs.first,
+              let tabRenderer = firstTab["tabRenderer"] as? [String: Any],
               let content = tabRenderer["content"] as? [String: Any],
               let queueRenderer = content["musicQueueRenderer"] as? [String: Any],
-              let content2 = queueRenderer["content"] as? [String: Any],
-              let playlistPanel = content2["playlistPanelRenderer"] as? [String: Any],
-              let contents2 = playlistPanel["contents"] as? [[String: Any]] else {
-            return []
+              let queueContent = queueRenderer["content"] as? [String: Any],
+              let playlistPanel = queueContent["playlistPanelRenderer"] as? [String: Any],
+              let panelContents = playlistPanel["contents"] as? [[String: Any]] else {
+            throw NSError(domain: "fetchRadio", code: 2, userInfo: [:])
         }
+        return PlaylistPanel(contents: panelContents)
+    }
 
-        var items: [YTItem] = []
-        for entry in contents2 {
-            if items.count >= 10 { break }
-            guard let renderer = entry["playlistPanelVideoRenderer"] as? [String: Any],
-                  let videoId = renderer["videoId"] as? String else { continue }
-            let title = extractRunsText(renderer["title"] as? [String: Any]) ?? "Unknown"
-            let bylineRuns = extractRawRuns(renderer["longBylineText"] as? [String: Any] ?? renderer["shortBylineText"] as? [String: Any])
-            let nonArtistLabels: Set<String> = ["song", "video", "track", "music", "podcast", "episode"]
-            let conjunctions: Set<String> = [",", "&", "and", "feat.", "ft.", "featuring"]
-            let artists: [YTArtist] = bylineRuns.compactMap { run in
-                guard let text = run["text"] as? String else { return nil }
-                let trimmed = text.trimmingCharacters(in: .whitespaces)
-                let lower = trimmed.lowercased()
-                if trimmed.isEmpty || trimmed == "•" || trimmed == "·" { return nil }
-                if nonArtistLabels.contains(lower) { return nil }
-                if conjunctions.contains(lower) { return nil }
-                if lower.range(of: "^\\d+(\\.\\d+)?[KMBT]?\\s*(views|downloads|listeners|subscribers)$", options: [.regularExpression, .caseInsensitive]) != nil { return nil }
-                if let nav = run["navigationEndpoint"] as? [String: Any],
-                   let browse = nav["browseEndpoint"] as? [String: Any],
-                   let bid = browse["browseId"] as? String,
-                   bid.hasPrefix("MPREb_") { return nil }
-                return YTArtist(name: trimmed)
-            }
-            let thumbnail = extractThumbnailFrom(renderer["thumbnail"] as? [String: Any])
-
-            let duration = parseDurationFromRenderer(renderer)
-            let song = SongItem(
-                videoId: videoId,
-                title: title,
-                artists: artists,
-                duration: duration,
-                thumbnailUrl: thumbnail,
-                isExplicit: false
-            )
-            items.append(.song(song))
+    private func tryResolveAutomix(from panel: PlaylistPanel) async -> [SongItem]? {
+        guard let lastEntry = panel.contents.last,
+              let automix = lastEntry["automixPreviewVideoRenderer"] as? [String: Any],
+              let content = automix["content"] as? [String: Any],
+              let autoRenderer = content["automixPlaylistVideoRenderer"] as? [String: Any],
+              let navEndpoint = autoRenderer["navigationEndpoint"] as? [String: Any],
+              let watchPlaylist = navEndpoint["watchPlaylistEndpoint"] as? [String: Any],
+              let playlistId = watchPlaylist["playlistId"] as? String else { return nil }
+        let autoVideoId = watchPlaylist["videoId"] as? String
+        guard let autoJson = try? await innerTube.next(videoId: autoVideoId, playlistId: playlistId),
+              let autoPanel = try? extractPlaylistPanel(from: autoJson) else { return nil }
+        var songs: [SongItem] = []
+        for entry in autoPanel.contents {
+            guard songs.count < 50 else { break }
+            if let renderer = entry["playlistPanelVideoRenderer"] as? [String: Any],
+               let song = parsePlaylistPanelVideoRenderer(renderer) { songs.append(song) }
         }
-        return items
+        return songs.isEmpty ? nil : songs
+    }
+
+    private func parsePlaylistPanelVideoRenderer(_ renderer: [String: Any]) -> SongItem? {
+        guard let vid = renderer["videoId"] as? String else { return nil }
+        let title = extractRunsText(renderer["title"] as? [String: Any]) ?? "Unknown"
+        let bylineRuns = extractRawRuns(renderer["longBylineText"] as? [String: Any] ?? renderer["shortBylineText"] as? [String: Any])
+        let artists = parseArtists(from: bylineRuns)
+        let thumbnail = extractThumbnailFrom(renderer["thumbnail"] as? [String: Any])
+        let duration = parseDurationFromRenderer(renderer)
+        return SongItem(videoId: vid, title: title, artists: artists, duration: duration, thumbnailUrl: thumbnail, isExplicit: false)
+    }
+
+    private func parseArtists(from bylineRuns: [[String: Any]]) -> [YTArtist] {
+        let nonArtistLabels: Set<String> = ["song", "video", "track", "music", "podcast", "episode"]
+        let conjunctions: Set<String> = [",", "&", "and", "feat.", "ft.", "featuring"]
+        return bylineRuns.compactMap { run in
+            guard let text = run["text"] as? String else { return nil }
+            let trimmed = text.trimmingCharacters(in: .whitespaces)
+            let lower = trimmed.lowercased()
+            if trimmed.isEmpty || trimmed == "•" || trimmed == "·" { return nil }
+            if nonArtistLabels.contains(lower) { return nil }
+            if conjunctions.contains(lower) { return nil }
+            if lower.range(of: "^\\d+(\\.\\d+)?[KMBT]?\\s*(views|downloads|listeners|subscribers)$", options: [.regularExpression, .caseInsensitive]) != nil { return nil }
+            if let nav = run["navigationEndpoint"] as? [String: Any],
+               let browse = nav["browseEndpoint"] as? [String: Any],
+               let bid = browse["browseId"] as? String,
+               bid.hasPrefix("MPREb_") { return nil }
+            return YTArtist(name: trimmed)
+        }
     }
 
     private func extractCommunityPlaylists(from json: [String: Any]) -> [ParsedPlaylist] {

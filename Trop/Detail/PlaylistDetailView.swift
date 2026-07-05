@@ -477,6 +477,7 @@ struct PlaylistDetailView: View {
     private func playAll(_ playlist: PlaylistDetailInfo) {
         guard !playlist.songs.isEmpty else { return }
         let first = playlist.songs[0]
+        NowPlaying.shared.setQueue(playlist.songs, startIndex: 0)
         Task {
             do {
                 try await PlaybackManager.shared.resolveAndPlay(videoId: first.videoId)
@@ -489,11 +490,13 @@ struct PlaylistDetailView: View {
 
     private func shufflePlay(_ playlist: PlaylistDetailInfo) {
         guard !playlist.songs.isEmpty else { return }
-        let randomSong = playlist.songs.randomElement()!
+        let shuffled = playlist.songs.shuffled()
+        let first = shuffled[0]
+        NowPlaying.shared.setQueue(shuffled, startIndex: 0)
         Task {
             do {
-                try await PlaybackManager.shared.resolveAndPlay(videoId: randomSong.videoId)
-                print("[PlaylistDetailView] Shuffle playing \(randomSong.title) from playlist \(playlist.title)")
+                try await PlaybackManager.shared.resolveAndPlay(videoId: first.videoId)
+                print("[PlaylistDetailView] Shuffle playing \(first.title) from playlist \(playlist.title)")
             } catch {
                 print("[PlaylistDetailView] Shuffle playback failed: \(error)")
             }
@@ -501,6 +504,8 @@ struct PlaylistDetailView: View {
     }
 
     private func playSong(_ song: SongItem, in playlist: PlaylistDetailInfo) {
+        guard let index = playlist.songs.firstIndex(where: { $0.videoId == song.videoId }) else { return }
+        NowPlaying.shared.setQueue(playlist.songs, startIndex: index)
         Task {
             do {
                 try await PlaybackManager.shared.resolveAndPlay(videoId: song.videoId)

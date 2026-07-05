@@ -46,6 +46,14 @@ final class PlayerController {
         cleanup()
     }
 
+    // Stop playback and signal event loop to exit
+    func stop() {
+        isRunning = false
+        if let mpv = self.mpv {
+            mpv_wakeup(mpv)
+        }
+    }
+
     // Start playback of a stream URL
     func play(url: String, title: String? = nil, artist: String? = nil, videoId: String? = nil) {
         guard let url = URL(string: url) else {
@@ -63,6 +71,12 @@ final class PlayerController {
         currentVideoId = videoId
         if let videoId {
             Task { await PlaybackStateService.shared.startTracking(videoId: videoId) }
+        }
+
+        // Signal running event loop to exit (for manual next/previous while playing)
+        isRunning = false
+        if let mpv = self.mpv {
+            mpv_wakeup(mpv)
         }
 
         playbackQueue.async { [weak self] in
@@ -116,8 +130,8 @@ final class PlayerController {
 
     private func destroyMpv() {
         guard let mpv = self.mpv else { return }
-        mpv_destroy(mpv)
         self.mpv = nil
+        mpv_destroy(mpv)
     }
 
     private func eventLoop(_ mpv: OpaquePointer) {
@@ -174,25 +188,20 @@ final class PlayerController {
         }
     }
 
-    // Seek helper
+    // Seek helper — mpv_set_property is thread-safe; call directly, not via playbackQueue
     func seek(to time: TimeInterval) {
-        playbackQueue.async { [weak self] in
-            guard let self, let mpv = self.mpv else { return }
-            var val = time
-            mpv_set_property(mpv, "time-pos", MPV_FORMAT_DOUBLE, &val)
-        }
+        guard let mpv = self.mpv else { return }
+        var val = time
+        mpv_set_property(mpv, "time-pos", MPV_FORMAT_DOUBLE, &val)
     }
 
     func togglePlayPause() {
+        guard let mpv = self.mpv else { return }
         let willBePlaying = playState.value == .paused || playState.value == .stopped
         playState.send(willBePlaying ? .playing : .paused)
         NowPlaying.shared.isPlaying = willBePlaying
-
-        playbackQueue.async { [weak self] in
-            guard let self, let mpv = self.mpv else { return }
-            var flag: Int = willBePlaying ? 0 : 1
-            mpv_set_property(mpv, "pause", MPV_FORMAT_FLAG, &flag)
-        }
+        var flag: Int = willBePlaying ? 0 : 1
+        mpv_set_property(mpv, "pause", MPV_FORMAT_FLAG, &flag)
     }
 }
 
