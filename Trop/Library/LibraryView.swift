@@ -87,7 +87,7 @@ struct LibraryView: View {
             } placeholder: {
                 Color.gray.opacity(0.3).aspectRatio(1, contentMode: .fill)
             }
-            .cornerRadius(8)
+            .clipShape(RoundedRectangle(cornerRadius: 12))
             Text(title).lineLimit(1).font(.callout)
             if let subtitle {
                 Text(subtitle).font(.caption).foregroundColor(.secondary)

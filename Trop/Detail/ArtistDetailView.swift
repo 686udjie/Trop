@@ -25,19 +25,15 @@ final class ArtistDetailViewModel {
 
     /// Fetches artist browse page from InnerTube and parses the response.
     func load() async {
-        print("[ArtistDetailViewModel] Loading artist browseId=\(browseId)")
         isLoading = true
         error = nil
 
         do {
             let json = try await innerTube.browse(browseId: browseId)
-            print("[ArtistDetailViewModel] Got browse response, parsing...")
             let parsed = Self.parseArtistDetail(from: json, browseId: browseId)
             artist = parsed
-            print("[ArtistDetailViewModel] Parsed artist: \(parsed.name), \(parsed.songs.count) songs, \(parsed.albums.count) albums")
             isLoading = false
         } catch {
-            print("[ArtistDetailViewModel] Failed: \(error)")
             self.error = error
             isLoading = false
         }
@@ -63,9 +59,11 @@ extension ArtistDetailViewModel {
         // Artist pages can use either an immersive header (large background image)
         // or a responsive header (smaller, more compact).
         if let header = json["header"] as? [String: Any] {
+            print("[ArtistDetail] header keys: \(header.keys)")
             if let immersive = header["musicImmersiveHeaderRenderer"] as? [String: Any] {
                 name = DetailParser.extractRunsText(immersive["title"] as? [String: Any]) ?? "Unknown Artist"
                 thumbnailUrl = DetailParser.extractMusicThumbnail(immersive)
+                print("[ArtistDetail] found musicImmersiveHeaderRenderer, name=\(name) thumbnail=\(thumbnailUrl ?? "nil")")
 
                 // Subscription state and subscriber count
                 if let subButton = immersive["subscriptionButton"] as? [String: Any],
@@ -79,6 +77,7 @@ extension ArtistDetailViewModel {
             } else if let responsive = header["musicResponsiveHeaderRenderer"] as? [String: Any] {
                 name = DetailParser.extractRunsText(responsive["title"] as? [String: Any]) ?? "Unknown Artist"
                 thumbnailUrl = DetailParser.extractMusicThumbnail(responsive)
+                print("[ArtistDetail] found musicResponsiveHeaderRenderer, name=\(name) thumbnail=\(thumbnailUrl ?? "nil")")
 
                 // Subscription state and subscriber count
                 if let subButton = responsive["subscriptionButton"] as? [String: Any],
@@ -89,14 +88,31 @@ extension ArtistDetailViewModel {
                         subscriberCountText = runs.compactMap { $0["text"] as? String }.joined()
                     }
                 }
+            } else {
+                print("[ArtistDetail] no known header renderer found, header keys: \(header.keys)")
             }
+        } else {
+            print("[ArtistDetail] no header in json")
         }
 
-        // --- Description from microformat ---
-        if let microformat = json["microformat"] as? [String: Any],
-           let mfRenderer = microformat["microformatDataRenderer"] as? [String: Any],
-           let desc = mfRenderer["description"] as? String {
-            descriptionText = desc
+        // --- Fallback: name & thumbnail from microformat ---
+        if name == "Unknown Artist" || thumbnailUrl == nil,
+           let microformat = json["microformat"] as? [String: Any],
+           let mfRenderer = microformat["microformatDataRenderer"] as? [String: Any] {
+            if name == "Unknown Artist", let mfTitle = mfRenderer["title"] as? String {
+                name = mfTitle
+                print("[ArtistDetail] name from microformat: \(name)")
+            }
+            if thumbnailUrl == nil, let thumb = mfRenderer["thumbnail"] as? [String: Any],
+               let thumbnails = thumb["thumbnails"] as? [[String: Any]],
+               let last = thumbnails.last,
+               let url = last["url"] as? String {
+                thumbnailUrl = url
+                print("[ArtistDetail] thumbnail from microformat: \(thumbnailUrl ?? "nil")")
+            }
+            if descriptionText == nil, let desc = mfRenderer["description"] as? String {
+                descriptionText = desc
+            }
         }
 
         // --- Sections ---

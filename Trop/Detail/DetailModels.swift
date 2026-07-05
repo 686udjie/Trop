@@ -37,6 +37,7 @@ struct PlaylistDetailInfo {
     var title: String
     var authorName: String?
     var authorBrowseId: String?
+    var authorAvatarUrl: String?
     var descriptionText: String?
     var songCount: Int
     var duration: Int

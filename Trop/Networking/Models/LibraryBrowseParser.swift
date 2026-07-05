@@ -176,6 +176,12 @@ enum LibraryBrowseParser {
 // MARK: Renderer extraction
 
 extension LibraryBrowseParser {
+    /// Strips YTMusic's crop parameter (`-c`) from thumbnail URLs so the full
+    /// uncropped image is returned instead of a square-cropped version.
+    private static func uncroppedURL(_ url: String) -> String {
+        url.replacingOccurrences(of: "(?<=[sh]\\d+)-c", with: "", options: .regularExpression)
+    }
+
     private static func renderer<T>(_ item: [String: Any], key: String) -> T? {
         item[key] as? T
     }
@@ -215,9 +221,9 @@ extension LibraryBrowseParser {
               let thumb = musicThumbnail["thumbnail"] as? [String: Any]
                 ?? thumbnail["thumbnails"] as? [String: Any],
               let thumbnails = thumb["thumbnails"] as? [[String: Any]],
-              let first = thumbnails.first,
-              let url = first["url"] as? String else { return nil }
-        return url
+              let last = thumbnails.last,
+              let url = last["url"] as? String else { return nil }
+        return uncroppedURL(url)
     }
 
     private static func menuItems(_ item: [String: Any]) -> [[String: Any]]? {
@@ -248,20 +254,18 @@ extension LibraryBrowseParser {
     }
 
     private static func twoRowThumbnailUrl(_ item: [String: Any]) -> String? {
-        // Try thumbnailRenderer.musicThumbnailRenderer.thumbnail.thumbnails
         if let thumbnailRenderer = item["thumbnailRenderer"] as? [String: Any],
            let musicThumbnail = thumbnailRenderer["musicThumbnailRenderer"] as? [String: Any],
            let thumbnail = musicThumbnail["thumbnail"] as? [String: Any],
            let thumbnails = thumbnail["thumbnails"] as? [[String: Any]],
-           let first = thumbnails.first,
-           let url = first["url"] as? String { return url }
-        // Fallback: try thumbnail.musicThumbnailRenderer.thumbnail.thumbnails
+           let last = thumbnails.last,
+           let url = last["url"] as? String { return uncroppedURL(url) }
         if let thumbnail = item["thumbnail"] as? [String: Any],
            let musicThumbnail = thumbnail["musicThumbnailRenderer"] as? [String: Any],
            let thumb = musicThumbnail["thumbnail"] as? [String: Any],
            let thumbnails = thumb["thumbnails"] as? [[String: Any]],
-           let first = thumbnails.first,
-           let url = first["url"] as? String { return url }
+           let last = thumbnails.last,
+           let url = last["url"] as? String { return uncroppedURL(url) }
         return nil
     }
 

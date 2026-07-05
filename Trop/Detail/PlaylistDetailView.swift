@@ -26,20 +26,18 @@ final class PlaylistDetailViewModel {
     /// Fetches playlist browse page from InnerTube and parses the response.
     /// Prependes "VL" to the playlistId if not already present (required by the browse endpoint).
     func load() async {
-        print("[PlaylistDetailViewModel] Loading playlist playlistId=\(playlistId)")
         isLoading = true
         error = nil
 
         do {
             let browseId = playlistId.hasPrefix("VL") ? playlistId : "VL\(playlistId)"
             let json = try await innerTube.browse(browseId: browseId)
-            print("[PlaylistDetailViewModel] Got browse response, parsing...")
             let parsed = Self.parsePlaylistDetail(from: json, playlistId: playlistId)
+            let hasAvatar = parsed.authorAvatarUrl != nil
+            print("[PlaylistDetail] title=\(parsed.title) author=\(parsed.authorName ?? "nil") avatar=\(hasAvatar) cnt=\(parsed.songCount) dur=\(parsed.duration) songs=\(parsed.songs.count)")
             playlist = parsed
-            print("[PlaylistDetailViewModel] Parsed playlist: \(parsed.title), \(parsed.songs.count) songs")
             isLoading = false
         } catch {
-            print("[PlaylistDetailViewModel] Failed: \(error)")
             self.error = error
             isLoading = false
         }
@@ -56,6 +54,7 @@ extension PlaylistDetailViewModel {
         var title = "Unknown Playlist"
         var authorName: String?
         var authorBrowseId: String?
+        var authorAvatarUrl: String?
         var descriptionText: String?
         var songCount = 0
         var duration = 0
@@ -97,20 +96,53 @@ extension PlaylistDetailViewModel {
         if let detailHeader = headerRenderer {
             title = DetailParser.extractRunsText(detailHeader["title"] as? [String: Any]) ?? title
             thumbnailUrl = DetailParser.extractMusicThumbnail(detailHeader)
+
             descriptionText = detailHeader["description"]
                 .flatMap { $0 as? [String: Any] }
                 .flatMap { DetailParser.extractRunsText($0) }
 
+            // Author from straplineTextOne
             if let strapline = detailHeader["straplineTextOne"] as? [String: Any],
-               let runs = strapline["runs"] as? [[String: Any]] {
-                if let firstRun = runs.first,
-                   let text = firstRun["text"] as? String {
-                    authorName = text
-                    authorBrowseId = (firstRun["navigationEndpoint"] as? [String: Any])
-                        .flatMap { $0["browseEndpoint"] as? [String: Any] }
-                        .flatMap { $0["browseId"] as? String }
+               let runs = strapline["runs"] as? [[String: Any]],
+               let firstRun = runs.first,
+               let text = firstRun["text"] as? String {
+                authorName = text
+                authorBrowseId = (firstRun["navigationEndpoint"] as? [String: Any])
+                    .flatMap { $0["browseEndpoint"] as? [String: Any] }
+                    .flatMap { $0["browseId"] as? String }
+            }
+
+            // Author from facepile (editable/self-authored playlists)
+            if authorName == nil,
+               let facepile = detailHeader["facepile"] as? [String: Any],
+               let stack = facepile["avatarStackViewModel"] as? [String: Any] {
+                authorName = (stack["text"] as? [String: Any])?["content"] as? String
+                authorBrowseId = (stack["rendererContext"] as? [String: Any])
+                    .flatMap { $0["commandContext"] as? [String: Any] }
+                    .flatMap { $0["onTap"] as? [String: Any] }
+                    .flatMap { $0["innertubeCommand"] as? [String: Any] }
+                    .flatMap { $0["browseEndpoint"] as? [String: Any] }
+                    .flatMap { $0["browseId"] as? String }
+                print("[Parser] facepile authorName=\(authorName ?? "nil") authorBrowseId=\(authorBrowseId ?? "nil")")
+                if let avatars = stack["avatars"] as? [[String: Any]],
+                   let firstAvatar = avatars.first,
+                   let vm = firstAvatar["avatarViewModel"] as? [String: Any],
+                   let image = vm["image"] as? [String: Any],
+                   let sources = image["sources"] as? [[String: Any]],
+                   let firstSource = sources.first,
+                   let url = firstSource["url"] as? String {
+                    authorAvatarUrl = url
+                    print("[Parser] facepile avatar URL: \(url)")
+                } else {
+                    print("[Parser] facepile found but failed to extract avatar URL")
+                    print("[Parser] facepile stack keys: \(stack.keys)")
+                    if let avatars = stack["avatars"] {
+                        print("[Parser] avatars type: \(type(of: avatars))")
+                    }
                 }
             }
+
+            // Author from subtitle runs (fallback)
             if authorName == nil,
                let subtitle = detailHeader["subtitle"] as? [String: Any],
                let runs = subtitle["runs"] as? [[String: Any]] {
@@ -118,8 +150,9 @@ extension PlaylistDetailViewModel {
                     guard let text = run["text"] as? String else { continue }
                     let trimmed = text.trimmingCharacters(in: .whitespaces)
                     if trimmed.isEmpty || trimmed == "•" { continue }
-                    if let browse = (run["navigationEndpoint"] as? [String: Any])?["browseEndpoint"] as? [String: Any],
-                       let bid = browse["browseId"] as? String {
+                    if let navEndpoint = run["navigationEndpoint"] as? [String: Any],
+                       let bind = navEndpoint["browseEndpoint"] as? [String: Any],
+                       let bid = bind["browseId"] as? String {
                         authorName = trimmed; authorBrowseId = bid; break
                     } else if authorName == nil {
                         authorName = trimmed
@@ -127,6 +160,7 @@ extension PlaylistDetailViewModel {
                 }
             }
 
+            // Song count / duration from secondSubtitle
             if let secondSubtitle = detailHeader["secondSubtitle"] as? [String: Any],
                let runs = secondSubtitle["runs"] as? [[String: Any]] {
                 for run in runs {
@@ -137,20 +171,29 @@ extension PlaylistDetailViewModel {
                        trimmed.contains("video") || trimmed.contains("Video") {
                         if let count = trimmed.components(separatedBy: CharacterSet.decimalDigits.inverted).compactMap(Int.init).first {
                             songCount = count
+                            print("[Parser] parsed songCount=\(songCount)")
                         }
                     } else if trimmed.contains(":") {
                         duration = DetailParser.parseDuration(trimmed)
+                        print("[Parser] parsed duration=\(duration) from '\(trimmed)'")
+                    } else {
+                        let lower = trimmed.lowercased()
+                        if lower.hasSuffix("min") || lower.hasSuffix("mins") || lower.hasSuffix("minute") || lower.hasSuffix("minutes") {
+                            let nums = trimmed.components(separatedBy: CharacterSet.decimalDigits.inverted).compactMap(Int.init)
+                            if let minutes = nums.first {
+                                duration = minutes * 60
+                                print("[Parser] parsed duration=\(duration) from '\(trimmed)' (text minutes)")
+                            }
+                        } else if lower.hasSuffix("hour") || lower.hasSuffix("hours") || lower.hasSuffix("hr") || lower.hasSuffix("hrs") {
+                            let nums = trimmed.components(separatedBy: CharacterSet.decimalDigits.inverted).compactMap(Int.init)
+                            if let hours = nums.first {
+                                duration = hours * 3600
+                                print("[Parser] parsed duration=\(duration) from '\(trimmed)' (text hours)")
+                            }
+                        }
                     }
                 }
             }
-        }
-
-        // Fallback: extract description from microformat
-        if descriptionText == nil,
-           let microformat = json["microformat"] as? [String: Any],
-           let mfRenderer = microformat["microformatDataRenderer"] as? [String: Any],
-           let desc = mfRenderer["description"] as? String {
-            descriptionText = desc
         }
 
         // --- Songs ---
@@ -198,13 +241,19 @@ extension PlaylistDetailViewModel {
             }
         }
 
-        // Set songCount from actual count if header value wasn't parsed
+        // Use actual song data for total duration (more precise than header)
         if songCount == 0 { songCount = songs.count }
+        let songDuration = songs.reduce(0) { $0 + $1.duration }
+        if songDuration > 0 {
+            print("[Parser] computed duration from songs: \(songDuration) (header had: \(duration))")
+            duration = songDuration
+        }
 
         return PlaylistDetailInfo(
             title: title,
             authorName: authorName,
             authorBrowseId: authorBrowseId,
+            authorAvatarUrl: authorAvatarUrl,
             descriptionText: descriptionText,
             songCount: songCount,
             duration: duration,
@@ -308,42 +357,29 @@ struct PlaylistDetailView: View {
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 24)
 
-            // Clickable author name
-            if let authorName = playlist.authorName {
-                if let authorId = playlist.authorBrowseId {
-                    NavigationLink(value: DetailRoute.artist(browseId: authorId)) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "person.circle.fill")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                            Text(authorName)
-                                .font(.subheadline)
-                                .fontWeight(.medium)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                } else {
-                    HStack(spacing: 6) {
-                        Image(systemName: "person.circle.fill")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        Text(authorName)
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                    }
-                }
-            }
-
-            // Metadata: song count • duration
+            // Metadata: song count | duration
             let metaParts = metaStrings(for: playlist)
             if !metaParts.isEmpty {
-                Text(metaParts.joined(separator: " • "))
+                Text(metaParts.joined(separator: " | "))
                     .font(.subheadline)
                     .foregroundStyle(.tertiary)
             }
 
-            // Description (truncated to 3 lines)
+            // Author row: avatar + name, clickable → artist detail
+            if let authorName = playlist.authorName {
+                Group {
+                    if let authorId = playlist.authorBrowseId {
+                        NavigationLink(value: DetailRoute.artist(browseId: authorId)) {
+                            authorRow(name: authorName, avatarUrl: playlist.authorAvatarUrl)
+                        }
+                        .buttonStyle(.plain)
+                    } else {
+                        authorRow(name: authorName, avatarUrl: playlist.authorAvatarUrl)
+                    }
+                }
+            }
+
+            // Description (only if fetched, no fallback)
             if let desc = playlist.descriptionText, !desc.isEmpty {
                 Text(desc)
                     .font(.caption)
@@ -375,6 +411,25 @@ struct PlaylistDetailView: View {
             .padding(.top, 4)
         }
         .padding(.vertical, 16)
+    }
+
+    @ViewBuilder
+    private func authorRow(name: String, avatarUrl: String?) -> some View {
+        HStack(spacing: 8) {
+            if let avatarUrl {
+                AsyncImageView(url: avatarUrl)
+                    .frame(width: 24, height: 24)
+                    .clipShape(Circle())
+            } else {
+                Image(systemName: "person.circle.fill")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            Text(name)
+                .font(.subheadline)
+                .fontWeight(.medium)
+                .foregroundColor(.secondary)
+        }
     }
 
     @ViewBuilder
@@ -435,9 +490,7 @@ struct PlaylistDetailView: View {
         Task {
             do {
                 try await PlaybackManager.shared.resolveAndPlay(videoId: first.videoId)
-                print("[PlaylistDetailView] Playing \(first.title) from playlist \(playlist.title)")
             } catch {
-                print("[PlaylistDetailView] Playback failed: \(error)")
             }
         }
     }
@@ -450,9 +503,7 @@ struct PlaylistDetailView: View {
         Task {
             do {
                 try await PlaybackManager.shared.resolveAndPlay(videoId: first.videoId)
-                print("[PlaylistDetailView] Shuffle playing \(first.title) from playlist \(playlist.title)")
             } catch {
-                print("[PlaylistDetailView] Shuffle playback failed: \(error)")
             }
         }
     }
@@ -463,9 +514,7 @@ struct PlaylistDetailView: View {
         Task {
             do {
                 try await PlaybackManager.shared.resolveAndPlay(videoId: song.videoId)
-                print("[PlaylistDetailView] Playing \(song.title)")
             } catch {
-                print("[PlaylistDetailView] Playback failed: \(error)")
             }
         }
     }
