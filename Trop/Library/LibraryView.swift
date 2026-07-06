@@ -64,6 +64,8 @@ struct LibraryView: View {
                     PlaylistDetailView(playlistId: playlistId)
                 case .album(let browseId):
                     AlbumDetailView(browseId: browseId)
+                case .podcast(let browseId):
+                    PodcastDetailView(browseId: browseId)
                 }
             }
             .task {

@@ -8,9 +8,10 @@
 import Foundation
 
 /// Route destinations for detail view navigation.
-/// Used with NavigationStack + NavigationPath to push album, artist, and playlist detail screens.
+/// Used with NavigationStack + NavigationPath to push detail screens.
 enum DetailRoute: Hashable {
     case album(browseId: String)
     case artist(browseId: String)
     case playlist(playlistId: String)
+    case podcast(browseId: String)
 }

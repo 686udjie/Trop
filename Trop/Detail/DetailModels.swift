@@ -45,3 +45,13 @@ struct PlaylistDetailInfo {
     var playlistId: String
     var songs: [SongItem]
 }
+
+/// Parsed detail data for a podcast page.
+struct PodcastDetailInfo {
+    var title: String
+    var author: String?
+    var descriptionText: String?
+    var thumbnailUrl: String?
+    var browseId: String
+    var episodes: [EpisodeItem]
+}

@@ -559,6 +559,25 @@ struct EpisodeItem {
     }
 }
 
+// MARK: - Convenience Conversions
+
+extension EpisodeItem {
+    func toSongItem() -> SongItem {
+        SongItem(
+            videoId: videoId,
+            title: title,
+            artists: artists,
+            album: nil,
+            albumId: nil,
+            duration: duration,
+            thumbnailUrl: thumbnailUrl,
+            isExplicit: false,
+            playlistId: nil,
+            likeStatus: nil
+        )
+    }
+}
+
 // MARK: - Convenience Init from Entities
 
 extension SongItem {

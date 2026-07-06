@@ -56,6 +56,8 @@ struct SearchView: View {
                     ArtistDetailView(browseId: browseId)
                 case .playlist(let playlistId):
                     PlaylistDetailView(playlistId: playlistId)
+                case .podcast(let browseId):
+                    PodcastDetailView(browseId: browseId)
                 }
             }
             .onAppear {
@@ -259,7 +261,7 @@ struct SearchView: View {
         case .album(let a):   navigationPath.append(DetailRoute.album(browseId: a.browseId))
         case .artist(let a):  navigationPath.append(DetailRoute.artist(browseId: a.browseId))
         case .playlist(let p): navigationPath.append(DetailRoute.playlist(playlistId: p.id))
-        case .podcast: break
+        case .podcast(let p): navigationPath.append(DetailRoute.podcast(browseId: p.browseId))
         }
     }
 

@@ -49,6 +49,8 @@ struct HomeScreenView: View {
                     ArtistDetailView(browseId: browseId)
                 case .playlist(let playlistId):
                     PlaylistDetailView(playlistId: playlistId)
+                case .podcast(let browseId):
+                    PodcastDetailView(browseId: browseId)
                 }
             }
             .sheet(isPresented: $viewModel.isLoginSheetPresented) {
@@ -283,7 +285,8 @@ struct HomeScreenView: View {
             print("[HomeScreenView] Navigating to playlist: \(p.id)")
             navigationPath.append(DetailRoute.playlist(playlistId: p.id))
         case .podcast(let p):
-            print("[HomeScreenView] Podcast tap not handled yet: \(p.browseId)")
+            print("[HomeScreenView] Navigating to podcast: \(p.browseId)")
+            navigationPath.append(DetailRoute.podcast(browseId: p.browseId))
         }
     }
 
