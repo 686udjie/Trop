@@ -96,35 +96,45 @@ actor MutationService {
     }
 
     func addToPlaylist(playlistId: String, songId: String, setVideoId: String? = nil) async throws {
-        var actions: [[String: Any]] = [
-            ["action": "ACTION_ADD_VIDEO", "addedVideoId": songId]
-        ]
-        if let setVideoId {
-            actions[0]["setVideoId"] = setVideoId
-        }
-        // Optimistic insert
+        let entity = try? await db.fetchOne(PlaylistEntity.self, key: playlistId)
+        let isLocal = entity?.browseId == nil
+
         var map = PlaylistSongMap(id: nil, playlistId: playlistId, songId: songId, position: 0, setVideoId: setVideoId)
         map = try await db.insert(map, onConflict: .ignore)
-        do {
-            _ = try await innerTube.editPlaylist(playlistId: playlistId, actions: actions)
-        } catch {
-            _ = try? await db.delete(map)
-            throw error
+
+        if !isLocal {
+            var actions: [[String: Any]] = [
+                ["action": "ACTION_ADD_VIDEO", "addedVideoId": songId]
+            ]
+            if let setVideoId {
+                actions[0]["setVideoId"] = setVideoId
+            }
+            do {
+                _ = try await innerTube.editPlaylist(playlistId: playlistId, actions: actions)
+            } catch {
+                _ = try? await db.delete(map)
+                throw error
+            }
         }
     }
 
     func removeFromPlaylist(playlistId: String, songId: String, setVideoId: String) async throws {
-        let actions: [[String: Any]] = [
-            ["action": "ACTION_REMOVE_VIDEO", "setVideoId": setVideoId]
-        ]
-        do {
-            _ = try await innerTube.editPlaylist(playlistId: playlistId, actions: actions)
-            // Remove from local DB
-            try await db.write { db in
-                try db.execute(sql: "DELETE FROM playlist_song_map WHERE playlist_id = ? AND song_id = ?", arguments: [playlistId, songId])
+        let entity = try? await db.fetchOne(PlaylistEntity.self, key: playlistId)
+        let isLocal = entity?.browseId == nil
+
+        if !isLocal {
+            let actions: [[String: Any]] = [
+                ["action": "ACTION_REMOVE_VIDEO", "setVideoId": setVideoId]
+            ]
+            do {
+                _ = try await innerTube.editPlaylist(playlistId: playlistId, actions: actions)
+            } catch {
+                throw error
             }
-        } catch {
-            throw error
+        }
+
+        try await db.write { db in
+            try db.execute(sql: "DELETE FROM playlist_song_map WHERE playlist_id = ? AND song_id = ?", arguments: [playlistId, songId])
         }
     }
 
@@ -139,11 +149,17 @@ actor MutationService {
     }
 
     func deletePlaylist(playlistId: String) async throws {
-        do {
-            _ = try await innerTube.deletePlaylist(playlistId: playlistId)
-        } catch {
-            throw error
+        let entity = try? await db.fetchOne(PlaylistEntity.self, key: playlistId)
+        let isLocal = entity?.browseId == nil
+
+        if !isLocal {
+            do {
+                _ = try await innerTube.deletePlaylist(playlistId: playlistId)
+            } catch {
+                throw error
+            }
         }
+
         try await db.write { db in
             try db.execute(sql: "DELETE FROM playlist_song_map WHERE playlist_id = ?", arguments: [playlistId])
             try db.execute(sql: "DELETE FROM playlist WHERE id = ?", arguments: [playlistId])

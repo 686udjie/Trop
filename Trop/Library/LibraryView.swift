@@ -15,6 +15,8 @@ struct LibraryView: View {
     @State private var likedSongCount = 0
     @State private var isLoading = true
     @State private var selectedFilter: LibraryFilter? = nil
+    @State private var showCreateDialog = false
+    @State private var playlistToDelete: PlaylistEntity?
 
     private let gridColumns = [GridItem(.adaptive(minimum: 160), spacing: 16)]
     private var autoPlaylists: [AutoPlaylistInfo] {
@@ -71,6 +73,28 @@ struct LibraryView: View {
                     PlaylistDetailView(autoPlaylistRoute: autoRoute)
                 }
             }
+            .overlay(alignment: .bottomTrailing) {
+                Button(action: { showCreateDialog = true }) {
+                    Image(systemName: "plus")
+                        .font(.title2.weight(.semibold))
+                        .foregroundColor(.white)
+                        .frame(width: 56, height: 56)
+                        .background(Circle().fill(Color.accentColor))
+                        .shadow(color: .black.opacity(0.3), radius: 6, y: 3)
+                }
+                .padding(.trailing, 20)
+                .padding(.bottom, 20)
+            }
+            .overlay {
+                if showCreateDialog {
+                    CreatePlaylistDialog(
+                        isPresented: $showCreateDialog,
+                        onCreated: { await loadContent() }
+                    )
+                    .transition(.scale(scale: 0.9).combined(with: .opacity))
+                }
+            }
+            .animation(.spring(response: 0.4, dampingFraction: 0.8), value: showCreateDialog)
             .task {
                 await loadContent()
                 Task {
@@ -81,6 +105,19 @@ struct LibraryView: View {
             .refreshable {
                 await IncrementalSyncService.shared.forceFullSync()
                 await loadContent()
+            }
+            .alert("Delete Playlist", isPresented: .init(
+                get: { playlistToDelete != nil },
+                set: { if !$0 { playlistToDelete = nil } }
+            )) {
+                Button("Cancel", role: .cancel) { playlistToDelete = nil }
+                Button("Delete", role: .destructive) {
+                    if let p = playlistToDelete {
+                        Task { await deletePlaylist(p) }
+                    }
+                }
+            } message: {
+                Text("Are you sure you want to delete \"\(playlistToDelete?.name ?? "")\"?")
             }
         }
     }
@@ -156,14 +193,24 @@ struct LibraryView: View {
 
             ForEach(playlists, id: \.id) { playlist in
                 NavigationLink(value: DetailRoute.playlist(playlistId: playlist.id)) {
-                        itemCell(
-                            url: playlist.thumbnailUrl,
-                            title: playlist.name,
-                            subtitle: playlist.remoteSongCount.map { "\($0) songs" }
-                        )
+                    itemCell(
+                        url: playlist.thumbnailUrl,
+                        title: playlist.name,
+                        subtitle: playlist.remoteSongCount.map { "\($0) songs" }
+                    )
                 }
                 .buttonStyle(.plain)
+                .contextMenu {
+                    if playlist.isEditable {
+                        Button(role: .destructive) {
+                            playlistToDelete = playlist
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
+                    }
+                }
             }
+
         }
         .padding(.horizontal, 16)
         .padding(.bottom, 16)
@@ -320,6 +367,172 @@ struct LibraryView: View {
         } catch {
             print("[LibraryView] Failed to load: \(error)")
             isLoading = false
+        }
+    }
+
+    private func deletePlaylist(_ playlist: PlaylistEntity) async {
+        do {
+            try await MutationService.shared.deletePlaylist(playlistId: playlist.id)
+            await loadContent()
+        } catch {
+            print("[LibraryView] Failed to delete playlist: \(error)")
+        }
+    }
+}
+
+// MARK: - Create Playlist Dialog
+
+struct CreatePlaylistDialog: View {
+    @Binding var isPresented: Bool
+    let onCreated: () async -> Void
+
+    @State private var name = ""
+    @State private var syncWithYouTube = false
+    @State private var isCreating = false
+    @State private var error: Error?
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Text("New Playlist")
+                .font(.title3)
+                .fontWeight(.bold)
+                .padding(.top, 24)
+                .padding(.bottom, 20)
+
+            TextField("Playlist name", text: $name)
+                .font(.body)
+                .focused($isFocused)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color(.systemGray6))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(isFocused ? Color.accentColor : Color(.systemGray4), lineWidth: 1)
+                )
+                .autocorrectionDisabled()
+                .padding(.horizontal, 24)
+                .padding(.bottom, 20)
+
+            // Sync toggle
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Sync playlist")
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                    Text("Syncs with your YouTube Music account. This cannot be changed later.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .lineLimit(2)
+                }
+
+                Spacer(minLength: 12)
+
+                Toggle("", isOn: $syncWithYouTube)
+                    .labelsHidden()
+                    .tint(.accentColor)
+            }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 20)
+
+            if let error {
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.circle.fill")
+                        .font(.caption)
+                    Text(error.localizedDescription)
+                        .font(.caption)
+                }
+                .foregroundColor(.red)
+                .padding(.horizontal, 24)
+                .padding(.bottom, 12)
+            }
+
+            Divider()
+                .padding(.bottom, 4)
+
+            HStack(spacing: 12) {
+                Button(action: { isPresented = false }) {
+                    Text("Cancel")
+                        .font(.body.weight(.medium))
+                        .foregroundColor(.primary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .fill(Color(.systemGray6))
+                        )
+                }
+                .buttonStyle(.plain)
+
+                Button(action: {
+                    guard !name.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+                    Task {
+                        isCreating = true
+                        do {
+                            try await createPlaylist()
+                            await onCreated()
+                            isPresented = false
+                        } catch {
+                            self.error = error
+                        }
+                        isCreating = false
+                    }
+                }) {
+                    HStack(spacing: 6) {
+                        if isCreating {
+                            ProgressView()
+                                .tint(.white)
+                                .scaleEffect(0.8)
+                        }
+                        Text("Create")
+                            .font(.body.weight(.semibold))
+                    }
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(name.trimmingCharacters(in: .whitespaces).isEmpty ? Color.accentColor.opacity(0.4) : Color.accentColor)
+                    )
+                }
+                .buttonStyle(.plain)
+                .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || isCreating)
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 8)
+            .padding(.bottom, 20)
+        }
+        .frame(width: 320)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(Color(.systemBackground))
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .shadow(color: .black.opacity(0.15), radius: 30, y: 10)
+        .onTapGesture { }
+        .onAppear { isFocused = true }
+    }
+
+    private func createPlaylist() async throws {
+        let title = name.trimmingCharacters(in: .whitespaces)
+        if syncWithYouTube {
+            _ = try await MutationService.shared.createPlaylist(title: title)
+        } else {
+            let id = UUID().uuidString
+            let entity = PlaylistEntity(
+                id: id,
+                browseId: nil,
+                name: title,
+                thumbnailUrl: nil,
+                isEditable: true,
+                bookmarkedAt: Date(),
+                remoteSongCount: 0
+            )
+            try await DatabaseService.shared.insert(entity)
         }
     }
 }

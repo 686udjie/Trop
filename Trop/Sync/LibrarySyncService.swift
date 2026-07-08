@@ -28,22 +28,29 @@ extension LibrarySyncService {
         let items = try await fetchAllPages(browseId: "FEmusic_library_corpus_artists") { json in
             LibraryBrowseParser.parseArtists(from: json)
         }
+        let remoteIds = Set(items.map(\.browseId))
         try await db.write { db in
             for item in items {
                 try db.execute(sql: """
                     INSERT OR REPLACE INTO artist (id, name, thumbnail_url, bookmarked_at, is_podcast_channel, channel_id)
                     VALUES (?, ?, ?, ?, ?, ?)
                     """, arguments: [item.browseId, item.name, item.thumbnailUrl,
-                                     item.isSubscribed ? Date() : nil, false, item.channelId])
+                                     Date(), false, item.channelId])
+            }
+            // Unset bookmarked_at for artists no longer subscribed remotely
+            if !remoteIds.isEmpty {
+                let placeholders = remoteIds.map { _ in "?" }.joined(separator: ",")
+                try db.execute(sql: "UPDATE artist SET bookmarked_at = NULL WHERE bookmarked_at IS NOT NULL AND id NOT IN (\(placeholders))", arguments: StatementArguments(Array(remoteIds)))
             }
         }
-        return Set(items.map(\.browseId))
+        return remoteIds
     }
 
     func syncLikedPlaylists() async throws -> Set<String> {
         let items = try await fetchAllPages(browseId: "FEmusic_liked_playlists") { json in
             LibraryBrowseParser.parsePlaylists(from: json)
         }
+        let remoteIds = Set(items.map(\.browseId))
         try await db.write { db in
             for item in items {
                 let existing = try PlaylistEntity.fetchOne(db, key: item.browseId)
@@ -58,8 +65,19 @@ extension LibrarySyncService {
                 )
                 try entity.save(db)
             }
+            // Remove playlists unliked remotely — only those that have a browseId (synced), not local-only playlists
+            if !remoteIds.isEmpty {
+                try db.execute(sql: """
+                    DELETE FROM playlist_song_map WHERE playlist_id IN (
+                        SELECT id FROM playlist WHERE browse_id IS NOT NULL AND browse_id NOT IN (\(remoteIds.map { _ in "?" }.joined(separator: ",")))
+                    )
+                    """, arguments: StatementArguments(Array(remoteIds)))
+                try db.execute(sql: """
+                    DELETE FROM playlist WHERE browse_id IS NOT NULL AND browse_id NOT IN (\(remoteIds.map { _ in "?" }.joined(separator: ",")))
+                    """, arguments: StatementArguments(Array(remoteIds)))
+            }
         }
-        return Set(items.map(\.browseId))
+        return remoteIds
     }
 
 }

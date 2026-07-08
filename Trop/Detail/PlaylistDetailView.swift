@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import GRDB
 
 // MARK: - View Model
 
@@ -43,6 +44,13 @@ final class PlaylistDetailViewModel {
         isLoading = true
         error = nil
 
+        // Check if this is a local-only playlist
+        if let entity = try? await DatabaseService.shared.fetchOne(PlaylistEntity.self, key: playlistId),
+           entity.browseId == nil {
+            await loadLocalPlaylist(entity: entity)
+            return
+        }
+
         do {
             let browseId = playlistId.hasPrefix("VL") ? playlistId : "VL\(playlistId)"
             let json = try await innerTube.browse(browseId: browseId)
@@ -50,6 +58,40 @@ final class PlaylistDetailViewModel {
             let hasAvatar = parsed.authorAvatarUrl != nil
             print("[PlaylistDetail] title=\(parsed.title) author=\(parsed.authorName ?? "nil") avatar=\(hasAvatar) cnt=\(parsed.songCount) dur=\(parsed.duration) songs=\(parsed.songs.count)")
             playlist = parsed
+            isLoading = false
+        } catch {
+            self.error = error
+            isLoading = false
+        }
+    }
+
+    private func loadLocalPlaylist(entity: PlaylistEntity) async {
+        do {
+            // Fetch songs from playlist_song_map joined with song table
+            let songs = try await DatabaseService.shared.fetchAll(
+                SongEntity.self,
+                sql: """
+                    SELECT s.* FROM song s
+                    INNER JOIN playlist_song_map m ON m.song_id = s.id
+                    WHERE m.playlist_id = ?
+                    ORDER BY m.position, m.id
+                    """,
+                arguments: [playlistId]
+            )
+            let songItems = songs.map { SongItem(entity: $0) }
+            let totalDuration = songItems.reduce(0) { $0 + $1.duration }
+            playlist = PlaylistDetailInfo(
+                title: entity.name,
+                authorName: nil,
+                authorBrowseId: nil,
+                authorAvatarUrl: nil,
+                descriptionText: nil,
+                songCount: songItems.count,
+                duration: totalDuration,
+                thumbnailUrl: entity.thumbnailUrl,
+                playlistId: playlistId,
+                songs: songItems
+            )
             isLoading = false
         } catch {
             self.error = error
@@ -357,6 +399,8 @@ extension PlaylistDetailViewModel {
 struct PlaylistDetailView: View {
     let playlistId: String
     @State private var viewModel: PlaylistDetailViewModel
+    @State private var playlistEntity: PlaylistEntity?
+    @State private var showAddSongs = false
 
     @Environment(\.dismiss) private var dismiss
 
@@ -368,6 +412,10 @@ struct PlaylistDetailView: View {
     init(autoPlaylistRoute: AutoPlaylistRoute) {
         self.playlistId = ""
         _viewModel = State(initialValue: PlaylistDetailViewModel(autoPlaylistRoute: autoPlaylistRoute))
+    }
+
+    var isEditable: Bool {
+        playlistEntity?.isEditable == true && viewModel.autoRoute == nil
     }
 
     var body: some View {
@@ -398,10 +446,30 @@ struct PlaylistDetailView: View {
         .scrollDisabled(viewModel.isLoading || viewModel.error != nil || viewModel.playlist == nil)
         .navigationTitle(viewModel.playlist?.title ?? "")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if isEditable {
+                ToolbarItem(placement: .primaryAction) {
+                    Button(action: { showAddSongs = true }) {
+                        Image(systemName: "plus")
+                    }
+                }
+            }
+        }
+        .sheet(isPresented: $showAddSongs) {
+            AddSongToPlaylistView(playlistId: playlistId) {
+                await viewModel.load()
+            }
+        }
         .task {
             guard viewModel.isLoading else { return }
+            await fetchEntity()
             await viewModel.load()
         }
+    }
+
+    private func fetchEntity() async {
+        guard !playlistId.isEmpty else { return }
+        playlistEntity = try? await DatabaseService.shared.fetchOne(PlaylistEntity.self, key: playlistId)
     }
 
     private var loadingView: some View {
@@ -545,6 +613,15 @@ struct PlaylistDetailView: View {
                     PlaylistSongRow(song: song)
                 }
                 .buttonStyle(.plain)
+                .contextMenu {
+                    if isEditable {
+                        Button(role: .destructive) {
+                            Task { await removeSong(song, from: playlist) }
+                        } label: {
+                            Label("Remove from Playlist", systemImage: "minus.circle")
+                        }
+                    }
+                }
 
                 if index < playlist.songs.count - 1 {
                     Divider()
@@ -552,6 +629,17 @@ struct PlaylistDetailView: View {
                 }
             }
         }
+    }
+
+    private func removeSong(_ song: SongItem, from playlist: PlaylistDetailInfo) async {
+        let maps = (try? await DatabaseService.shared.fetchAll(
+            PlaylistSongMap.self,
+            sql: "SELECT * FROM playlist_song_map WHERE playlist_id = ? AND song_id = ? LIMIT 1",
+            arguments: [playlistId, song.videoId]
+        )) ?? []
+        guard let setVideoId = maps.first?.setVideoId else { return }
+        try? await MutationService.shared.removeFromPlaylist(playlistId: playlistId, songId: song.videoId, setVideoId: setVideoId)
+        await viewModel.load()
     }
 
     // MARK: - Actions
@@ -667,5 +755,118 @@ struct PlaylistSongRow: View {
         } catch {
             DurationCache.clearPending(vid)
         }
+    }
+}
+
+// MARK: - Add Song to Playlist Sheet
+
+struct AddSongToPlaylistView: View {
+    let playlistId: String
+    let onDone: () async -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var songs: [SongEntity] = []
+    @State private var searchText = ""
+    @State private var isLoading = true
+    @State private var addingIds = Set<String>()
+
+    private var filteredSongs: [SongEntity] {
+        if searchText.isEmpty { return songs }
+        let q = searchText.lowercased()
+        return songs.filter {
+            $0.title.lowercased().contains(q) ||
+            ($0.artistName?.lowercased().contains(q) ?? false)
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if isLoading {
+                    ProgressView("Loading songs...")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if songs.isEmpty {
+                    ContentUnavailableView(
+                        "No songs found",
+                        systemImage: "music.note",
+                        description: Text("Songs you like will appear here")
+                    )
+                } else {
+                    List {
+                        ForEach(filteredSongs, id: \.id) { song in
+                            HStack(spacing: 12) {
+                                AsyncImageView(url: song.thumbnailUrl)
+                                    .frame(width: 40, height: 40)
+                                    .clipShape(RoundedRectangle(cornerRadius: 4))
+
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(song.title)
+                                        .font(.subheadline)
+                                        .fontWeight(.medium)
+                                        .lineLimit(1)
+                                    if let artist = song.artistName {
+                                        Text(artist)
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                            .lineLimit(1)
+                                    }
+                                }
+
+                                Spacer()
+
+                                if addingIds.contains(song.id) {
+                                    ProgressView()
+                                } else {
+                                    Button("Add") {
+                                        Task { await addSong(song) }
+                                    }
+                                    .font(.subheadline)
+                                    .buttonStyle(.borderedProminent)
+                                    .controlSize(.small)
+                                }
+                            }
+                            .padding(.vertical, 2)
+                        }
+                    }
+                    .searchable(text: $searchText, prompt: "Search songs")
+                }
+            }
+            .navigationTitle("Add Songs")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+            .task {
+                await loadSongs()
+            }
+        }
+    }
+
+    private func loadSongs() async {
+        defer { isLoading = false }
+        do {
+            // Fetch songs that have actual titles
+            songs = try await DatabaseService.shared.fetchAll(
+                SongEntity.self,
+                sql: "SELECT * FROM song WHERE title != '' ORDER BY create_date DESC LIMIT 200"
+            )
+        } catch {
+        } catch {
+            print("[AddSong] Failed to load songs: \(error)")
+        }
+    }
+
+    private func addSong(_ song: SongEntity) async {
+        addingIds.insert(song.id)
+        do {
+            try await MutationService.shared.addToPlaylist(playlistId: playlistId, songId: song.id)
+            await onDone()
+            dismiss()
+        } catch {
+            print("[AddSong] Failed to add song: \(error)")
+        }
+        addingIds.remove(song.id)
     }
 }
