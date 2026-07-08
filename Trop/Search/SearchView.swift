@@ -58,6 +58,8 @@ struct SearchView: View {
                     PlaylistDetailView(playlistId: playlistId)
                 case .podcast(let browseId):
                     PodcastDetailView(browseId: browseId)
+                case .autoPlaylist(let autoRoute):
+                    PlaylistDetailView(autoPlaylistRoute: autoRoute)
                 }
             }
             .onAppear {

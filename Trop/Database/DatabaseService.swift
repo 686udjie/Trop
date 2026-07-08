@@ -182,6 +182,13 @@ extension DatabaseService {
     }
 }
 
+enum LibrarySongSort: String, CaseIterable, Sendable {
+    case recentlyAdded = "Recently Added"
+    case title = "Title"
+    case artist = "Artist"
+    case mostPlayed = "Most Played"
+}
+
 // MARK: Personalization Queries
 
 extension DatabaseService {
@@ -260,6 +267,61 @@ extension DatabaseService {
                 .order(Column("bookmarked_at").desc)
                 .limit(limit)
                 .fetchAll(db)
+        }
+    }
+
+    func fetchAllLikedSongs(sort: LibrarySongSort = .recentlyAdded) async throws -> [SongEntity] {
+        try await dbPool.read { db in
+            var request = SongEntity.filter(Column("liked") == true)
+            switch sort {
+            case .title:
+                request = request.order(Column("title").asc)
+            case .artist:
+                request = request.order(Column("artist_name").asc, Column("title").asc)
+            case .recentlyAdded:
+                request = request.order(Column("create_date").desc)
+            case .mostPlayed:
+                request = request.order(Column("total_play_time").desc)
+            }
+            return try request.fetchAll(db)
+        }
+    }
+
+    func fetchAllAlbums() async throws -> [AlbumEntity] {
+        try await dbPool.read { db in
+            try AlbumEntity
+                .order(Column("title").asc)
+                .fetchAll(db)
+        }
+    }
+
+    func fetchAllPodcasts() async throws -> [PodcastEntity] {
+        try await dbPool.read { db in
+            try PodcastEntity
+                .order(Column("name").asc)
+                .fetchAll(db)
+        }
+    }
+
+    func fetchAllLikedSongCount() async throws -> Int {
+        try await dbPool.read { db in
+            try SongEntity.filter(Column("liked") == true).fetchCount(db)
+        }
+    }
+
+    func fetchTopSongs(limit: Int, from: Date, to: Date) async throws -> [SongEntity] {
+        try await dbPool.read { db in
+            try SongEntity.fetchAll(db, sql: """
+                SELECT song.* FROM song
+                LEFT JOIN (
+                    SELECT song_id, SUM(play_time) AS total_time FROM event
+                    WHERE timestamp >= ? AND timestamp <= ?
+                    GROUP BY song_id
+                ) AS top ON song.id = top.song_id
+                WHERE song.liked = 1
+                ORDER BY COALESCE(top.total_time, 0) DESC
+                LIMIT ?
+            """, arguments: [from, to, limit])
         }
     }
 }

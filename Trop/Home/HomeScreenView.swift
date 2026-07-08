@@ -51,6 +51,8 @@ struct HomeScreenView: View {
                     PlaylistDetailView(playlistId: playlistId)
                 case .podcast(let browseId):
                     PodcastDetailView(browseId: browseId)
+                case .autoPlaylist(let autoRoute):
+                    PlaylistDetailView(autoPlaylistRoute: autoRoute)
                 }
             }
             .sheet(isPresented: $viewModel.isLoginSheetPresented) {

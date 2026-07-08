@@ -18,14 +18,28 @@ final class PlaylistDetailViewModel {
     var error: Error?
 
     private let innerTube = InnerTube.shared
+    let autoRoute: AutoPlaylistRoute?
+    var autoSongSort: LibrarySongSort = .recentlyAdded
+    var autoTopPeriod: TopPeriod = .allTime
 
     init(playlistId: String) {
         self.playlistId = playlistId
+        self.autoRoute = nil
+    }
+
+    init(autoPlaylistRoute: AutoPlaylistRoute) {
+        self.playlistId = ""
+        self.autoRoute = autoPlaylistRoute
     }
 
     /// Fetches playlist browse page from InnerTube and parses the response.
     /// Prependes "VL" to the playlistId if not already present (required by the browse endpoint).
     func load() async {
+        if let route = autoRoute {
+            await loadAutoPlaylist(route: route)
+            return
+        }
+
         isLoading = true
         error = nil
 
@@ -36,6 +50,80 @@ final class PlaylistDetailViewModel {
             let hasAvatar = parsed.authorAvatarUrl != nil
             print("[PlaylistDetail] title=\(parsed.title) author=\(parsed.authorName ?? "nil") avatar=\(hasAvatar) cnt=\(parsed.songCount) dur=\(parsed.duration) songs=\(parsed.songs.count)")
             playlist = parsed
+            isLoading = false
+        } catch {
+            self.error = error
+            isLoading = false
+        }
+    }
+
+    private func loadAutoPlaylist(route: AutoPlaylistRoute) async {
+        isLoading = true
+        error = nil
+        print("[PlaylistDetail] Loading auto-playlist route=\(route)")
+
+        do {
+            let entities: [SongEntity]
+            let title: String
+            switch route {
+            case .likedSongs:
+                title = "Liked Songs"
+                print("[PlaylistDetail] Fetching liked songs with sort=\(autoSongSort)")
+                entities = try await DatabaseService.shared.fetchAllLikedSongs(sort: autoSongSort)
+            case .topSongs(let limit):
+                title = "My Top \(limit)"
+                print("[PlaylistDetail] Fetching top songs limit=\(limit) period=\(autoTopPeriod.rawValue)")
+                entities = try await DatabaseService.shared.fetchTopSongs(limit: limit, from: autoTopPeriod.dateFrom, to: Date())
+            }
+            print("[PlaylistDetail] Fetched \(entities.count) song entities")
+
+            var songs = entities.map { SongItem(entity: $0) }
+            print("[PlaylistDetail] songs count=\(songs.count)")
+
+            // Resolve missing durations in background
+            let emptyDurationIds = songs.filter { $0.duration <= 0 }.map { $0.videoId }
+            if !emptyDurationIds.isEmpty {
+                print("[PlaylistDetail] Resolving durations for \(emptyDurationIds.count) songs")
+                await withTaskGroup(of: (String, Int).self) { group in
+                    for videoId in emptyDurationIds {
+                        guard !DurationCache.isPending(videoId) else { continue }
+                        if let cached = DurationCache.get(videoId), cached > 0 { continue }
+                        DurationCache.markPending(videoId)
+                        group.addTask {
+                            do {
+                                let d = try await InnerTube.shared.fetchDuration(videoId: videoId)
+                                DurationCache.set(videoId, d)
+                                return (videoId, d)
+                            } catch {
+                                DurationCache.clearPending(videoId)
+                                return (videoId, 0)
+                            }
+                        }
+                    }
+                }
+                for i in songs.indices where songs[i].duration <= 0 {
+                    if let cached = DurationCache.get(songs[i].videoId), cached > 0 {
+                        songs[i].duration = cached
+                    }
+                }
+                print("[PlaylistDetail] Durations resolved")
+            }
+
+            let totalDuration = songs.reduce(0) { $0 + $1.duration }
+            print("[PlaylistDetail] totalDuration=\(totalDuration)")
+
+            playlist = PlaylistDetailInfo(
+                title: title,
+                authorName: nil,
+                authorBrowseId: nil,
+                authorAvatarUrl: nil,
+                descriptionText: nil,
+                songCount: songs.count,
+                duration: totalDuration,
+                thumbnailUrl: nil,
+                playlistId: "",
+                songs: songs
+            )
             isLoading = false
         } catch {
             self.error = error
@@ -277,6 +365,11 @@ struct PlaylistDetailView: View {
         _viewModel = State(initialValue: PlaylistDetailViewModel(playlistId: playlistId))
     }
 
+    init(autoPlaylistRoute: AutoPlaylistRoute) {
+        self.playlistId = ""
+        _viewModel = State(initialValue: PlaylistDetailViewModel(autoPlaylistRoute: autoPlaylistRoute))
+    }
+
     var body: some View {
         ScrollView {
             Group {
@@ -345,10 +438,22 @@ struct PlaylistDetailView: View {
     private func header(for playlist: PlaylistDetailInfo) -> some View {
         VStack(spacing: 12) {
             // Playlist artwork
-            AsyncImageView(url: playlist.thumbnailUrl)
-                .frame(width: 200, height: 200)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-                .shadow(color: .black.opacity(0.2), radius: 12, y: 4)
+            if let thumbnailUrl = playlist.thumbnailUrl {
+                AsyncImageView(url: thumbnailUrl)
+                    .frame(width: 200, height: 200)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .shadow(color: .black.opacity(0.2), radius: 12, y: 4)
+            } else {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(LinearGradient(colors: [.blue, .purple], startPoint: .topLeading, endPoint: .bottomTrailing))
+                    .frame(width: 200, height: 200)
+                    .overlay(
+                        Image(systemName: "music.note.list")
+                            .font(.system(size: 60))
+                            .foregroundColor(.white.opacity(0.8))
+                    )
+                    .shadow(color: .black.opacity(0.2), radius: 12, y: 4)
+            }
 
             // Playlist title
             Text(playlist.title)
@@ -437,39 +542,7 @@ struct PlaylistDetailView: View {
         VStack(spacing: 0) {
             ForEach(Array(playlist.songs.enumerated()), id: \.offset) { index, song in
                 Button(action: { playSong(song, in: playlist) }) {
-                    HStack(spacing: 12) {
-                        // Song thumbnail
-                        AsyncImageView(url: song.thumbnailUrl)
-                            .frame(width: 40, height: 40)
-                            .clipShape(RoundedRectangle(cornerRadius: 4))
-
-                        // Title and subtitle (artists • duration)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(song.title)
-                                .font(.subheadline)
-                                .fontWeight(.medium)
-                                .foregroundColor(.primary)
-                                .lineLimit(1)
-
-                            let artistStr = song.artists.map(\.name).joined(separator: ", ")
-                            let durationStr = song.duration.formattedDuration
-                            let subtitleText = artistStr.isEmpty ? durationStr : (durationStr.isEmpty ? artistStr : "\(artistStr) • \(durationStr)")
-
-                            Text(subtitleText)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                                .lineLimit(1)
-                        }
-
-                        Spacer()
-
-                        // Options ellipsis
-                        Image(systemName: "ellipsis")
-                            .font(.body)
-                            .foregroundStyle(.blue)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 6)
+                    PlaylistSongRow(song: song)
                 }
                 .buttonStyle(.plain)
 
@@ -527,5 +600,72 @@ struct PlaylistDetailView: View {
         if playlist.songCount > 0 { parts.append("\(playlist.songCount) song\(playlist.songCount != 1 ? "s" : "")") }
         if playlist.duration > 0 { parts.append(playlist.duration.formattedDuration) }
         return parts
+    }
+}
+
+// MARK: - Song Row
+
+struct PlaylistSongRow: View {
+    let song: SongItem
+
+    @State private var resolvedDuration: Int = 0
+
+    private var effectiveDuration: Int {
+        song.duration > 0 ? song.duration : resolvedDuration
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            AsyncImageView(url: song.thumbnailUrl)
+                .frame(width: 40, height: 40)
+                .clipShape(RoundedRectangle(cornerRadius: 4))
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(song.title)
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+
+                let artistStr = song.artists.map(\.name).joined(separator: ", ")
+                let durationStr = effectiveDuration.formattedDuration
+                let subtitleText = artistStr.isEmpty ? durationStr : (durationStr.isEmpty ? artistStr : "\(artistStr) • \(durationStr)")
+
+                Text(subtitleText)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            Image(systemName: "ellipsis")
+                .font(.body)
+                .foregroundStyle(.blue)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 6)
+        .task { await resolveDuration() }
+        .onReceive(NotificationCenter.default.publisher(for: .durationDidUpdate)) { notification in
+            guard let vid = notification.userInfo?["videoId"] as? String, vid == song.videoId else { return }
+            resolvedDuration = DurationCache.get(vid) ?? 0
+        }
+    }
+
+    private func resolveDuration() async {
+        guard song.duration <= 0 else { return }
+        let vid = song.videoId
+        if let cached = DurationCache.get(vid), cached > 0 {
+            resolvedDuration = cached
+            return
+        }
+        guard !DurationCache.isPending(vid) else { return }
+        DurationCache.markPending(vid)
+        do {
+            let duration = try await InnerTube.shared.fetchDuration(videoId: vid)
+            resolvedDuration = duration
+        } catch {
+            DurationCache.clearPending(vid)
+        }
     }
 }
