@@ -258,7 +258,10 @@ final class HomeViewModel {
             return f.items.isEmpty ? nil : f
         }
 
-        return filtered.sorted { a, b in
+        var seen = Set<String>()
+        let deduped = filtered.filter { seen.insert($0.id).inserted }
+
+        return deduped.sorted { a, b in
             sectionWeight(a) > sectionWeight(b)
         }
     }

@@ -137,7 +137,6 @@ extension PodcastDetailViewModel {
                let runs = subtitle["runs"] as? [[String: Any]] {
                 let texts = runs.compactMap { $0["text"] as? String }
                 // Subtitle format: "Date • Duration" or "Date"
-                let joined = texts.joined()
                 let separated = texts.filter { $0.trimmingCharacters(in: .whitespaces) != "•" }
                 for text in separated {
                     let trimmed = text.trimmingCharacters(in: .whitespaces)
