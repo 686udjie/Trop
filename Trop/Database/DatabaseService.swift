@@ -34,6 +34,7 @@ actor DatabaseService {
 // MARK: Generic CRUD
 
 extension DatabaseService {
+    @discardableResult
     func insert<T: MutablePersistableRecord & Sendable>(_ record: T) async throws -> T {
         try await dbPool.write { db -> T in
             var mutable = record
@@ -42,6 +43,7 @@ extension DatabaseService {
         }
     }
 
+    @discardableResult
     func insert<T: MutablePersistableRecord & Sendable>(_ record: T, onConflict: Database.ConflictResolution) async throws -> T {
         try await dbPool.write { db -> T in
             var mutable = record

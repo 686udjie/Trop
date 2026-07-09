@@ -853,7 +853,6 @@ struct AddSongToPlaylistView: View {
                 sql: "SELECT * FROM song WHERE title != '' ORDER BY create_date DESC LIMIT 200"
             )
         } catch {
-        } catch {
             print("[AddSong] Failed to load songs: \(error)")
         }
     }

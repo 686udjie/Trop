@@ -42,6 +42,7 @@ actor CipherWebView: NSObject {
         let nClass: String?
         let nJsExpression: String?
         let isExpression: Bool
+        var rawNFuncBody: String?
         if let config = await PlayerConfigStore.shared.config(for: hash) {
             sigConfig = config.sigFunction.body
             nClass = config.nFunction.varName
@@ -62,8 +63,23 @@ actor CipherWebView: NSObject {
                 isExpression = false
                 print("[CipherWebView] Heuristic extraction failed, using fallback")
             }
-            nClass = nil
-            nJsExpression = nil
+            if let nClassHeuristic = extracted?.nClass {
+                nClass = nClassHeuristic
+                nJsExpression = PlayerConfig(nClass: nClassHeuristic).nJsExpression
+                rawNFuncBody = nil
+                print("[CipherWebView] Extracted nClass=\(nClassHeuristic) heuristically")
+            } else if let nJs = extracted?.nJs {
+                nClass = nil
+                nJsExpression = nil
+                let raw = nJs.hasPrefix("(") && nJs.hasSuffix(")") ? String(nJs.dropFirst().dropLast()) : nJs
+                rawNFuncBody = raw
+                print("[CipherWebView] Extracted n-transform function heuristically")
+            } else {
+                nClass = nil
+                nJsExpression = nil
+                rawNFuncBody = nil
+                print("[CipherWebView] No n-transform found via heuristics")
+            }
         }
 
         // Patch player.js to expose cipher functions on window
@@ -73,6 +89,7 @@ actor CipherWebView: NSObject {
             sigIsExpression: isExpression,
             nClass: nClass,
             nJsExpression: nJsExpression,
+            rawNFuncBody: rawNFuncBody,
             playerHash: hash
         )
 

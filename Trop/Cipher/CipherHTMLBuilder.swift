@@ -17,6 +17,7 @@ enum CipherHTMLBuilder {
         sigIsExpression: Bool = true,
         nClass: String?,
         nJsExpression: String?,
+        rawNFuncBody: String? = nil,
         playerHash: String?
     ) -> String {
         var exports: [String] = []
@@ -57,6 +58,8 @@ enum CipherHTMLBuilder {
         if let nExpr = nJsExpression {
             let expr = nExpr.replacingOccurrences(of: "INPUT", with: "n")
             exports.append("window._nTransformFunc=function(n){try{return \(expr)}catch(e){return n}}")
+        } else if let rawBody = rawNFuncBody {
+            exports.append("window._nTransformFunc=\(rawBody)")
         }
 
         // n-normalization (YouTube's gN$ syncs /n/ path with ?n= param)
@@ -173,6 +176,7 @@ enum CipherHTMLBuilder {
         sigIsExpression: Bool = true,
         nClass: String?,
         nJsExpression: String?,
+        rawNFuncBody: String? = nil,
         playerHash: String?
     ) -> String {
         let modifiedJs = patchPlayerJs(
@@ -181,6 +185,7 @@ enum CipherHTMLBuilder {
             sigIsExpression: sigIsExpression,
             nClass: nClass,
             nJsExpression: nJsExpression,
+            rawNFuncBody: rawNFuncBody,
             playerHash: playerHash
         )
         return buildDiscoveryHtml(playerJs: modifiedJs)

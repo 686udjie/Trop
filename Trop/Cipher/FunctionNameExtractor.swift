@@ -18,6 +18,8 @@ actor FunctionNameExtractor {
         var sigJs: String
         /// JavaScript n-transform function body (as a callable expression)
         var nJs: String?
+        /// URL builder class name on `window.g` used for n-param transform
+        var nClass: String?
     }
 
     private init() {}
@@ -77,9 +79,11 @@ actor FunctionNameExtractor {
             throw CipherError.functionNotFound("cipher function")
         }
         let nBody = extractNFunctionHeuristic(js)
+        let nClass = extractNClassHeuristic(js)
         return ExtractedFunctions(
             sigJs: wrapSigFunction(sigBody),
-            nJs: nBody.map { wrapNFunction($0) }
+            nJs: nBody.map { wrapNFunction($0) },
+            nClass: nClass
         )
     }
 
@@ -134,6 +138,20 @@ actor FunctionNameExtractor {
             }
         }
         return nil
+    }
+
+    /// Extract the URL builder class name (nClass) from player.js heuristically.
+    /// Looks for `new g.<class>(url, true).<method>("n")` pattern.
+    private func extractNClassHeuristic(_ js: String) -> String? {
+        guard let pattern = try? NSRegularExpression(
+            pattern: #"new\s+g\.(\w+)\([^,]+,\s*(?:!0|true)\)\s*\.[\w$]+\(\s*['"]n['"]\s*\)"#,
+            options: []
+        ) else { return nil }
+
+        let nsJs = js as NSString
+        let matches = pattern.matches(in: js, range: NSRange(location: 0, length: nsJs.length))
+        guard let match = matches.first else { return nil }
+        return nsJs.substring(with: match.range(at: 1))
     }
 
     // MARK: - Brace Matching
