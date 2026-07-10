@@ -99,6 +99,7 @@ final class NowPlaying {
             self?.startTimer()
         }
         loadThumbnail(videoId: videoId)
+        preloadNextTrack()
     }
 
     func stopped(videoId: String?) {
@@ -135,6 +136,19 @@ final class NowPlaying {
                 await MainActor.run {
                     thumbnailImage = Image(systemName: "music.note")
                 }
+            }
+        }
+    }
+
+    private func preloadNextTrack() {
+        guard hasNext else { return }
+        let nextId = queueSongs[queueIndex + 1].videoId
+        Task {
+            do {
+                _ = try await PlaybackManager.shared.resolve(videoId: nextId)
+                print("[NowPlaying] Pre-resolved next track: \(nextId)")
+            } catch {
+                print("[NowPlaying] Pre-resolve failed: \(error)")
             }
         }
     }

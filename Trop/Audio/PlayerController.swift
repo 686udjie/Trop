@@ -113,6 +113,7 @@ final class PlayerController {
             mpv_set_option_string(mpv, "keep-open", "no")
             mpv_set_option_string(mpv, "cache", "yes")
             mpv_set_option_string(mpv, "demuxer-max-bytes", "200M")
+            mpv_set_option_string(mpv, "gapless-audio", "yes")
             mpv_request_log_messages(mpv, "info")
 
             if mpv_initialize(mpv) < 0 {
