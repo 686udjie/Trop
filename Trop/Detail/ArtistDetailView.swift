@@ -59,11 +59,9 @@ extension ArtistDetailViewModel {
         // Artist pages can use either an immersive header (large background image)
         // or a responsive header (smaller, more compact).
         if let header = json["header"] as? [String: Any] {
-            print("[ArtistDetail] header keys: \(header.keys)")
             if let immersive = header["musicImmersiveHeaderRenderer"] as? [String: Any] {
                 name = DetailParser.extractRunsText(immersive["title"] as? [String: Any]) ?? "Unknown Artist"
                 thumbnailUrl = DetailParser.extractMusicThumbnail(immersive)
-                print("[ArtistDetail] found musicImmersiveHeaderRenderer, name=\(name) thumbnail=\(thumbnailUrl ?? "nil")")
 
                 // Subscription state and subscriber count
                 if let subButton = immersive["subscriptionButton"] as? [String: Any],
@@ -77,9 +75,7 @@ extension ArtistDetailViewModel {
             } else if let responsive = header["musicResponsiveHeaderRenderer"] as? [String: Any] {
                 name = DetailParser.extractRunsText(responsive["title"] as? [String: Any]) ?? "Unknown Artist"
                 thumbnailUrl = DetailParser.extractMusicThumbnail(responsive)
-                print("[ArtistDetail] found musicResponsiveHeaderRenderer, name=\(name) thumbnail=\(thumbnailUrl ?? "nil")")
 
-                // Subscription state and subscriber count
                 if let subButton = responsive["subscriptionButton"] as? [String: Any],
                    let toggle = subButton["subscriptionNotificationToggleButtonRenderer"] as? [String: Any] {
                     isSubscribed = (toggle["subscribed"] as? Bool) ?? false
@@ -88,27 +84,20 @@ extension ArtistDetailViewModel {
                         subscriberCountText = runs.compactMap { $0["text"] as? String }.joined()
                     }
                 }
-            } else {
-                print("[ArtistDetail] no known header renderer found, header keys: \(header.keys)")
             }
-        } else {
-            print("[ArtistDetail] no header in json")
         }
 
-        // --- Fallback: name & thumbnail from microformat ---
         if name == "Unknown Artist" || thumbnailUrl == nil,
            let microformat = json["microformat"] as? [String: Any],
            let mfRenderer = microformat["microformatDataRenderer"] as? [String: Any] {
             if name == "Unknown Artist", let mfTitle = mfRenderer["title"] as? String {
                 name = mfTitle
-                print("[ArtistDetail] name from microformat: \(name)")
             }
             if thumbnailUrl == nil, let thumb = mfRenderer["thumbnail"] as? [String: Any],
                let thumbnails = thumb["thumbnails"] as? [[String: Any]],
                let last = thumbnails.last,
                let url = last["url"] as? String {
                 thumbnailUrl = url
-                print("[ArtistDetail] thumbnail from microformat: \(thumbnailUrl ?? "nil")")
             }
             if descriptionText == nil, let desc = mfRenderer["description"] as? String {
                 descriptionText = desc
@@ -457,7 +446,6 @@ struct ArtistDetailView: View {
         Task {
             do {
                 try await PlaybackManager.shared.resolveAndPlay(videoId: first.videoId)
-                print("[ArtistDetailView] Playing \(first.title)")
             } catch {
                 print("[ArtistDetailView] Playback failed: \(error)")
             }
@@ -472,7 +460,6 @@ struct ArtistDetailView: View {
         Task {
             do {
                 try await PlaybackManager.shared.resolveAndPlay(videoId: first.videoId)
-                print("[ArtistDetailView] Shuffle playing \(first.title)")
             } catch {
                 print("[ArtistDetailView] Shuffle playback failed: \(error)")
             }
@@ -486,7 +473,6 @@ struct ArtistDetailView: View {
         Task {
             do {
                 try await PlaybackManager.shared.resolveAndPlay(videoId: song.videoId)
-                print("[ArtistDetailView] Playing \(song.title)")
             } catch {
                 print("[ArtistDetailView] Playback failed: \(error)")
             }
@@ -494,7 +480,42 @@ struct ArtistDetailView: View {
     }
 
     private func toggleSubscribe(_ artist: ArtistDetailInfo) {
-        // TODO: Implement subscribe/unsubscribe via InnerTube API
-        print("[ArtistDetailView] Toggle subscribe for \(artist.name) - not yet implemented")
+        Task {
+            do {
+                let channelId = artist.browseId
+                let entity = ArtistEntity(
+                    id: artist.browseId,
+                    name: artist.name,
+                    thumbnailUrl: artist.thumbnailUrl,
+                    bookmarkedAt: artist.isSubscribed ? nil : Date(),
+                    isPodcastChannel: false,
+                    channelId: channelId
+                )
+                try await DatabaseService.shared.insertOrReplace(entity)
+
+                if artist.isSubscribed {
+                    try await MutationService.shared.unsubscribeArtist(channelId: channelId, artistId: artist.browseId)
+                } else {
+                    try await MutationService.shared.subscribeArtist(channelId: channelId, artistId: artist.browseId)
+                }
+
+                await MainActor.run {
+                    if let current = viewModel.artist {
+                        viewModel.artist = ArtistDetailInfo(
+                            name: current.name,
+                            thumbnailUrl: current.thumbnailUrl,
+                            subscriberCountText: current.subscriberCountText,
+                            descriptionText: current.descriptionText,
+                            isSubscribed: !current.isSubscribed,
+                            browseId: current.browseId,
+                            songs: current.songs,
+                            albums: current.albums
+                        )
+                    }
+                }
+            } catch {
+                print("[ArtistDetailView] Subscribe failed: \(error)")
+            }
+        }
     }
 }

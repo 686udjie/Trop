@@ -10,6 +10,7 @@ import Observation
 import Combine
 import Nuke
 import SwiftUI
+import MediaPlayer
 
 @Observable
 final class NowPlaying {
@@ -17,6 +18,7 @@ final class NowPlaying {
 
     var title = ""
     var artist = ""
+    var albumTitle = ""
     var videoId: String?
     var isPlaying = false
     var currentTime: TimeInterval = 0
@@ -24,8 +26,8 @@ final class NowPlaying {
     var progress: Float = 0
     var isPopupOpen = false
     var thumbnailImage: Image?
+    var thumbnailUIImage: UIImage?
 
-    // Queue
     var queueSongs: [SongItem] = []
     var queueIndex = 0
 
@@ -42,6 +44,8 @@ final class NowPlaying {
     }
 
     private var timer: Timer?
+    private var lockScreenUpdateCounter: Int = 0
+    var lastManualSkipTime: Date?
 
     private init() {}
 
@@ -50,12 +54,13 @@ final class NowPlaying {
         queueIndex = startIndex
     }
 
-    func playNext() {
+    func playNext(automatic: Bool = false) {
         guard hasNext else { return }
+        if !automatic { lastManualSkipTime = Date() }
         queueIndex += 1
         let song = queueSongs[queueIndex]
         let displayArtist = song.artists.map(\.name).joined(separator: ", ")
-        update(title: song.title, artist: displayArtist, videoId: song.videoId)
+        update(title: song.title, artist: displayArtist, videoId: song.videoId, album: song.album)
         Task {
             do {
                 try await PlaybackManager.shared.resolveAndPlay(videoId: song.videoId)
@@ -67,10 +72,11 @@ final class NowPlaying {
 
     func playPrevious() {
         guard hasPrevious else { return }
+        lastManualSkipTime = Date()
         queueIndex -= 1
         let song = queueSongs[queueIndex]
         let displayArtist = song.artists.map(\.name).joined(separator: ", ")
-        update(title: song.title, artist: displayArtist, videoId: song.videoId)
+        update(title: song.title, artist: displayArtist, videoId: song.videoId, album: song.album)
         Task {
             do {
                 try await PlaybackManager.shared.resolveAndPlay(videoId: song.videoId)
@@ -80,24 +86,34 @@ final class NowPlaying {
         }
     }
 
-    func update(title: String, artist: String?, videoId: String) {
+    func update(title: String, artist: String?, videoId: String, album: String? = nil) {
         self.title = title
         self.artist = artist ?? ""
+        if let album {
+            albumTitle = album
+        }
         self.videoId = videoId
         self.isPlaying = true
+        PlayerController.shared.setNowPlayingMetadata()
         DispatchQueue.main.async { [weak self] in
             self?.startTimer()
         }
         loadThumbnail(videoId: videoId)
     }
 
-    func stopped() {
+    func stopped(videoId: String?) {
+        guard self.videoId == videoId else { return }
+        if let skipTime = lastManualSkipTime, Date().timeIntervalSince(skipTime) < 2 {
+            return
+        }
         if hasNext {
-            playNext()
+            playNext(automatic: true)
         } else {
             isPlaying = false
             thumbnailImage = nil
+            thumbnailUIImage = nil
             stopTimer()
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
         }
     }
 
@@ -111,7 +127,9 @@ final class NowPlaying {
             do {
                 let platformImage = try await ImagePipeline.shared.image(for: url)
                 await MainActor.run {
+                    thumbnailUIImage = platformImage
                     thumbnailImage = Image(uiImage: platformImage)
+                    PlayerController.shared.setNowPlayingMetadata()
                 }
             } catch {
                 await MainActor.run {
@@ -123,12 +141,18 @@ final class NowPlaying {
 
     private func startTimer() {
         stopTimer()
-        timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+        lockScreenUpdateCounter = 0
+        timer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
             guard let self else { return }
             currentTime = PlayerController.shared.currentTime
             duration = PlayerController.shared.duration
             progress = duration > 0 ? Float(currentTime / duration) : 0
             isPlaying = PlayerController.shared.playState.value == .playing
+            lockScreenUpdateCounter += 1
+            if lockScreenUpdateCounter >= 8 {
+                lockScreenUpdateCounter = 0
+                PlayerController.shared.updateNowPlayingProgress()
+            }
         }
     }
 
