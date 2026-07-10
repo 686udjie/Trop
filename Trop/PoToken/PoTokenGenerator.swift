@@ -14,6 +14,7 @@ actor PoTokenGenerator: NSObject {
     private var webView: WKWebView?
     private var webViewReady = false
     private var loadingWebView = false
+    private var minterReady = false
 
     private override init() {
         super.init()
@@ -55,6 +56,31 @@ actor PoTokenGenerator: NSObject {
 
     func generate(videoId: String, sessionId: String?) async throws -> PoTokenResult {
         try await ensureWebView()
+        try await ensureMinter()
+
+        let sessionIdStr = sessionId ?? "SESSION"
+        do {
+            let playerToken = try await generatePoToken(sessionIdStr)
+            let streamingToken = try await generatePoToken(videoId)
+            return PoTokenResult(
+                playerRequestPoToken: playerToken,
+                streamingDataPoToken: streamingToken
+            )
+        } catch {
+            print("[PoToken] Token generation failed, re-creating minter...")
+            minterReady = false
+            try await ensureMinter()
+            let playerToken = try await generatePoToken(sessionIdStr)
+            let streamingToken = try await generatePoToken(videoId)
+            return PoTokenResult(
+                playerRequestPoToken: playerToken,
+                streamingDataPoToken: streamingToken
+            )
+        }
+    }
+
+    private func ensureMinter() async throws {
+        if minterReady { return }
 
         // 1. Create BotGuard challenge
         print("[PoToken] Creating BotGuard challenge...")
@@ -63,9 +89,7 @@ actor PoTokenGenerator: NSObject {
             + " globalName=\(challenge.globalName ?? "?")"
             + " interpreter=\(challenge.interpreterJavascript != nil)")
 
-        // 2. Build challenge JSON and call runBotGuard in WebView.
-        //    The BotGuard JS runs asynchronously; we wait for the Promise.
-        //    result.webPoSignalOutput is stored in window.__webPoSignalOutput for later use.
+        // 2. Build challenge JSON and call runBotGuard in WebView
         let challengeJSON = buildChallengeJSON(challenge)
         print("[PoToken] Running BotGuard in WebView...")
 
@@ -95,17 +119,7 @@ actor PoTokenGenerator: NSObject {
         """)
         print("[PoToken] Minter created")
 
-        // 5. Generate tokens
-        let sessionIdStr = sessionId ?? "SESSION"
-        let playerToken = try await generatePoToken(sessionIdStr)
-        let streamingToken = try await generatePoToken(videoId)
-
-        print("[PoToken] Tokens generated: player=\(playerToken.prefix(30))... stream=\(streamingToken.prefix(30))...")
-
-        return PoTokenResult(
-            playerRequestPoToken: playerToken,
-            streamingDataPoToken: streamingToken
-        )
+        minterReady = true
     }
 
     private func generatePoToken(_ identifier: String) async throws -> String {
