@@ -22,7 +22,10 @@ struct SearchView: View {
                 } else if let error = viewModel.error {
                     errorView(error)
                 } else if !viewModel.searchSections.isEmpty {
-                    searchResultsView
+                    if !viewModel.availableFilters.isEmpty {
+                        filterChips
+                    }
+                    searchResultsList
                 } else if !viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     suggestionsAndLocalView
                 } else if !viewModel.searchHistory.isEmpty {
@@ -214,9 +217,9 @@ struct SearchView: View {
         .listStyle(.plain)
     }
 
-    private var searchResultsView: some View {
+    private var searchResultsList: some View {
         List {
-            ForEach(viewModel.searchSections) { section in
+            ForEach(viewModel.filteredSections) { section in
                 Section(header: Text(section.title).font(.headline).foregroundColor(.primary).textCase(nil)) {
                     ForEach(section.items, id: \.id) { item in
                         YouTubeListItemView(item: item, onTap: {
@@ -229,6 +232,36 @@ struct SearchView: View {
             }
         }
         .listStyle(.plain)
+    }
+
+    private var filterChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(viewModel.availableFilters, id: \.self) { filter in
+                    Button {
+                        viewModel.selectedSectionFilter = filter
+                    } label: {
+                        Text(filter)
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                            .background(
+                                Capsule()
+                                    .fill(viewModel.selectedSectionFilter == filter
+                                        ? Color.accentColor
+                                        : Color(.systemGray5))
+                            )
+                            .foregroundColor(viewModel.selectedSectionFilter == filter
+                                ? .white
+                                : .primary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+        }
     }
 
     private var noRecentSearchesView: some View {

@@ -91,7 +91,7 @@ final class PlayerController {
         if let mpv = self.mpv {
             mpv_wakeup(mpv)
         }
-        if let vid = currentVideoId {
+        if currentVideoId != nil {
             currentVideoId = nil
             Task { await PlaybackStateService.shared.stopTracking() }
         }

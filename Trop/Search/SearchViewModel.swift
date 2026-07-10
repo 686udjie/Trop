@@ -21,6 +21,18 @@ final class SearchViewModel {
     var localPlaylists: [PlaylistEntity] = []
 
     var searchSections: [SearchSection] = []
+    var selectedSectionFilter: String?
+
+    var filteredSections: [SearchSection] {
+        guard let filter = selectedSectionFilter else { return searchSections }
+        return searchSections.filter { $0.title == filter }
+    }
+
+    var availableFilters: [String] {
+        let filters = Set(searchSections.map(\.title))
+        let order = ["Songs", "Albums", "Artists", "Playlists", "Podcasts", "Episodes", "Videos"]
+        return order.filter { filters.contains($0) }
+    }
 
     var searchHistory: [SearchHistoryEntity] = []
 
@@ -115,6 +127,7 @@ final class SearchViewModel {
                 let sections = SearchParser.parseSearchResults(from: raw)
                 await MainActor.run {
                     self.searchSections = sections
+                    self.selectedSectionFilter = nil
                     self.isLoading = false
                 }
             } catch {
@@ -131,6 +144,7 @@ final class SearchViewModel {
     func clearSearch() {
         searchText = ""
         searchSections = []
+        selectedSectionFilter = nil
         clearSuggestions()
     }
 
