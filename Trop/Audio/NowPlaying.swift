@@ -45,7 +45,6 @@ final class NowPlaying {
     }
 
     private var timer: Timer?
-    private var lockScreenUpdateCounter: Int = 0
     var lastManualSkipTime: Date?
 
     private init() {}
@@ -162,18 +161,13 @@ final class NowPlaying {
 
     private func startTimer() {
         stopTimer()
-        lockScreenUpdateCounter = 0
         timer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
             guard let self else { return }
             currentTime = PlayerController.shared.currentTime
             duration = PlayerController.shared.duration
             progress = duration > 0 ? Float(currentTime / duration) : 0
             isPlaying = PlayerController.shared.playState.value == .playing
-            lockScreenUpdateCounter += 1
-            if lockScreenUpdateCounter >= 8 {
-                lockScreenUpdateCounter = 0
-                PlayerController.shared.updateNowPlayingProgress()
-            }
+            PlayerController.shared.updateNowPlayingProgress()
         }
     }
 

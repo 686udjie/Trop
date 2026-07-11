@@ -75,13 +75,11 @@ actor FunctionNameExtractor {
     // MARK: - Heuristic Extraction
 
     private func extractHeuristic(from js: String) throws -> ExtractedFunctions {
-        guard let sigBody = extractCipherFunctionHeuristic(js) else {
-            throw CipherError.functionNotFound("cipher function")
-        }
+        let sigBody = extractCipherFunctionHeuristic(js)
         let nBody = extractNFunctionHeuristic(js)
         let nClass = extractNClassHeuristic(js)
         return ExtractedFunctions(
-            sigJs: wrapSigFunction(sigBody),
+            sigJs: sigBody.map { wrapSigFunction($0) } ?? "",
             nJs: nBody.map { wrapNFunction($0) },
             nClass: nClass
         )
@@ -141,10 +139,10 @@ actor FunctionNameExtractor {
     }
 
     /// Extract the URL builder class name (nClass) from player.js heuristically.
-    /// Looks for `new g.<class>(url, true).<method>("n")` pattern.
+    /// Looks for `(new g.<class>(url, true)).get("n")` or similar patterns.
     private func extractNClassHeuristic(_ js: String) -> String? {
         guard let pattern = try? NSRegularExpression(
-            pattern: #"new\s+g\.(\w+)\([^,]+,\s*(?:!0|true)\)\s*\.[\w$]+\(\s*['"]n['"]\s*\)"#,
+            pattern: #"\(?new\s+g\.(\w+)\([^,]+,\s*(?:!0|true)\)\)?\s*\.[\w$]+\(\s*['""]n['""]\s*\)"#,
             options: []
         ) else { return nil }
 

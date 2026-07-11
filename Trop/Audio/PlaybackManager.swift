@@ -17,7 +17,6 @@ actor PlaybackManager {
     /// Resolve a video and start playback. Returns the result used, or throws.
     @discardableResult
     func resolveAndPlay(videoId: String) async throws -> PlaybackResult {
-        // 1. Check cache first
         if let cached = await StreamCache.shared.get(videoId: videoId) {
             print("[PlaybackManager] Cache hit for videoId=\(videoId)")
             PlayerController.shared.play(
@@ -29,22 +28,22 @@ actor PlaybackManager {
             return cached
         }
 
-        // 2. Resolve via fallback chain
+        // Pre-generate PoToken in background while direct-URL clients are tried
+        let poTokenTask = Task { try? await generatePoToken(videoId: videoId) }
+
         var lastError: Error?
 
         for fb in ClientFallbackChain.preferred {
-            // Generate PoToken for web clients that need it
             var playerPoToken: String?
             var streamPoToken: String?
 
             if fb.client.useWebPoTokens {
-                do {
-                    let tokens = try await generatePoToken(videoId: videoId)
+                if let tokens = await poTokenTask.value {
                     playerPoToken = tokens.playerRequestPoToken
                     streamPoToken = tokens.streamingDataPoToken
                     print("[PlaybackManager] Got PoToken for \(fb.client.clientName)")
-                } catch {
-                    print("[PlaybackManager] PoToken generation failed for \(fb.client.clientName): \(error.localizedDescription)")
+                } else {
+                    print("[PlaybackManager] PoToken unavailable for \(fb.client.clientName)")
                 }
             }
 
@@ -111,12 +110,12 @@ actor PlaybackManager {
 
     /// Resolve a video without playing. Useful for previews / testing.
     func resolve(videoId: String) async throws -> PlaybackResult {
-        // Check cache
         if let cached = await StreamCache.shared.get(videoId: videoId) {
             print("[PlaybackManager] Cache hit for videoId=\(videoId)")
             return cached
         }
 
+        let poTokenTask = Task { try? await generatePoToken(videoId: videoId) }
         var lastError: Error?
 
         for fb in ClientFallbackChain.preferred {
@@ -124,13 +123,8 @@ actor PlaybackManager {
             var streamPoToken: String?
 
             if fb.client.useWebPoTokens {
-                do {
-                    let tokens = try await generatePoToken(videoId: videoId)
-                    playerPoToken = tokens.playerRequestPoToken
-                    streamPoToken = tokens.streamingDataPoToken
-                } catch {
-                    print("[PlaybackManager] PoToken gen failed for \(fb.client.clientName): \(error.localizedDescription)")
-                }
+                playerPoToken = await poTokenTask.value?.playerRequestPoToken
+                streamPoToken = await poTokenTask.value?.streamingDataPoToken
             }
 
             do {

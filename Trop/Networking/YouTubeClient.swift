@@ -120,6 +120,7 @@ struct YouTubeClient: Codable {
         clientVersion: "2.20260213.01.00",
         clientId: 1,
         userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0",
+        loginSupported: true,
         useSignatureTimestamp: true,
         useWebPoTokens: true
     )

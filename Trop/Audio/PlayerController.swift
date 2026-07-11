@@ -247,6 +247,8 @@ final class PlayerController {
         nowPlayingInfo[MPMediaItemPropertyAlbumTitle] = np.albumTitle
         nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] = np.isPlaying ? 1.0 : 0.0
         nowPlayingInfo[MPNowPlayingInfoPropertyMediaType] = MPNowPlayingInfoMediaType.audio.rawValue
+        nowPlayingInfo[MPMediaItemPropertyPlaybackDuration] = np.duration
+        nowPlayingInfo[MPNowPlayingInfoPropertyElapsedPlaybackTime] = np.currentTime
         nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackQueueIndex] = np.queueIndex
         nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackQueueCount] = np.queueSongs.count
         if let image = np.thumbnailUIImage {

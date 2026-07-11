@@ -52,7 +52,7 @@ actor CipherWebView: NSObject {
         } else {
             print("[CipherWebView] No config for hash \(hash), trying heuristic extraction")
             let extracted = try? await FunctionNameExtractor.shared.extract(from: playerJs, playerHash: hash)
-            if let js = extracted?.sigJs {
+            if let js = extracted?.sigJs, !js.isEmpty {
                 // Strip the outer parens to get the raw function declaration
                 let raw = js.hasPrefix("(") && js.hasSuffix(")") ? String(js.dropFirst().dropLast()) : js
                 sigConfig = raw
@@ -124,10 +124,25 @@ actor CipherWebView: NSObject {
 
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
             self.readyContinuation = cont
+            self.scheduleReadyTimeout()
         }
 
         self.isReady = true
         print("[CipherWebView] Ready (file-based, hash=\(hash))")
+    }
+
+    private nonisolated func scheduleReadyTimeout() {
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 30_000_000_000)
+            await self?.handleTimeout()
+        }
+    }
+
+    fileprivate func handleTimeout() {
+        if let cont = readyContinuation {
+            cont.resume(throwing: CipherError.jsExecutionFailed("WebView ready timeout"))
+            readyContinuation = nil
+        }
     }
 
     func resolveCipherURL(cipherText: String) async throws -> String {
@@ -142,54 +157,46 @@ actor CipherWebView: NSObject {
             throw CipherError.invalidResponse("Could not decode URL")
         }
 
-        // Use player's own buildSignedUrl() which matches YouTube's s2:
-        //   g.lq → set("alr","yes") → fJ(24,1210,decodeURI(sig)) → set(sp,sig) → toString()
+        var url = decodedUrl
         if let sig = sigEncoded {
+            // Try player's URL builder first (returns URL with sig embedded)
             let result = try await evaluateJS(
                 "buildSignedUrl(\(escapeJs(decodedUrl)), \(escapeJs(spParam)), \(escapeJs(sig)))"
             )
-            if let builtUrl = result, !builtUrl.isEmpty {
-                return builtUrl
+            if let builtUrl = result, builtUrl.hasPrefix("http") {
+                url = builtUrl
+            } else {
+                // Fallback: manual sig deobfuscation + URL assembly
+                let deobfuscated = try await evaluateJS(
+                    "deobfuscateSig(null,null,\(escapeJs(sig)))"
+                )
+                if let deobfuscated = deobfuscated {
+                    let sep = url.contains("?") ? "&" : "?"
+                    let encodedSig = deobfuscated.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? deobfuscated
+                    url += "\(sep)\(spParam)=\(encodedSig)"
+                }
             }
-            print("[CipherWebView] buildSignedUrl returned nil, falling back to string concat")
-        }
-
-        // Fallback: old approach
-        var url = decodedUrl
-        if let sig = sigEncoded {
-            let deobfuscated = try await evaluateJS(
-                "deobfuscateSig(null,null,\(escapeJs(sig)))"
-            )
-            if let deobfuscated = deobfuscated {
-                let sep = url.contains("?") ? "&" : "?"
-                let encodedSig = deobfuscated.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? deobfuscated
-                url += "\(sep)\(spParam)=\(encodedSig)"
-            }
-        }
-
-        // n-normalization via gN$ (syncs /n/ path with ?n= param)
-        if let normalized = try? await evaluateJS(
-            "normalizeUrl(\(escapeJs(url)))"
-        ), !normalized.isEmpty {
-            url = normalized
         }
 
         // n-transform: transform the n-parameter value via the URL builder class
-        // to avoid CDN throttling/403. Required for WEB_REMIX, WEB, etc.
         if let nValue = extractNParam(from: url) {
-            print("[CipherWebView] n-param found, transforming: \(nValue)")
             if let transformed = try? await evaluateJS(
                 "transformN(\(escapeJs(nValue)))"
             ), !transformed.isEmpty, transformed != nValue {
-                // Replace the n= param with the transformed value
                 let pattern = "(?<=[?&])n=\(NSRegularExpression.escapedPattern(for: nValue))(?=&|$)"
                 if let regex = try? NSRegularExpression(pattern: pattern, options: []) {
                     let range = NSRange(url.startIndex..., in: url)
                     url = regex.stringByReplacingMatches(in: url, range: range, withTemplate: "n=\(transformed)")
                 }
-                print("[CipherWebView] n-transform: \(nValue) -> \(transformed)")
             } else {
-                print("[CipherWebView] n-transform returned same value or failed, keeping original")
+                // Remove untransformed n-param to avoid 403
+                let pattern = "&?n=\(NSRegularExpression.escapedPattern(for: nValue))(?=&|$)"
+                if let regex = try? NSRegularExpression(pattern: pattern, options: []) {
+                    let range = NSRange(url.startIndex..., in: url)
+                    url = regex.stringByReplacingMatches(in: url, range: range, withTemplate: "")
+                        .replacingOccurrences(of: "?&", with: "?")
+                        .replacingOccurrences(of: "\\?$", with: "", options: .regularExpression)
+                }
             }
         }
 
@@ -207,7 +214,11 @@ actor CipherWebView: NSObject {
                 }
                 let wv = await self.webView
                 await MainActor.run {
-                    wv?.evaluateJavaScript(script) { result, error in
+                    guard let wv = wv else {
+                        cont.resume(throwing: CipherError.jsExecutionFailed("webView is nil"))
+                        return
+                    }
+                    wv.evaluateJavaScript(script) { result, error in
                         if let error = error {
                             cont.resume(throwing: CipherError.jsExecutionFailed(error.localizedDescription))
                             return
@@ -294,9 +305,9 @@ private final class CipherMessageHandler: NSObject, WKScriptMessageHandler {
             case "ready":
                 await self?.cipher?.handleReady()
             case "sigError", "nError", "error":
-                if let error = json["error"] as? String {
-                    print("[CipherWebView] JS \(type): \(error)")
-                }
+                let msg = json["error"] as? String ?? "unknown JS error"
+                print("[CipherWebView] JS \(type): \(msg)")
+                await self?.cipher?.handleError(msg)
             default:
                 break
             }

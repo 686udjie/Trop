@@ -36,20 +36,35 @@ enum CipherHTMLBuilder {
             }
         }
 
-        // URL builder that mimics YouTube's `s2` function:
-        //   new g.<nClass>(url,true) → set("alr","yes") → <sigExpr> → set(sp, sig) → toString()
-        let nClassName = nClass ?? "lq"
+        // URL builder that mimics YouTube's `s2` function.
+        // Tries multiple URL builder classes; set("alr","yes") + sig deobfuscation + set(sp,sig),
+        // then attempts yq() / toString() / .url / clone() to extract the URL string.
+        let nc = "\"\(nClass ?? "lq")\""
+        let knownClasses: [String]
+        switch nClass {
+        case "lq": knownClasses = [nc, "\"WM\""]
+        case "WM": knownClasses = [nc, "\"lq\""]
+        default:   knownClasses = [nc, "\"WM\"", "\"lq\""]
+        }
         let urlBuilderSig: String
         if let config = sigConfig, sigIsExpression {
-            // Use sig expression from config (e.g. ci(21,5350,d)) instead of hardcoded fJ(24,1210,d)
             urlBuilderSig = config.replacingOccurrences(of: "INPUT", with: "d")
         } else {
             urlBuilderSig = "fJ(24,1210,d)"
         }
         let urlBuilder = "window._buildSignedUrl=function(url,sp,sig){try{" +
-            "var u=new g.\(nClassName)(url,true);u.set(\"alr\",\"yes\");" +
-            "if(sig){var d;try{d=decodeURIComponent(sig)}catch(e){d=sig};" +
-            "u.set(sp,\(urlBuilderSig))}return u.yq()}catch(e){return null}}"
+            "var classes=[" + knownClasses.joined(separator: ",") + "];" +
+            "for(var i=0;i<classes.length;i++){try{" +
+            "var u=new g[classes[i]](url,true);u.set(\"alr\",\"yes\");" +
+            "if(sig){try{var d;try{d=decodeURIComponent(sig)}catch(e){d=sig};" +
+            "u.set(sp,\(urlBuilderSig))}catch(e){}}" +
+            "var s;" +
+            "if(typeof u.yq==='function'){s=u.yq()}" +
+            "else if(typeof u.toString==='function'){s=u.toString();if(s==='[object Object]')s=null}" +
+            "if(!s&&u.url!==undefined){s=u.url}" +
+            "if(!s&&typeof u.clone==='function'){try{s=u.clone()}catch(e){}}" +
+            "if(s)return s}catch(e){}}" +
+            "return null}catch(e){return null}}"
         exports.append(urlBuilder)
 
         // n-transform: uses the URL builder class to transform the n-parameter value.
@@ -61,11 +76,6 @@ enum CipherHTMLBuilder {
         } else if let rawBody = rawNFuncBody {
             exports.append("window._nTransformFunc=\(rawBody)")
         }
-
-        // n-normalization (YouTube's gN$ syncs /n/ path with ?n= param)
-        exports.append("""
-        window._normalizeUrl=function(url){try{if(typeof gN$==='function')return gN$(url)}catch(e){}return url}
-        """)
 
         // Expose metadata for discovery
         exports.append("window._exportedCipher={sigFuncName:'\(sigConfig ?? "?")',nFuncClass:'\(nClass ?? "?")'}")
@@ -135,16 +145,6 @@ enum CipherHTMLBuilder {
                 return window._buildSignedUrl(baseUrl, sp, encodedSig);
             }
             return null;
-        }
-
-        // ============================================================
-        // URL NORMALIZATION — syncs /n/ path segment with ?n= param
-        // ============================================================
-        function normalizeUrl(url) {
-            if (typeof window._normalizeUrl === 'function') {
-                return window._normalizeUrl(url);
-            }
-            return url;
         }
 
         // ============================================================
@@ -226,13 +226,6 @@ enum CipherHTMLBuilder {
                 return window._buildSignedUrl(baseUrl, sp, encodedSig);
             }
             return null;
-        }
-
-        function normalizeUrl(url) {
-            if (typeof window._normalizeUrl === 'function') {
-                return window._normalizeUrl(url);
-            }
-            return url;
         }
 
         function discoverAndInit() {

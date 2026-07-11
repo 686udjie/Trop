@@ -75,6 +75,7 @@ struct MiniPlayerView: View {
             bar.imageView.contentMode = .scaleAspectFill
             bar.imageView.cornerRadius = 6
         }
+        .popupProgress(np.progress)
         .onChange(of: activeItemId) { _, newId in
             guard newId != np.videoId else { return }
             guard let idx = np.queueSongs.firstIndex(where: { $0.videoId == newId }) else { return }

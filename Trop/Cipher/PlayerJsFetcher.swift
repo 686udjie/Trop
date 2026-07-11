@@ -175,6 +175,7 @@ enum CipherError: Error, LocalizedError {
     case jsExecutionFailed(String)
     case configNotAvailable
     case deobfuscationFailed(String)
+    case nTransformFailed(String)
 
     var errorDescription: String? {
         switch self {
@@ -186,6 +187,7 @@ enum CipherError: Error, LocalizedError {
         case .jsExecutionFailed(let msg): return "JS execution failed: \(msg)"
         case .configNotAvailable: return "No config entry for this player hash"
         case .deobfuscationFailed(let msg): return "Deobfuscation failed: \(msg)"
+        case .nTransformFailed(let val): return "n-param transform failed: \(val)"
         }
     }
 }
