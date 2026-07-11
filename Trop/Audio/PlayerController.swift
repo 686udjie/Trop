@@ -156,9 +156,11 @@ final class PlayerController {
             case MPV_EVENT_END_FILE:
                 let stoppedVideoId = self.currentVideoId
                 self.currentVideoId = nil
+                let endFile = event.pointee.data?.load(as: mpv_event_end_file.self)
+                let isEof = endFile?.reason == MPV_END_FILE_REASON_EOF
                 DispatchQueue.main.async {
                     self.playState.send(.stopped)
-                    NowPlaying.shared.stopped(videoId: stoppedVideoId)
+                    NowPlaying.shared.stopped(videoId: stoppedVideoId, isEof: isEof)
                 }
             default:
                 break

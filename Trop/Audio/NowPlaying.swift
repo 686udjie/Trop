@@ -23,7 +23,9 @@ final class NowPlaying {
     var isPlaying = false
     var currentTime: TimeInterval = 0
     var duration: TimeInterval = 0
-    var progress: Float = 0
+    var progress: Float {
+        duration > 0 ? Float(currentTime / duration) : 0
+    }
     var isPopupOpen = false
     var thumbnailImage: Image?
     var thumbnailUIImage: UIImage?
@@ -94,6 +96,8 @@ final class NowPlaying {
         }
         self.videoId = videoId
         self.isPlaying = true
+        currentTime = 0
+        duration = 0
         PlayerController.shared.setNowPlayingMetadata()
         DispatchQueue.main.async { [weak self] in
             self?.startTimer()
@@ -102,11 +106,16 @@ final class NowPlaying {
         preloadNextTrack()
     }
 
-    func stopped(videoId: String?) {
+    func stopped(videoId: String?, isEof: Bool = true) {
         guard self.videoId == videoId else { return }
         if let skipTime = lastManualSkipTime, Date().timeIntervalSince(skipTime) < 2 {
             return
         }
+        guard isEof else {
+            isPlaying = false
+            return
+        }
+        currentTime = duration
         if hasNext {
             playNext(automatic: true)
         } else {
@@ -165,7 +174,6 @@ final class NowPlaying {
             guard let self else { return }
             currentTime = PlayerController.shared.currentTime
             duration = PlayerController.shared.duration
-            progress = duration > 0 ? Float(currentTime / duration) : 0
             isPlaying = PlayerController.shared.playState.value == .playing
             PlayerController.shared.updateNowPlayingProgress()
         }

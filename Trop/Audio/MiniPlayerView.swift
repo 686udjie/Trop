@@ -104,7 +104,9 @@ struct MiniPlayerView: View {
                 if editing {
                     editingProgress = np.progress
                 } else {
-                    player.seek(to: TimeInterval(editingProgress) * np.duration)
+                    let target = TimeInterval(editingProgress) * np.duration
+                    player.seek(to: target)
+                    np.currentTime = target
                     player.updateNowPlayingProgress()
                 }
                 isEditingSlider = editing
@@ -112,7 +114,9 @@ struct MiniPlayerView: View {
             .tint(.blue)
 
             HStack {
-                Text(timeString(np.currentTime))
+                Text(timeString(isEditingSlider
+                    ? TimeInterval(editingProgress) * np.duration
+                    : np.currentTime))
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
                 Spacer()
