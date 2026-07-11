@@ -64,25 +64,16 @@ struct MiniPlayerView: View {
 
             Spacer()
         }
+        .overlay(MiniPlayerPopupItems(
+            queueSongs: np.queueSongs,
+            videoId: np.videoId,
+            thumbnailImage: np.thumbnailImage,
+            thumbnailVersion: np.thumbnailVersion,
+            activeItemId: $activeItemId
+        ).equatable())
         .popupBarCustomizer { bar in
             bar.imageView.contentMode = .scaleAspectFill
             bar.imageView.cornerRadius = 6
-            if let image = np.thumbnailUIImage {
-                bar.imageView.image = image
-            }
-        }
-        .popupItems(selection: $activeItemId) {
-            for song in np.queueSongs {
-                PopupItem(id: song.videoId, verbatimTitle: song.title, verbatimSubtitle: song.artists.map(\.name).joined(separator: ", "), image: np.thumbnailImage, progress: np.progress) {
-                    ToolbarItemGroup(placement: .popupBar) {
-                        Button {
-                            player.togglePlayPause()
-                        } label: {
-                            Image(systemName: np.isPlaying ? "pause.fill" : "play.fill")
-                        }
-                    }
-                }
-            }
         }
         .onChange(of: activeItemId) { _, newId in
             guard newId != np.videoId else { return }
@@ -113,6 +104,7 @@ struct MiniPlayerView: View {
                     editingProgress = np.progress
                 } else {
                     player.seek(to: TimeInterval(editingProgress) * np.duration)
+                    player.updateNowPlayingProgress()
                 }
                 isEditingSlider = editing
             })
@@ -134,5 +126,40 @@ struct MiniPlayerView: View {
     private func timeString(_ t: TimeInterval) -> String {
         guard t.isFinite else { return "0:00" }
         return "\(Int(t) / 60):\(String(format: "%02d", Int(t) % 60))"
+    }
+}
+
+private struct MiniPlayerPopupItems: View, Equatable {
+    let queueSongs: [SongItem]
+    let videoId: String?
+    let thumbnailImage: Image?
+    let thumbnailVersion: Int
+    @Binding var activeItemId: String
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.videoId == rhs.videoId &&
+        lhs.queueSongs.map(\.videoId) == rhs.queueSongs.map(\.videoId) &&
+        lhs.thumbnailVersion == rhs.thumbnailVersion
+    }
+
+    var body: some View {
+        Color.clear
+            .popupItems(selection: $activeItemId) {
+                for song in queueSongs {
+                    PopupItem(
+                        id: song.videoId,
+                        verbatimTitle: song.title,
+                        verbatimSubtitle: song.artists.map(\.name).joined(separator: ", "),
+                        image: thumbnailImage,
+                        progress: 0
+                    ) {
+                        ToolbarItemGroup(placement: .popupBar) {
+                            Button(action: { PlayerController.shared.togglePlayPause() }) {
+                                Image(systemName: "pause.fill")
+                            }
+                        }
+                    }
+                }
+            }
     }
 }

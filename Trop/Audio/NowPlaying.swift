@@ -27,6 +27,7 @@ final class NowPlaying {
     var isPopupOpen = false
     var thumbnailImage: Image?
     var thumbnailUIImage: UIImage?
+    var thumbnailVersion = 0
 
     var queueSongs: [SongItem] = []
     var queueIndex = 0
@@ -118,7 +119,11 @@ final class NowPlaying {
         }
     }
 
+    private var lastLoadedVideoId: String?
+
     private func loadThumbnail(videoId: String) {
+        guard videoId != lastLoadedVideoId else { return }
+        lastLoadedVideoId = videoId
         let urlString = "https://i.ytimg.com/vi/\(videoId)/hqdefault.jpg"
         guard let url = URL(string: urlString) else {
             thumbnailImage = Image(systemName: "music.note")
@@ -130,11 +135,13 @@ final class NowPlaying {
                 await MainActor.run {
                     thumbnailUIImage = platformImage
                     thumbnailImage = Image(uiImage: platformImage)
+                    thumbnailVersion &+= 1
                     PlayerController.shared.setNowPlayingMetadata()
                 }
             } catch {
                 await MainActor.run {
                     thumbnailImage = Image(systemName: "music.note")
+                    thumbnailVersion &+= 1
                 }
             }
         }

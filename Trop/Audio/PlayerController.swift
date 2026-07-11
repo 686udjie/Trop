@@ -64,7 +64,7 @@ final class PlayerController {
             return
         }
 
-        if let videoId, let title {
+        if let videoId, let title, videoId != NowPlaying.shared.videoId {
             NowPlaying.shared.update(title: title, artist: artist, videoId: videoId)
         }
 
@@ -142,8 +142,13 @@ final class PlayerController {
                     }
                 }
             case MPV_EVENT_FILE_LOADED:
+                var pause = Int32(1)
+                mpv_get_property(mpv, "pause", MPV_FORMAT_FLAG, &pause)
+                let actuallyPlaying = pause == 0
                 DispatchQueue.main.async {
                     self.playState.send(.playing)
+                    NowPlaying.shared.isPlaying = actuallyPlaying
+                    self.currentVideoId = NowPlaying.shared.videoId
                     self.updateNowPlayingProgress()
                 }
             case MPV_EVENT_START_FILE:
