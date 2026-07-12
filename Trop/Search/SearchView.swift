@@ -92,6 +92,13 @@ struct SearchView: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                        Button(role: .destructive) {
+                            viewModel.deleteSearchHistoryEntry(entry)
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
+                    }
                 }
             } header: {
                 HStack {

@@ -65,12 +65,11 @@ final class SearchViewModel {
     private var localSearchTask: Task<Void, Never>?
 
     private static let historyKey = "Search.history"
+    private static let historyNewestFirstKey = "Search.historyNewestFirst"
     private static let maxHistoryEntries = 20
 
     init() {
-        searchHistory = (UserDefaults.standard.stringArray(forKey: Self.historyKey) ?? []).map {
-            SearchHistoryEntity(query: $0, timestamp: Date())
-        }
+        loadSearchHistory()
     }
 
     private func saveHistory() {
@@ -78,7 +77,14 @@ final class SearchViewModel {
     }
 
     func loadSearchHistory() {
-        let queries = UserDefaults.standard.stringArray(forKey: Self.historyKey) ?? []
+        var queries = UserDefaults.standard.stringArray(forKey: Self.historyKey) ?? []
+
+        if !UserDefaults.standard.bool(forKey: Self.historyNewestFirstKey) {
+            queries.reverse()
+            UserDefaults.standard.set(queries, forKey: Self.historyKey)
+            UserDefaults.standard.set(true, forKey: Self.historyNewestFirstKey)
+        }
+
         searchHistory = queries.map { SearchHistoryEntity(query: $0, timestamp: Date()) }
     }
 
@@ -188,6 +194,11 @@ final class SearchViewModel {
         saveHistory()
     }
 
+    func deleteSearchHistoryEntry(_ entry: SearchHistoryEntity) {
+        searchHistory.removeAll { $0.query == entry.query }
+        saveHistory()
+    }
+
     private func updateHistory(query: String) {
         guard !query.isEmpty else { return }
 
@@ -195,13 +206,14 @@ final class SearchViewModel {
         if let index = newHistory.firstIndex(of: query) {
             newHistory.remove(at: index)
         }
-        newHistory.append(query)
+        newHistory.insert(query, at: 0)
 
         if newHistory.count > Self.maxHistoryEntries {
-            newHistory.removeFirst()
+            newHistory.removeLast()
         }
 
         UserDefaults.standard.set(newHistory, forKey: Self.historyKey)
+        UserDefaults.standard.set(true, forKey: Self.historyNewestFirstKey)
         searchHistory = newHistory.map { SearchHistoryEntity(query: $0, timestamp: Date()) }
     }
 
