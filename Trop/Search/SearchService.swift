@@ -37,11 +37,12 @@ actor SearchService {
 
     func localSearch(query: String) async throws -> LocalSearchResults {
         let pattern = "%\(query)%"
-        async let songs = db.fetchAll(SongEntity.self, sql: "SELECT * FROM song WHERE title LIKE ? ORDER BY total_play_time DESC LIMIT 50", arguments: [pattern])
+        async let songs = db.fetchAll(SongEntity.self, sql: "SELECT * FROM song WHERE title LIKE ? OR artist_name LIKE ? ORDER BY total_play_time DESC LIMIT 50", arguments: [pattern, pattern])
         async let artists = db.fetchAll(ArtistEntity.self, sql: "SELECT * FROM artist WHERE name LIKE ? LIMIT 20", arguments: [pattern])
         async let albums = db.fetchAll(AlbumEntity.self, sql: "SELECT * FROM album WHERE title LIKE ? LIMIT 20", arguments: [pattern])
         async let playlists = db.fetchAll(PlaylistEntity.self, sql: "SELECT * FROM playlist WHERE name LIKE ? LIMIT 20", arguments: [pattern])
-        return try await LocalSearchResults(songs: songs, artists: artists, albums: albums, playlists: playlists)
+        let results = try await LocalSearchResults(songs: songs, artists: artists, albums: albums, playlists: playlists)
+        return results
     }
 
     func buildRadio(videoId: String, playlistId: String? = nil) async throws -> [[String: Any]] {

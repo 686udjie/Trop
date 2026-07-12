@@ -57,6 +57,57 @@ final class PlaylistDetailViewModel {
             let parsed = Self.parsePlaylistDetail(from: json, playlistId: playlistId)
             let hasAvatar = parsed.authorAvatarUrl != nil
             print("[PlaylistDetail] title=\(parsed.title) author=\(parsed.authorName ?? "nil") avatar=\(hasAvatar) cnt=\(parsed.songCount) dur=\(parsed.duration) songs=\(parsed.songs.count)")
+
+            // Persist songs to the song table so they become searchable in the library
+            let pid = playlistId
+            let songs = parsed.songs
+            let title = parsed.title
+            try await DatabaseService.shared.write { db in
+                let existing = try PlaylistEntity.fetchOne(db, key: pid)
+                let entity = PlaylistEntity(
+                    id: pid,
+                    browseId: browseId,
+                    name: existing?.name ?? title,
+                    isEditable: existing?.isEditable ?? false,
+                    bookmarkedAt: existing?.bookmarkedAt,
+                    remoteSongCount: songs.count
+                )
+                try entity.save(db)
+
+                try db.execute(sql: "DELETE FROM playlist_song_map WHERE playlist_id = ?", arguments: [pid])
+                for (index, song) in songs.enumerated() {
+                    let existingSong = try SongEntity.fetchOne(db, key: song.videoId)
+                    let songEntity = SongEntity(
+                        id: song.videoId,
+                        title: song.title,
+                        artistName: existingSong?.artistName ?? song.artists.first?.name,
+                        albumName: existingSong?.albumName ?? song.album,
+                        duration: song.duration > 0 ? song.duration : existingSong?.duration ?? 0,
+                        thumbnailUrl: song.thumbnailUrl ?? existingSong?.thumbnailUrl,
+                        liked: existingSong?.liked ?? false,
+                        totalPlayTime: existingSong?.totalPlayTime ?? 0,
+                        inLibrary: existingSong?.inLibrary,
+                        libraryAddToken: existingSong?.libraryAddToken ?? "",
+                        libraryRemoveToken: existingSong?.libraryRemoveToken ?? "",
+                        isEpisode: existingSong?.isEpisode ?? false,
+                        isUploaded: existingSong?.isUploaded ?? false,
+                        isVideo: existingSong?.isVideo ?? false,
+                        createDate: existingSong?.createDate ?? Date(),
+                        modifyDate: Date()
+                    )
+                    try songEntity.save(db)
+
+                    let map = PlaylistSongMap(
+                        id: nil,
+                        playlistId: pid,
+                        songId: song.videoId,
+                        position: index,
+                        setVideoId: nil
+                    )
+                    try map.insert(db, onConflict: .ignore)
+                }
+            }
+
             playlist = parsed
             isLoading = false
         } catch {

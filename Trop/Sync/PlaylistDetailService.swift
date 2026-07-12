@@ -46,6 +46,30 @@ actor PlaylistDetailService {
                       let watch = nav["watchEndpoint"] as? [String: Any],
                       let videoId = watch["videoId"] as? String else { continue }
                 let setVideoId = watch["playlistSetVideoId"] as? String
+
+                if let songItem = SongItem.from(renderer) {
+                    let existing = try SongEntity.fetchOne(db, key: videoId)
+                    let entity = SongEntity(
+                        id: videoId,
+                        title: songItem.title,
+                        artistName: existing?.artistName ?? songItem.artists.first?.name,
+                        albumName: existing?.albumName ?? songItem.album,
+                        duration: songItem.duration > 0 ? songItem.duration : existing?.duration ?? 0,
+                        thumbnailUrl: songItem.thumbnailUrl ?? existing?.thumbnailUrl,
+                        liked: existing?.liked ?? false,
+                        totalPlayTime: existing?.totalPlayTime ?? 0,
+                        inLibrary: existing?.inLibrary,
+                        libraryAddToken: existing?.libraryAddToken ?? "",
+                        libraryRemoveToken: existing?.libraryRemoveToken ?? "",
+                        isEpisode: existing?.isEpisode ?? false,
+                        isUploaded: existing?.isUploaded ?? false,
+                        isVideo: existing?.isVideo ?? false,
+                        createDate: existing?.createDate ?? Date(),
+                        modifyDate: Date()
+                    )
+                    try entity.save(db)
+                }
+
                 let map = PlaylistSongMap(
                     id: nil,
                     playlistId: playlistId,

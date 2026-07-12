@@ -22,16 +22,38 @@ final class SearchViewModel {
 
     var searchSections: [SearchSection] = []
     var selectedSectionFilter: String?
+    var isShowingLibrary = false
+
+    var libraryFilterSections: [SearchSection] {
+        var sections: [SearchSection] = []
+        if !localSongs.isEmpty {
+            sections.append(SearchSection(title: "Songs", items: localSongs.map { YTItem.song(SongItem(entity: $0)) }))
+        }
+        if !localAlbums.isEmpty {
+            sections.append(SearchSection(title: "Albums", items: localAlbums.map { YTItem.album(AlbumItem(entity: $0)) }))
+        }
+        if !localArtists.isEmpty {
+            sections.append(SearchSection(title: "Artists", items: localArtists.map { YTItem.artist(ArtistItem(entity: $0)) }))
+        }
+        if !localPlaylists.isEmpty {
+            sections.append(SearchSection(title: "Playlists", items: localPlaylists.map { YTItem.playlist(PlaylistItem(entity: $0)) }))
+        }
+        return sections
+    }
 
     var filteredSections: [SearchSection] {
+        if isShowingLibrary {
+            return libraryFilterSections
+        }
         guard let filter = selectedSectionFilter else { return searchSections }
         return searchSections.filter { $0.title == filter }
     }
 
     var availableFilters: [String] {
-        let filters = Set(searchSections.map(\.title))
+        var filters = ["Library"]
         let order = ["Songs", "Albums", "Artists", "Playlists", "Podcasts", "Episodes", "Videos"]
-        return order.filter { filters.contains($0) }
+        filters.append(contentsOf: order.filter { Set(searchSections.map(\.title)).contains($0) })
+        return filters
     }
 
     var searchHistory: [SearchHistoryEntity] = []
@@ -123,11 +145,23 @@ final class SearchViewModel {
         Task { [weak self] in
             guard let self = self else { return }
             do {
-                let raw = try await SearchService.shared.search(query: query)
-                let sections = SearchParser.parseSearchResults(from: raw)
+                async let localResults = try? SearchService.shared.localSearch(query: query)
+                let searchRaw = try await SearchService.shared.search(query: query)
+
+                if let results = await localResults {
+                    await MainActor.run {
+                        self.localSongs = results.songs
+                        self.localArtists = results.artists
+                        self.localAlbums = results.albums
+                        self.localPlaylists = results.playlists
+                    }
+                }
+
+                let sections = SearchParser.parseSearchResults(from: searchRaw)
                 await MainActor.run {
                     self.searchSections = sections
                     self.selectedSectionFilter = nil
+                    self.isShowingLibrary = false
                     self.isLoading = false
                 }
             } catch {
@@ -145,6 +179,7 @@ final class SearchViewModel {
         searchText = ""
         searchSections = []
         selectedSectionFilter = nil
+        isShowingLibrary = false
         clearSuggestions()
     }
 

@@ -239,8 +239,18 @@ struct SearchView: View {
             HStack(spacing: 8) {
                 ForEach(viewModel.availableFilters, id: \.self) { filter in
                     Button {
-                        viewModel.selectedSectionFilter = filter
+                        if filter == "Library" {
+                            let willShow = !viewModel.isShowingLibrary
+                            viewModel.isShowingLibrary = willShow
+                            viewModel.selectedSectionFilter = nil
+                        } else {
+                            viewModel.selectedSectionFilter = filter
+                            viewModel.isShowingLibrary = false
+                        }
                     } label: {
+                        let isSelected = filter == "Library"
+                            ? viewModel.isShowingLibrary
+                            : viewModel.selectedSectionFilter == filter
                         Text(filter)
                             .font(.subheadline)
                             .fontWeight(.medium)
@@ -248,11 +258,11 @@ struct SearchView: View {
                             .padding(.vertical, 8)
                             .background(
                                 Capsule()
-                                    .fill(viewModel.selectedSectionFilter == filter
+                                    .fill(isSelected
                                         ? Color.accentColor
                                         : Color(.systemGray5))
                             )
-                            .foregroundColor(viewModel.selectedSectionFilter == filter
+                            .foregroundColor(isSelected
                                 ? .white
                                 : .primary)
                     }
