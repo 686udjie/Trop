@@ -5,7 +5,17 @@
 //  Created by 686udjie on 03/07/2026.
 //
 
+import Nuke
 import SwiftUI
+
+/// Mirrors Metrolist's square artwork request for its immersive artist header.
+private func metrolistArtworkURL(from thumbnailUrl: String?) -> String? {
+    thumbnailUrl?.replacingOccurrences(
+        of: #"w\d+-h\d+"#,
+        with: "w1200-h1200",
+        options: .regularExpression
+    )
+}
 
 // MARK: - View Model
 
@@ -31,6 +41,7 @@ final class ArtistDetailViewModel {
         do {
             let json = try await innerTube.browse(browseId: browseId)
             let parsed = Self.parseArtistDetail(from: json, browseId: browseId)
+            await Self.preloadHeroArtwork(for: parsed.thumbnailUrl)
             artist = parsed
             isLoading = false
         } catch {
@@ -62,28 +73,15 @@ extension ArtistDetailViewModel {
             if let immersive = header["musicImmersiveHeaderRenderer"] as? [String: Any] {
                 name = DetailParser.extractRunsText(immersive["title"] as? [String: Any]) ?? "Unknown Artist"
                 thumbnailUrl = DetailParser.extractMusicThumbnail(immersive)
-
-                // Subscription state and subscriber count
-                if let subButton = immersive["subscriptionButton"] as? [String: Any],
-                   let toggle = subButton["subscriptionNotificationToggleButtonRenderer"] as? [String: Any] {
-                    isSubscribed = (toggle["subscribed"] as? Bool) ?? false
-                    if let subText = toggle["subscribedText"] as? [String: Any],
-                       let runs = subText["runs"] as? [[String: Any]] {
-                        subscriberCountText = runs.compactMap { $0["text"] as? String }.joined()
-                    }
-                }
+                let subscription = extractSubscriptionDetails(from: immersive)
+                isSubscribed = subscription.isSubscribed ?? false
+                subscriberCountText = subscription.subscriberCountText
             } else if let responsive = header["musicResponsiveHeaderRenderer"] as? [String: Any] {
                 name = DetailParser.extractRunsText(responsive["title"] as? [String: Any]) ?? "Unknown Artist"
                 thumbnailUrl = DetailParser.extractMusicThumbnail(responsive)
-
-                if let subButton = responsive["subscriptionButton"] as? [String: Any],
-                   let toggle = subButton["subscriptionNotificationToggleButtonRenderer"] as? [String: Any] {
-                    isSubscribed = (toggle["subscribed"] as? Bool) ?? false
-                    if let subText = toggle["subscribedText"] as? [String: Any],
-                       let runs = subText["runs"] as? [[String: Any]] {
-                        subscriberCountText = runs.compactMap { $0["text"] as? String }.joined()
-                    }
-                }
+                let subscription = extractSubscriptionDetails(from: responsive)
+                isSubscribed = subscription.isSubscribed ?? false
+                subscriberCountText = subscription.subscriberCountText
             }
         }
 
@@ -157,6 +155,59 @@ extension ArtistDetailViewModel {
         )
     }
 
+    /// Warms Nuke's cache before the artist screen appears, avoiding a second
+    /// visible loading state for the immersive header artwork.
+    private static func preloadHeroArtwork(for thumbnailUrl: String?) async {
+        guard let artworkURL = metrolistArtworkURL(from: thumbnailUrl),
+              let url = URL(string: artworkURL) else {
+            return
+        }
+
+        _ = try? await ImagePipeline.shared.image(for: ImageRequest(url: url))
+    }
+
+    /// YouTube Music subscription payloads vary: the subscribed state is in `subscriptionButton`, 
+    /// the count in `subscriptionButton2`, and older responses include a notification toggle.
+    private static func extractSubscriptionDetails(
+        from header: [String: Any]
+    ) -> (isSubscribed: Bool?, subscriberCountText: String?) {
+        var isSubscribed: Bool?
+        var subscriberCountText: String?
+
+        let buttons = ["subscriptionButton2", "subscriptionButton"]
+            .compactMap { header[$0] as? [String: Any] }
+
+        for button in buttons {
+            if let subscribe = button["subscribeButtonRenderer"] as? [String: Any] {
+                if isSubscribed == nil {
+                    isSubscribed = subscribe["subscribed"] as? Bool
+                }
+
+                if subscriberCountText == nil {
+                    for key in ["subscriberCountWithSubscribeText", "longSubscriberCountText", "shortSubscriberCountText"] {
+                        if let count = DetailParser.extractRunsText(subscribe[key] as? [String: Any]), !count.isEmpty {
+                            subscriberCountText = count
+                            break
+                        }
+                    }
+                }
+            }
+
+            if let toggle = button["subscriptionNotificationToggleButtonRenderer"] as? [String: Any] {
+                if isSubscribed == nil {
+                    isSubscribed = toggle["subscribed"] as? Bool
+                }
+                if subscriberCountText == nil,
+                   let count = DetailParser.extractRunsText(toggle["subscribedText"] as? [String: Any]),
+                   !count.isEmpty {
+                    subscriberCountText = count
+                }
+            }
+        }
+
+        return (isSubscribed, subscriberCountText)
+    }
+
     /// Extracts the title from a musicCarouselShelfBasicHeaderRenderer.
     private static func extractCarouselTitle(_ carousel: [String: Any]) -> String {
         guard let header = carousel["header"] as? [String: Any],
@@ -207,8 +258,11 @@ struct ArtistDetailView: View {
             }
         }
         .scrollDisabled(viewModel.isLoading || viewModel.error != nil || viewModel.artist == nil)
-        .navigationTitle(viewModel.artist?.name ?? "")
+        .ignoresSafeArea(edges: .top)
+        .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(.hidden, for: .navigationBar)
+        .toolbarColorScheme(.dark, for: .navigationBar)
         .task {
             guard viewModel.isLoading else { return }
             await viewModel.load()
@@ -230,14 +284,6 @@ struct ArtistDetailView: View {
     private func artistContent(for artist: ArtistDetailInfo) -> some View {
         LazyVStack(spacing: 0) {
             header(for: artist)
-                .padding(.bottom, 12)
-
-            // About section with subscriber count and description
-            if let desc = artist.descriptionText, !desc.isEmpty {
-                aboutSection(description: desc, subscriberCount: artist.subscriberCountText)
-            } else if let sub = artist.subscriberCountText, !sub.isEmpty {
-                aboutSection(description: nil, subscriberCount: sub)
-            }
 
             if !artist.songs.isEmpty {
                 songsSection(songs: artist.songs)
@@ -245,6 +291,10 @@ struct ArtistDetailView: View {
 
             if !artist.albums.isEmpty {
                 albumsSection(albums: artist.albums)
+            }
+
+            if let description = artist.descriptionText, !description.isEmpty {
+                aboutSection(description: description)
             }
 
             if artist.songs.isEmpty && artist.albums.isEmpty {
@@ -260,99 +310,105 @@ struct ArtistDetailView: View {
 
     @ViewBuilder
     private func header(for artist: ArtistDetailInfo) -> some View {
-        VStack(spacing: 12) {
-            // Circular artist photo
-            AsyncImageView(url: artist.thumbnailUrl)
-                .frame(width: 180, height: 180)
-                .clipShape(Circle())
-                .shadow(color: .black.opacity(0.15), radius: 10, y: 4)
+        GeometryReader { proxy in
+            ZStack(alignment: .bottomLeading) {
+                Color(.systemGray5)
 
-            // Artist name
-            Text(artist.name)
-                .font(.title)
-                .fontWeight(.bold)
+                AsyncImageView(
+                    url: metrolistArtworkURL(from: artist.thumbnailUrl),
+                    contentMode: .fill
+                )
+                .frame(width: proxy.size.width, height: proxy.size.height)
+                .clipped()
 
-            // Subscribe button and subscriber count
-            HStack(spacing: 12) {
-                if let subText = artist.subscriberCountText {
-                    Text(subText)
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
+                LinearGradient(
+                    colors: [.clear, .black.opacity(0.18), .black.opacity(0.78)],
+                    startPoint: .center,
+                    endPoint: .bottom
+                )
+
+                VStack(alignment: .leading, spacing: 14) {
+                    Text(artist.name)
+                        .font(.system(size: 34, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                        .lineLimit(2)
+                        .shadow(color: .black.opacity(0.35), radius: 4, y: 2)
+
+                    HStack(spacing: 12) {
+                        Button(action: { toggleSubscribe(artist) }) {
+                            Text(artist.isSubscribed ? "Subscribed" : "Subscribe")
+                                .font(.subheadline.weight(.bold))
+                                .foregroundStyle(artist.isSubscribed ? Color.white : Color.black)
+                                .padding(.horizontal, 20)
+                                .frame(height: 44)
+                                .background(
+                                    Capsule()
+                                        .fill(artist.isSubscribed ? Color.clear : Color.white)
+                                )
+                                .overlay(
+                                    Capsule()
+                                        .stroke(.white, lineWidth: artist.isSubscribed ? 1.5 : 0)
+                                )
+                        }
+                        .buttonStyle(.plain)
+
+                        Spacer(minLength: 0)
+
+                        if let subText = artist.subscriberCountText, !subText.isEmpty {
+                            Text(subscriberLabel(for: subText))
+                                .font(.subheadline)
+                                .foregroundStyle(.white.opacity(0.88))
+                                .lineLimit(1)
+                        }
+
+                        Button(action: { shufflePlay(artist) }) {
+                            Image(systemName: "shuffle")
+                                .font(.title3.weight(.bold))
+                                .foregroundStyle(.white)
+                                .frame(width: 52, height: 52)
+                                .background(Circle().fill(Color.accentColor))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Shuffle artist")
+                    }
                 }
-
-                Button(action: { toggleSubscribe(artist) }) {
-                    Text(artist.isSubscribed ? "Subscribed" : "Subscribe")
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                        .foregroundColor(artist.isSubscribed ? .primary : .white)
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 8)
-                        .background(
-                            Capsule()
-                                .fill(artist.isSubscribed ? Color(.systemGray5) : Color.accentColor)
-                        )
-                }
-                .buttonStyle(.plain)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 24)
             }
-
-            // Action buttons: shuffle, play
-            HStack(spacing: 20) {
-                Button(action: { shufflePlay(artist) }) {
-                    Image(systemName: "shuffle")
-                        .font(.title3)
-                        .frame(width: 44, height: 44)
-                        .background(Circle().fill(Color(.systemGray6)))
-                }
-                .buttonStyle(.plain)
-
-                Button(action: { playTopSong(artist) }) {
-                    Image(systemName: "play.fill")
-                        .font(.title2)
-                        .foregroundColor(.white)
-                        .frame(width: 60, height: 60)
-                        .background(Circle().fill(Color.accentColor))
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(.top, 4)
         }
-        .padding(.vertical, 16)
+        .aspectRatio(1, contentMode: .fit)
+        .accessibilityElement(children: .contain)
+    }
+
+    private func subscriberLabel(for count: String) -> String {
+        count.localizedCaseInsensitiveContains("subscriber") ? count : "\(count) subscribers"
     }
 
     @ViewBuilder
-    private func aboutSection(description: String?, subscriberCount: String?) -> some View {
+    private func aboutSection(description: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("About")
                 .font(.title3)
                 .fontWeight(.bold)
                 .padding(.horizontal, 16)
 
-            if let subCount = subscriberCount {
-                Text(subCount)
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                    .padding(.horizontal, 16)
-            }
-
-            if let desc = description, !desc.isEmpty {
-                Text(desc)
-                    .font(.body)
-                    .foregroundColor(.primary)
-                    .lineLimit(5)
-                    .padding(.horizontal, 16)
-            }
+            Text(description)
+                .font(.body)
+                .foregroundColor(.primary)
+                .lineLimit(5)
+                .padding(.horizontal, 16)
         }
-        .padding(.vertical, 8)
+        .padding(.vertical, 16)
     }
 
     @ViewBuilder
     private func songsSection(songs: [SongItem]) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Songs")
-                .font(.title3)
+                .font(.title2)
                 .fontWeight(.bold)
                 .padding(.horizontal, 16)
-                .padding(.top, 8)
+                .padding(.top, 20)
 
             ForEach(Array(songs.enumerated()), id: \.offset) { index, song in
                 Button(action: { playSong(song) }) {
@@ -381,7 +437,7 @@ struct ArtistDetailView: View {
                             .foregroundStyle(.tertiary)
                     }
                     .padding(.horizontal, 16)
-                    .padding(.vertical, 4)
+                    .padding(.vertical, 7)
                 }
                 .buttonStyle(.plain)
 
@@ -397,10 +453,10 @@ struct ArtistDetailView: View {
     private func albumsSection(albums: [AlbumItem]) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Albums")
-                .font(.title3)
+                .font(.title2)
                 .fontWeight(.bold)
                 .padding(.horizontal, 16)
-                .padding(.top, 8)
+                .padding(.top, 24)
 
             // Horizontal album carousel
             ScrollView(.horizontal, showsIndicators: false) {
@@ -411,7 +467,7 @@ struct ArtistDetailView: View {
                             VStack(alignment: .leading, spacing: 4) {
                                 AsyncImageView(url: album.thumbnailUrl)
                                     .aspectRatio(1, contentMode: .fill)
-                                    .frame(width: 140, height: 140)
+                                    .frame(width: 156, height: 156)
                                     .clipShape(RoundedRectangle(cornerRadius: 8))
 
                                 Text(album.title)
@@ -427,7 +483,7 @@ struct ArtistDetailView: View {
                                         .lineLimit(1)
                                 }
                             }
-                            .frame(width: 140)
+                            .frame(width: 156)
                         }
                         .buttonStyle(.plain)
                     }
@@ -435,7 +491,7 @@ struct ArtistDetailView: View {
                 .padding(.horizontal, 16)
             }
         }
-        .padding(.vertical, 8)
+        .padding(.bottom, 8)
     }
 
     // MARK: - Actions

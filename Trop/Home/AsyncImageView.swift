@@ -10,6 +10,7 @@ import SwiftUI
 
 struct AsyncImageView: View {
     let url: String?
+    var contentMode: ContentMode = .fill
     @Environment(\.displayScale) private var displayScale
     @State private var loadedImage: UIImage?
 
@@ -17,7 +18,9 @@ struct AsyncImageView: View {
         GeometryReader { geometry in
             Group {
                 if let image = loadedImage {
-                    Image(uiImage: image).resizable().scaledToFill()
+                    Image(uiImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: contentMode)
                 } else {
                     placeholderView
                 }
@@ -38,10 +41,15 @@ struct AsyncImageView: View {
             width: targetSize.width * scale,
             height: targetSize.height * scale
         )
-        let request = ImageRequest(
-            url: url,
-            processors: [.resize(size: displaySize, unit: .pixels, contentMode: .aspectFill)]
-        )
+        let request: ImageRequest
+        if contentMode == .fill {
+            request = ImageRequest(
+                url: url,
+                processors: [.resize(size: displaySize, unit: .pixels, contentMode: .aspectFill)]
+            )
+        } else {
+            request = ImageRequest(url: url)
+        }
         do {
             let image = try await ImagePipeline.shared.image(for: request)
             guard !Task.isCancelled else { return }
