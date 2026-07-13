@@ -45,8 +45,6 @@ struct LibraryView: View {
                 .padding(.horizontal)
                 .padding(.vertical, 8)
 
-                filterBar
-
                 Group {
                     if isLoading {
                         Spacer()
@@ -162,6 +160,8 @@ struct LibraryView: View {
     private var feedContent: some View {
         ScrollView {
             LazyVStack(spacing: 0) {
+                filterBar
+
                 switch selectedFilter {
                 case .playlists:
                     playlistsSection
