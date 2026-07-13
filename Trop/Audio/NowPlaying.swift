@@ -30,6 +30,12 @@ final class NowPlaying {
     var thumbnailImage: Image?
     var thumbnailUIImage: UIImage?
     var thumbnailVersion = 0
+    var dominantColors: [Color] = [Color(red: 0.15, green: 0.15, blue: 0.2), Color(red: 0.05, green: 0.05, blue: 0.08)]
+
+    var accentColor: Color? {
+        guard videoId != nil, let primary = dominantColors.first else { return nil }
+        return primary
+    }
 
     var queueSongs: [SongItem] = []
     var queueIndex = 0
@@ -90,7 +96,7 @@ final class NowPlaying {
 
     func update(title: String, artist: String?, videoId: String, album: String? = nil) {
         self.title = title
-        self.artist = artist ?? ""
+        self.artist = cleanArtist(artist ?? "")
         if let album {
             albumTitle = album
         }
@@ -122,6 +128,9 @@ final class NowPlaying {
             isPlaying = false
             thumbnailImage = nil
             thumbnailUIImage = nil
+            Task { @MainActor in
+                self.updateDominantColors(from: nil)
+            }
             stopTimer()
             MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
         }
@@ -135,6 +144,9 @@ final class NowPlaying {
         let urlString = "https://i.ytimg.com/vi/\(videoId)/hqdefault.jpg"
         guard let url = URL(string: urlString) else {
             thumbnailImage = Image(systemName: "music.note")
+            Task { @MainActor in
+                self.updateDominantColors(from: nil)
+            }
             return
         }
         Task {
@@ -144,12 +156,14 @@ final class NowPlaying {
                     thumbnailUIImage = platformImage
                     thumbnailImage = Image(uiImage: platformImage)
                     thumbnailVersion &+= 1
+                    updateDominantColors(from: platformImage)
                     PlayerController.shared.setNowPlayingMetadata()
                 }
             } catch {
                 await MainActor.run {
                     thumbnailImage = Image(systemName: "music.note")
                     thumbnailVersion &+= 1
+                    updateDominantColors(from: nil)
                 }
             }
         }
@@ -183,4 +197,75 @@ final class NowPlaying {
         timer?.invalidate()
         timer = nil
     }
+
+    @MainActor
+    private func updateDominantColors(from uiImage: UIImage?) {
+        guard let uiImage = uiImage else {
+            self.dominantColors = [Color(red: 0.15, green: 0.15, blue: 0.2), Color(red: 0.05, green: 0.05, blue: 0.08)]
+            return
+        }
+        self.dominantColors = uiImage.extractDominantColors()
+    }
+
+    private func cleanArtist(_ name: String) -> String {
+        cleanArtistDisplay(name)
+    }
+}
+
+// MARK: - Module-level artist name cleaner
+
+func cleanArtistDisplay(_ name: String) -> String {
+    var tempName = name
+
+    // Strip " - Topic"
+    for suffix in [" - Topic", " - topic", " - TOPIC"] {
+        if tempName.lowercased().hasSuffix(suffix.lowercased()) {
+            tempName = String(tempName.dropLast(suffix.count))
+        }
+    }
+
+    // Strip trailing year "(2025)" / "[2025]"
+    if let r = try? NSRegularExpression(pattern: "\\s*[\\(\\[]\\d{4}[\\)\\]]\\s*$") {
+        tempName = r.stringByReplacingMatches(
+            in: tempName,
+            range: NSRange(tempName.startIndex..., in: tempName),
+            withTemplate: ""
+        )
+    }
+
+    // Split on commas, ampersands, and bullet separators (•, ·, |) then drop junk segments
+    let separatorSet = CharacterSet(charactersIn: ",&•·|")
+    let parts = tempName
+        .components(separatedBy: separatorSet)
+        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        .filter { !$0.isEmpty }
+
+    let cleanParts = parts.filter { !_isJunkArtistSegment($0) }
+    if cleanParts.isEmpty {
+        return tempName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    return cleanParts.joined(separator: ", ")
+}
+
+private func _isJunkArtistSegment(_ segment: String) -> Bool {
+    let lower = segment.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    if lower.isEmpty || lower == "•" || lower == "·" { return true }
+
+    let junkLabels: Set<String> = [
+        "song", "video", "track", "music", "podcast", "episode",
+        "album", "playlist", "released", "year", "plays", "views",
+        "downloads", "listeners", "subscribers", "watchers", "likes"
+    ]
+    if junkLabels.contains(lower) { return true }
+
+    let patterns = [
+        // Number optionally followed by K/M/B/T and an optional metric word
+        "^[\\d,\\.]+[KMBT]?\\s*(views|downloads|listeners|subscribers|plays|watchers|likes?)?$",
+        "^\\d{4}$",              // bare year
+        "^[\\d,\\.\\s]+[KMBT]?$" // purely numeric / abbreviated counts
+    ]
+    for pattern in patterns {
+        if lower.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil { return true }
+    }
+    return false
 }

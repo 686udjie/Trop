@@ -381,9 +381,16 @@ struct SongItem {
         return fromTwoRowItem(renderer: renderer, videoId: videoId, duration: duration, playlistId: playlistId)
     }
 
-    private static let nonArtistLabels: Set<String> = ["song", "video", "track", "music", "podcast", "episode"]
+    private static let nonArtistLabels: Set<String> = [
+        "song", "video", "track", "music", "podcast", "episode",
+        "album", "playlist", "released", "plays", "views",
+        "downloads", "listeners", "subscribers", "likes"
+    ]
     private static let nonArtistPatterns: [String] = [
-        "^\\d+(\\.\\d+)?[KMBT]?\\s*(views|downloads|listeners|subscribers)$",
+        "^\\d+(\\.\\d+)?[KMBT]?\\s*(views|downloads|listeners|subscribers|plays|likes)?$",
+        "^\\d{4}$",                      // bare year
+        "^[\\d,\\.]+[KMBT]?$",           // numeric-only (e.g. "1.2M")
+        "^[\\d,\\.]+[KMBT]?\\s+likes?$"  // "500K likes", "1.2M like"
     ]
     private static let conjunctions: Set<String> = [",", "&", "and", "feat.", "ft.", "featuring"]
 
@@ -400,6 +407,19 @@ struct SongItem {
 
     private static func isArtistSegment(_ text: String) -> Bool {
         return !isViewCountOrJunk(text)
+    }
+
+    // Strips the YouTube "- Topic" auto-generated channel suffix and bare years from a name.
+    private static func cleanArtistName(_ name: String) -> String {
+        var s = name
+        for suffix in [" - Topic", " - topic"] {
+            if s.hasSuffix(suffix) { s = String(s.dropLast(suffix.count)) }
+        }
+        // Remove trailing bare year like " (2023)" or " [2023]"
+        if let r = try? NSRegularExpression(pattern: "\\s*[\\(\\[]\\d{4}[\\)\\]]\\s*$") {
+            s = r.stringByReplacingMatches(in: s, range: NSRange(s.startIndex..., in: s), withTemplate: "")
+        }
+        return s.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private static func isArtistRun(_ run: [String: Any]) -> Bool {
@@ -424,10 +444,10 @@ struct SongItem {
                 seg.allSatisfy { !isArtistSegment($0) }
             }
             if artistSegments.isEmpty {
-                artists = segments[0].filter { isArtistSegment($0) }.map { YTArtist(name: $0) }
+                artists = segments[0].filter { isArtistSegment($0) }.map { YTArtist(name: cleanArtistName($0)) }
                 album = segments.count > 1 ? segments[1].first : nil
             } else {
-                artists = artistSegments.first!.filter { isArtistSegment($0) }.map { YTArtist(name: $0) }
+                artists = artistSegments.first!.filter { isArtistSegment($0) }.map { YTArtist(name: cleanArtistName($0)) }
                 album = artistSegments.dropFirst().first?.first
             }
         } else {
@@ -458,7 +478,7 @@ struct SongItem {
                    bid.hasPrefix("MPREb_") {
                     album = trimmed
                 } else if isArtistRun(run) {
-                    artists.append(YTArtist(name: trimmed))
+                    artists.append(YTArtist(name: cleanArtistName(trimmed)))
                 }
             }
         }

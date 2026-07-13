@@ -15,54 +15,73 @@ struct MiniPlayerView: View {
     @State private var editingProgress: Float = 0
     @State private var isEditingSlider = false
     @State private var activeItemId = ""
+    
+    @State private var isLiked = false
+    @State private var showLyrics = false
+    @State private var showQueue = false
 
     var body: some View {
-        VStack(spacing: 24) {
-            Spacer()
-
-            artwork
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .shadow(radius: 8)
-                .padding(.horizontal, 40)
-
-            VStack(spacing: 6) {
-                Text(np.title)
-                    .font(.title2.weight(.semibold))
-                    .lineLimit(1)
-
-                if !np.artist.isEmpty {
-                    Text(np.artist)
-                        .font(.title3)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
+        ZStack {
+            LinearGradient(
+                colors: [
+                    np.dominantColors.first ?? Color(red: 0.15, green: 0.15, blue: 0.2),
+                    np.dominantColors.last ?? Color(red: 0.05, green: 0.05, blue: 0.08)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
+            .animation(.easeInOut(duration: 0.8), value: np.dominantColors)
+            
+            Circle()
+                .fill(np.dominantColors.first ?? .blue)
+                .frame(width: 400, height: 400)
+                .blur(radius: 120)
+                .opacity(0.45)
+                .offset(y: -150)
+                .ignoresSafeArea()
+            
+            VStack(spacing: 0) {
+                Capsule()
+                    .fill(.white.opacity(0.3))
+                    .frame(width: 36, height: 5)
+                    .padding(.top, 16)
+                    .padding(.bottom, 16)
+                
+                Spacer(minLength: 8)
+                
+                artwork
+                    .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                    .shadow(color: .black.opacity(0.4), radius: 20, x: 0, y: 12)
+                    .padding(.horizontal, 32)
+                
+                Spacer(minLength: 16)
+                
+                titleAndActionsRow
+                    .padding(.horizontal, 32)
+                    .padding(.bottom, 16)
+                
+                progressSlider
+                    .padding(.bottom, 16)
+                
+                PlaybackControlsRow(
+                    isPlaying: np.isPlaying,
+                    hasPrevious: np.hasPrevious,
+                    hasNext: np.hasNext,
+                    onPrevious: { np.playPrevious() },
+                    onPlayPause: { player.togglePlayPause() },
+                    onNext: { np.playNext() }
+                )
+                .padding(.bottom, 8)
+                
+                SecondaryActionsRow(
+                    showLyrics: $showLyrics,
+                    showQueue: $showQueue,
+                    onRepeat: {}
+                )
+                
+                Spacer(minLength: 8)
             }
-
-            progressSlider
-
-            HStack(spacing: 40) {
-                Button { np.playPrevious() } label: {
-                    Image(systemName: "backward.fill")
-                        .font(.title2)
-                }
-                .disabled(!np.hasPrevious)
-
-                Button {
-                    player.togglePlayPause()
-                } label: {
-                    Image(systemName: np.isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                        .font(.system(size: 56))
-                }
-
-                Button { np.playNext() } label: {
-                    Image(systemName: "forward.fill")
-                        .font(.title2)
-                }
-                .disabled(!np.hasNext)
-            }
-            .foregroundStyle(.blue)
-
-            Spacer()
         }
         .overlay(MiniPlayerPopupItems(
             queueSongs: np.queueSongs,
@@ -77,55 +96,128 @@ struct MiniPlayerView: View {
         }
         .popupProgress(np.progress)
         .onChange(of: activeItemId) { _, newId in
-            guard newId != np.videoId else { return }
-            guard let idx = np.queueSongs.firstIndex(where: { $0.videoId == newId }) else { return }
-            np.lastManualSkipTime = Date()
-            np.queueIndex = idx
-            let song = np.queueSongs[idx]
-            np.update(title: song.title, artist: song.artists.map(\.name).joined(separator: ", "), videoId: song.videoId)
-            Task { try? await PlaybackManager.shared.resolveAndPlay(videoId: song.videoId) }
+            handleActiveItemChange(newId: newId)
         }
         .onChange(of: np.videoId) { _, newId in activeItemId = newId ?? "" }
         .onChange(of: np.queueSongs.count) { _, _ in activeItemId = np.videoId ?? "" }
     }
 
+    private func handleActiveItemChange(newId: String) {
+        guard newId != np.videoId else { return }
+        guard let idx = np.queueSongs.firstIndex(where: { $0.videoId == newId }) else { return }
+        np.lastManualSkipTime = Date()
+        np.queueIndex = idx
+        let song = np.queueSongs[idx]
+        np.update(title: song.title, artist: song.artists.map(\.name).joined(separator: ", "), videoId: song.videoId)
+        Task { try? await PlaybackManager.shared.resolveAndPlay(videoId: song.videoId) }
+    }
+
+    private var titleAndActionsRow: some View {
+        HStack(alignment: .center) {
+            VStack(alignment: .leading, spacing: 4) {
+                MarqueeText(
+                    text: np.title,
+                    font: .title3.weight(.bold),
+                    color: .white
+                )
+                .frame(height: 28)
+                
+                let cleanedArtist = cleanArtistDisplay(np.artist)
+                if !cleanedArtist.isEmpty {
+                    MarqueeText(
+                        text: cleanedArtist,
+                        font: .body,
+                        color: .white.opacity(0.7)
+                    )
+                    .frame(height: 20)
+                }
+            }
+            
+            Spacer()
+            
+            HStack(spacing: 12) {
+                Button {
+                    isLiked.toggle()
+                } label: {
+                    Image(systemName: isLiked ? "heart.fill" : "heart")
+                        .font(.system(size: 17, weight: .regular))
+                        .foregroundStyle(isLiked ? .red : .white)
+                        .frame(width: 36, height: 36)
+                        .background(Circle().fill(.white.opacity(0.15)))
+                }
+                
+                Button {
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 17, weight: .regular))
+                        .foregroundStyle(.white)
+                        .frame(width: 36, height: 36)
+                        .background(Circle().fill(.white.opacity(0.15)))
+                }
+            }
+        }
+    }
+
     private var artwork: some View {
-        (np.thumbnailImage ?? Image(systemName: "music.note"))
-            .resizable()
-            .aspectRatio(contentMode: .fit)
+        ZStack {
+            if let img = np.thumbnailImage {
+                GeometryReader { geo in
+                    img
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .scaleEffect(x: 1.35, y: 1.35, anchor: .center)
+                        .frame(width: geo.size.width, height: geo.size.height)
+                        .clipped()
+                }
+            } else {
+                ZStack {
+                    Color.white.opacity(0.1)
+                    Image(systemName: "music.note")
+                        .font(.system(size: 64))
+                        .foregroundStyle(.white.opacity(0.4))
+                }
+            }
+        }
+        .aspectRatio(1.0, contentMode: .fit)
     }
 
     private var progressSlider: some View {
-        VStack(spacing: 4) {
-            Slider(value: Binding(
-                get: { isEditingSlider ? editingProgress : np.progress },
-                set: { editingProgress = $0 }
-            ), onEditingChanged: { editing in
-                if editing {
-                    editingProgress = np.progress
-                } else {
-                    let target = TimeInterval(editingProgress) * np.duration
-                    player.seek(to: target)
-                    np.currentTime = target
-                    player.updateNowPlayingProgress()
+        VStack(spacing: 6) {
+            ProgressBar(
+                progress: Binding(
+                    get: { isEditingSlider ? editingProgress : np.progress },
+                    set: { editingProgress = $0 }
+                ),
+                accentColor: np.dominantColors.first ?? .white,
+                isPlaying: np.isPlaying,
+                onEditingChanged: { editing in
+                    if editing {
+                        editingProgress = np.progress
+                    } else {
+                        let target = TimeInterval(editingProgress) * np.duration
+                        player.seek(to: target)
+                        np.currentTime = target
+                        player.updateNowPlayingProgress()
+                    }
+                    isEditingSlider = editing
                 }
-                isEditingSlider = editing
-            })
-            .tint(.blue)
-
+            )
+            
             HStack {
                 Text(timeString(isEditingSlider
                     ? TimeInterval(editingProgress) * np.duration
                     : np.currentTime))
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.white.opacity(0.6))
+                
                 Spacer()
+                
                 Text(timeString(np.duration))
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.white.opacity(0.6))
             }
         }
-        .padding(.horizontal, 40)
+        .padding(.horizontal, 32)
     }
 
     private func timeString(_ t: TimeInterval) -> String {
@@ -154,7 +246,7 @@ private struct MiniPlayerPopupItems: View, Equatable {
                     PopupItem(
                         id: song.videoId,
                         verbatimTitle: song.title,
-                        verbatimSubtitle: song.artists.map(\.name).joined(separator: ", "),
+                        verbatimSubtitle: song.artists.map { cleanArtistDisplay($0.name) }.joined(separator: ", "),
                         image: thumbnailImage,
                         progress: 0
                     ) {
