@@ -28,6 +28,10 @@ actor CookieStore {
         await state()?.visitorData
     }
 
+    func dataSyncId() async -> String? {
+        await state()?.dataSyncId
+    }
+
     func isLoggedIn() async -> Bool {
         await state()?.isLoggedIn ?? false
     }
@@ -36,7 +40,7 @@ actor CookieStore {
         try? await keychain.loadSessionState()
     }
 
-    func save(cookies: [String: String], sapisid: String?, visitorData: String?) {
+    func save(cookies: [String: String], sapisid: String?, visitorData: String?, dataSyncId: String? = nil) {
         let cookieString = cookies
             .map { "\($0.key)=\($0.value)" }
             .joined(separator: "; ")
@@ -44,7 +48,7 @@ actor CookieStore {
             cookie: cookieString.isEmpty ? nil : cookieString,
             sapisidHash: sapisid,
             visitorData: visitorData,
-            dataSyncId: nil,
+            dataSyncId: dataSyncId,
             locale: .default
         )
         try? keychain.save(state, for: KeychainStorage.sessionKey)

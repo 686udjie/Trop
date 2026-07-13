@@ -40,18 +40,21 @@ actor InnerTube {
         let cookies: [String: String]
         let sapisid: String?
         let visitorData: String?
+        let dataSyncId: String?
     }
 
     // Actor-isolated mutable session state
     private var cookies: [String: String] = [:]
     private var sapisid: String?
     private var visitorData: String?
+    private var dataSyncId: String? // onBehalfOfUser for browse requests
 
     // Loads persisted auth state into the session
     func loadState(from store: CookieStore) async {
         cookies = await store.cookies()
         sapisid = await store.sapisid()
         visitorData = await store.visitorData()
+        dataSyncId = await store.dataSyncId()
     }
 
     // Ensures visitorData is set, fetching it via browse if needed
@@ -73,7 +76,7 @@ actor InnerTube {
         if let browseId = browseId { body["browseId"] = browseId }
         if let params = params { body["params"] = params }
         if let continuation = continuation { body["continuation"] = continuation }
-        let session = Session(cookies: cookies, sapisid: sapisid, visitorData: visitorData)
+        let session = Session(cookies: cookies, sapisid: sapisid, visitorData: visitorData, dataSyncId: dataSyncId)
         let json = try await post(endpoint: "browse", body: body, client: client, session: session)
         if let rctx = json["responseContext"] as? [String: Any], let vd = rctx["visitorData"] as? String {
             visitorData = vd
@@ -101,7 +104,7 @@ actor InnerTube {
         if let poToken = poToken {
             body["serviceIntegrityDimensions"] = ["poToken": poToken]
         }
-        let session = Session(cookies: cookies, sapisid: sapisid, visitorData: visitorData)
+        let session = Session(cookies: cookies, sapisid: sapisid, visitorData: visitorData, dataSyncId: dataSyncId)
         return try await post(endpoint: "player", body: body, client: client, session: session)
     }
 
@@ -125,7 +128,7 @@ actor InnerTube {
         if let poToken = poToken {
             body["serviceIntegrityDimensions"] = ["poToken": poToken]
         }
-        let session = Session(cookies: cookies, sapisid: sapisid, visitorData: visitorData)
+        let session = Session(cookies: cookies, sapisid: sapisid, visitorData: visitorData, dataSyncId: dataSyncId)
         return try await postDecodable(endpoint: "player", body: body, client: client, session: session)
     }
 
@@ -155,7 +158,7 @@ actor InnerTube {
         if let videoId = videoId { body["videoId"] = videoId }
         if let playlistId = playlistId { body["playlistId"] = playlistId }
         if let index = index { body["index"] = index }
-        let session = Session(cookies: cookies, sapisid: sapisid, visitorData: visitorData)
+        let session = Session(cookies: cookies, sapisid: sapisid, visitorData: visitorData, dataSyncId: dataSyncId)
         return try await post(endpoint: "next", body: body, client: client, session: session)
     }
 
@@ -171,7 +174,7 @@ actor InnerTube {
             "query": query
         ]
         if let params = params { body["params"] = params }
-        let session = Session(cookies: cookies, sapisid: sapisid, visitorData: visitorData)
+        let session = Session(cookies: cookies, sapisid: sapisid, visitorData: visitorData, dataSyncId: dataSyncId)
         return try await post(endpoint: "search", body: body, client: client, session: session)
     }
 
@@ -180,7 +183,7 @@ actor InnerTube {
         client: YouTubeClient = .webRemix,
         locale: YouTubeLocale = .default
     ) async throws -> [String: Any] {
-        let session = Session(cookies: cookies, sapisid: sapisid, visitorData: visitorData)
+        let session = Session(cookies: cookies, sapisid: sapisid, visitorData: visitorData, dataSyncId: dataSyncId)
         return try await post(endpoint: "account/account_menu", body: ["context": buildContextDict(client: client, locale: locale, visitorData: visitorData)], client: client, session: session)
     }
 
@@ -324,20 +327,20 @@ actor InnerTube {
 
     // Like or unlike a video
     func like(videoId: String, client: YouTubeClient = .webRemix, locale: YouTubeLocale = .default) async throws -> [String: Any] {
-        let session = Session(cookies: cookies, sapisid: sapisid, visitorData: visitorData)
+        let session = Session(cookies: cookies, sapisid: sapisid, visitorData: visitorData, dataSyncId: dataSyncId)
         let body: [String: Any] = ["context": buildContextDict(client: client, locale: locale, visitorData: visitorData), "target": ["videoId": videoId]]
         return try await post(endpoint: "like/like", body: body, client: client, session: session)
     }
 
     func unlike(videoId: String, client: YouTubeClient = .webRemix, locale: YouTubeLocale = .default) async throws -> [String: Any] {
-        let session = Session(cookies: cookies, sapisid: sapisid, visitorData: visitorData)
+        let session = Session(cookies: cookies, sapisid: sapisid, visitorData: visitorData, dataSyncId: dataSyncId)
         let body: [String: Any] = ["context": buildContextDict(client: client, locale: locale, visitorData: visitorData), "target": ["videoId": videoId]]
         return try await post(endpoint: "like/removelike", body: body, client: client, session: session)
     }
 
     // Send feedback tokens (library add/remove)
     func feedback(tokens: [String], client: YouTubeClient = .webRemix, locale: YouTubeLocale = .default) async throws -> [String: Any] {
-        let session = Session(cookies: cookies, sapisid: sapisid, visitorData: visitorData)
+        let session = Session(cookies: cookies, sapisid: sapisid, visitorData: visitorData, dataSyncId: dataSyncId)
         let body: [String: Any] = ["context": buildContextDict(client: client, locale: locale, visitorData: visitorData), "feedbackTokens": tokens]
         return try await post(endpoint: "feedback", body: body, client: client, session: session)
     }
@@ -346,7 +349,7 @@ actor InnerTube {
     func editPlaylist(playlistId: String, actions: [[String: Any]],
                       client: YouTubeClient = .webRemix,
                       locale: YouTubeLocale = .default) async throws -> [String: Any] {
-        let session = Session(cookies: cookies, sapisid: sapisid, visitorData: visitorData)
+        let session = Session(cookies: cookies, sapisid: sapisid, visitorData: visitorData, dataSyncId: dataSyncId)
         let body: [String: Any] = [
             "context": buildContextDict(client: client, locale: locale, visitorData: visitorData),
             "playlistId": playlistId,
@@ -357,7 +360,7 @@ actor InnerTube {
 
     // Create a new playlist
     func createPlaylist(title: String, description: String? = nil, client: YouTubeClient = .webRemix, locale: YouTubeLocale = .default) async throws -> [String: Any] {
-        let session = Session(cookies: cookies, sapisid: sapisid, visitorData: visitorData)
+        let session = Session(cookies: cookies, sapisid: sapisid, visitorData: visitorData, dataSyncId: dataSyncId)
         var body: [String: Any] = ["context": buildContextDict(client: client, locale: locale, visitorData: visitorData), "title": title]
         if let description { body["description"] = description }
         return try await post(endpoint: "playlist/create", body: body, client: client, session: session)
@@ -365,28 +368,28 @@ actor InnerTube {
 
     // Delete a playlist
     func deletePlaylist(playlistId: String, client: YouTubeClient = .webRemix, locale: YouTubeLocale = .default) async throws -> [String: Any] {
-        let session = Session(cookies: cookies, sapisid: sapisid, visitorData: visitorData)
+        let session = Session(cookies: cookies, sapisid: sapisid, visitorData: visitorData, dataSyncId: dataSyncId)
         let body: [String: Any] = ["context": buildContextDict(client: client, locale: locale, visitorData: visitorData), "playlistId": playlistId]
         return try await post(endpoint: "playlist/delete", body: body, client: client, session: session)
     }
 
     // Subscribe to a channel
     func subscribe(channelId: String, client: YouTubeClient = .webRemix, locale: YouTubeLocale = .default) async throws -> [String: Any] {
-        let session = Session(cookies: cookies, sapisid: sapisid, visitorData: visitorData)
+        let session = Session(cookies: cookies, sapisid: sapisid, visitorData: visitorData, dataSyncId: dataSyncId)
         let body: [String: Any] = ["context": buildContextDict(client: client, locale: locale, visitorData: visitorData), "channelIds": [channelId]]
         return try await post(endpoint: "subscription/subscribe", body: body, client: client, session: session)
     }
 
     // Unsubscribe from a channel
     func unsubscribe(channelId: String, client: YouTubeClient = .webRemix, locale: YouTubeLocale = .default) async throws -> [String: Any] {
-        let session = Session(cookies: cookies, sapisid: sapisid, visitorData: visitorData)
+        let session = Session(cookies: cookies, sapisid: sapisid, visitorData: visitorData, dataSyncId: dataSyncId)
         let body: [String: Any] = ["context": buildContextDict(client: client, locale: locale, visitorData: visitorData), "channelIds": [channelId]]
         return try await post(endpoint: "subscription/unsubscribe", body: body, client: client, session: session)
     }
 
     // Get search suggestions (autocomplete)
     func searchSuggestions(input: String, client: YouTubeClient = .webRemix, locale: YouTubeLocale = .default) async throws -> [String: Any] {
-        let session = Session(cookies: cookies, sapisid: sapisid, visitorData: visitorData)
+        let session = Session(cookies: cookies, sapisid: sapisid, visitorData: visitorData, dataSyncId: dataSyncId)
         let body: [String: Any] = ["context": buildContextDict(client: client, locale: locale, visitorData: visitorData), "input": input]
         return try await post(endpoint: "music/get_search_suggestions", body: body, client: client, session: session)
     }
@@ -411,11 +414,49 @@ actor InnerTube {
         if let deviceMake = client.deviceMake { clientDict["deviceMake"] = deviceMake }
         if let deviceModel = client.deviceModel { clientDict["deviceModel"] = deviceModel }
         if let androidSdkVersion = client.androidSdkVersion { clientDict["androidSdkVersion"] = androidSdkVersion }
+
+        var user: [String: Any] = ["lockedSafetyMode": false]
+        if let dataSyncId = dataSyncId {
+            user["onBehalfOfUser"] = dataSyncId
+        }
+
         return [
             "client": clientDict,
             "request": ["internalExperimentFlags": [] as [String], "useSsl": true],
-            "user": ["lockedSafetyMode": false]
+            "user": user
         ]
+    }
+
+    // MARK: - Playback Tracking
+
+    private static let cpnChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_"
+
+    func registerPlayback(trackingUrl: String, playlistId: String? = nil, client: YouTubeClient = .webRemix) async throws {
+        let cpn = (1...16).map { _ in Self.cpnChars.randomElement()! }.map(String.init).joined()
+        guard let request = RequestBuilder.buildPlaybackTrackingRequest(
+            trackingUrl: trackingUrl,
+            cpn: cpn,
+            client: client,
+            visitorData: visitorData,
+            cookies: cookies,
+            sapisid: sapisid,
+            playlistId: playlistId
+        ) else {
+            print("[InnerTube] Failed to build playback tracking request")
+            throw InnerTubeError.invalidResponse
+        }
+
+        print("[InnerTube] Registering playback cpn=\(cpn)")
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw InnerTubeError.invalidResponse
+        }
+        guard (200...299).contains(httpResponse.statusCode) else {
+            let body = String(data: data, encoding: .utf8) ?? ""
+            print("[InnerTube] Playback tracking HTTP \(httpResponse.statusCode): \(body.prefix(200))")
+            throw InnerTubeError.httpError(statusCode: httpResponse.statusCode, data: data)
+        }
+        print("[InnerTube] Playback registered — status=\(httpResponse.statusCode) bytes=\(data.count)")
     }
 }
 

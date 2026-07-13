@@ -155,6 +155,9 @@ final class PlayerController {
                 break
             case MPV_EVENT_END_FILE:
                 let stoppedVideoId = self.currentVideoId
+                if stoppedVideoId != nil {
+                    Task { await PlaybackStateService.shared.stopTracking() }
+                }
                 self.currentVideoId = nil
                 let endFile = event.pointee.data?.load(as: mpv_event_end_file.self)
                 let isEof = endFile?.reason == MPV_END_FILE_REASON_EOF

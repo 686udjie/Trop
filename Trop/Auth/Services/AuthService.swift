@@ -32,8 +32,8 @@ actor AuthService {
     private let innerTube = InnerTube.shared
     private let cookieStore = CookieStore()
 
-// Imports a raw cookie string (e.g. from browser export), extracts SAPISID + visitorData, and persists
-  func importSession(from cookieString: String) async throws {
+// Imports a raw cookie string (e.g. from browser export), extracts SAPISID + visitorData + dataSyncId, and persists
+  func importSession(from cookieString: String, dataSyncId: String? = nil) async throws {
     guard !cookieString.isEmpty else {
       throw AuthError.invalidCookie
     }
@@ -42,7 +42,7 @@ actor AuthService {
     let sapisid = extractSAPISID(from: cookies)
     let visitorData = extractVisitorData(from: cookies)
 
-    await cookieStore.save(cookies: cookies, sapisid: sapisid, visitorData: visitorData)
+    await cookieStore.save(cookies: cookies, sapisid: sapisid, visitorData: visitorData, dataSyncId: dataSyncId)
 
     await innerTube.loadState(from: cookieStore)
   }

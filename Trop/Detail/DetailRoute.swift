@@ -15,6 +15,7 @@ enum DetailRoute: Hashable {
     case playlist(playlistId: String)
     case podcast(browseId: String)
     case autoPlaylist(AutoPlaylistRoute)
+    case history
 }
 
 enum AutoPlaylistRoute: Hashable {

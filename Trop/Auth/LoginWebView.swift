@@ -113,6 +113,18 @@ private final class LoginNavigationDelegate: NSObject, WKNavigationDelegate {
             self?.model.visitorData = visitorData
             self?.model.isLoggedIn = sapisid != nil
             self?.model.isPresented = false
+
+            // Extract dataSyncId from the YouTube page config via JS injection
+            webView.evaluateJavaScript("window.yt?.config_?.DATASYNC_ID ?? ''") { result, error in
+                if let dataSyncId = result as? String, !dataSyncId.isEmpty {
+                    self?.model.dataSyncId = dataSyncId
+                    print("[Login]   ✅ Found dataSyncId: \(dataSyncId.prefix(15))...")
+                } else if let error = error {
+                    print("[Login]   ⚠️ JS eval for dataSyncId failed: \(error.localizedDescription)")
+                } else {
+                    print("[Login]   ⚠️ dataSyncId not found in page context")
+                }
+            }
         }
     }
 }

@@ -63,6 +63,8 @@ struct SearchView: View {
                     PodcastDetailView(browseId: browseId)
                 case .autoPlaylist(let autoRoute):
                     PlaylistDetailView(autoPlaylistRoute: autoRoute)
+                case .history:
+                    HistoryScreenView()
                 }
             }
             .onAppear {

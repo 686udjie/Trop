@@ -328,6 +328,36 @@ extension DatabaseService {
     }
 }
 
+// MARK: History
+
+extension DatabaseService {
+    struct HistoryEntry: Sendable, Hashable {
+        var event: Event
+        var song: SongEntity?
+    }
+
+    func fetchHistory(limit: Int = 50) async throws -> [HistoryEntry] {
+        try await dbPool.read { db in
+            let events = try Event
+                .order(Column("timestamp").desc)
+                .limit(limit)
+                .fetchAll(db)
+
+            let songIds = events.map(\.songId)
+            guard !songIds.isEmpty else { return [] }
+
+            let placeholders = songIds.map { _ in "?" }.joined(separator: ",")
+            let songs: [String: SongEntity] = Dictionary(
+                uniqueKeysWithValues: try SongEntity
+                    .fetchAll(db, sql: "SELECT * FROM song WHERE id IN (\(placeholders))", arguments: StatementArguments(songIds))
+                    .map { ($0.id, $0) }
+            )
+
+            return events.map { HistoryEntry(event: $0, song: songs[$0.songId]) }
+        }
+    }
+}
+
 // MARK: Reactive Observation
 
 extension DatabaseService {

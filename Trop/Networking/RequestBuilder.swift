@@ -55,4 +55,58 @@ enum RequestBuilder {
 
         return request
     }
+
+    static func buildPlaybackTrackingRequest(
+        trackingUrl: String,
+        cpn: String,
+        client: YouTubeClient,
+        visitorData: String?,
+        cookies: [String: String],
+        sapisid: String?,
+        playlistId: String? = nil
+    ) -> URLRequest? {
+        guard var components = URLComponents(string: trackingUrl) else { return nil }
+
+        var queryItems = components.queryItems ?? []
+        queryItems.append(URLQueryItem(name: "c", value: client.clientName))
+        queryItems.append(URLQueryItem(name: "cpn", value: cpn))
+        queryItems.append(URLQueryItem(name: "ver", value: "2"))
+        if let playlistId = playlistId {
+            queryItems.append(URLQueryItem(name: "list", value: playlistId))
+            queryItems.append(URLQueryItem(name: "referrer", value: "https://music.youtube.com/playlist?list=\(playlistId)"))
+        }
+        components.queryItems = queryItems
+
+        guard let url = components.url else { return nil }
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 15
+
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("1", forHTTPHeaderField: "X-Goog-Api-Format-Version")
+        request.setValue("\(client.clientId)", forHTTPHeaderField: "X-YouTube-Client-Name")
+        request.setValue(client.clientVersion, forHTTPHeaderField: "X-YouTube-Client-Version")
+        request.setValue("https://music.youtube.com", forHTTPHeaderField: "X-Origin")
+        request.setValue("https://music.youtube.com/", forHTTPHeaderField: "Referer")
+        request.setValue(client.userAgent, forHTTPHeaderField: "User-Agent")
+
+        if let visitorData = visitorData {
+            request.setValue(visitorData, forHTTPHeaderField: "X-Goog-Visitor-Id")
+        }
+
+        if client.loginSupported {
+            if !cookies.isEmpty {
+                let cookieString = cookies.map { "\($0.key)=\($0.value)" }.joined(separator: "; ")
+                request.setValue(cookieString, forHTTPHeaderField: "Cookie")
+            }
+            if let sapisid = sapisid {
+                request.setValue(
+                    SAPISIDAuth.authorizationHeader(sapisid: sapisid),
+                    forHTTPHeaderField: "Authorization"
+                )
+            }
+        }
+
+        return request
+    }
 }

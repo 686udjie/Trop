@@ -20,11 +20,21 @@ struct HomeScreenView: View {
                         .font(.largeTitle)
                         .fontWeight(.bold)
                     Spacer()
-                    AccountButtonView(
-                        isLoggedIn: viewModel.isLoggedIn,
-                        accountImageUrl: viewModel.accountImageUrl,
-                        onTap: { viewModel.tapAccount() }
-                    )
+                    HStack(spacing: 8) {
+                        Button {
+                            navigationPath.append(DetailRoute.history)
+                        } label: {
+                            Image(systemName: "clock.arrow.circlepath")
+                                .font(.title3)
+                                .foregroundColor(.primary)
+                        }
+                        .buttonStyle(.plain)
+                        AccountButtonView(
+                            isLoggedIn: viewModel.isLoggedIn,
+                            accountImageUrl: viewModel.accountImageUrl,
+                            onTap: { viewModel.tapAccount() }
+                        )
+                    }
                 }
                 .padding(.horizontal)
                 .padding(.vertical, 8)
@@ -53,6 +63,8 @@ struct HomeScreenView: View {
                     PodcastDetailView(browseId: browseId)
                 case .autoPlaylist(let autoRoute):
                     PlaylistDetailView(autoPlaylistRoute: autoRoute)
+                case .history:
+                    HistoryScreenView()
                 }
             }
             .sheet(isPresented: $viewModel.isLoginSheetPresented) {

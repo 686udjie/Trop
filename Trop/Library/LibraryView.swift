@@ -71,6 +71,8 @@ struct LibraryView: View {
                     PodcastDetailView(browseId: browseId)
                 case .autoPlaylist(let autoRoute):
                     PlaylistDetailView(autoPlaylistRoute: autoRoute)
+                case .history:
+                    HistoryScreenView()
                 }
             }
             .overlay(alignment: .bottomTrailing) {
