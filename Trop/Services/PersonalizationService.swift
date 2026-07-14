@@ -240,7 +240,7 @@ actor PersonalizationService {
                let browse = nav["browseEndpoint"] as? [String: Any],
                let bid = browse["browseId"] as? String,
                bid.hasPrefix("MPREb_") { return nil }
-            return YTArtist(name: trimmed)
+            return YTArtist(name: cleanArtistDisplay(trimmed))
         }
     }
 

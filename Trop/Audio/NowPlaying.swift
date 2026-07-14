@@ -242,7 +242,7 @@ func cleanArtistDisplay(_ name: String) -> String {
 
     let cleanParts = parts.filter { !_isJunkArtistSegment($0) }
     if cleanParts.isEmpty {
-        return tempName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return ""
     }
     return cleanParts.joined(separator: ", ")
 }

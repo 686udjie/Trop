@@ -246,7 +246,7 @@ private struct MiniPlayerPopupItems: View, Equatable {
                     PopupItem(
                         id: song.videoId,
                         verbatimTitle: song.title,
-                        verbatimSubtitle: song.artists.map { cleanArtistDisplay($0.name) }.joined(separator: ", "),
+                        verbatimSubtitle: song.artists.map { cleanArtistDisplay($0.name) }.filter { !$0.isEmpty }.joined(separator: ", "),
                         image: thumbnailImage,
                         progress: 0
                     ) {

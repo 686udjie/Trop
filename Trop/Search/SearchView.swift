@@ -129,7 +129,7 @@ struct SearchView: View {
                         let item = YTItem.song(SongItem(
                             videoId: song.id,
                             title: song.title,
-                            artists: song.artistName.map { [YTArtist(name: $0)] } ?? [],
+                            artists: song.artistName.map { [YTArtist(name: cleanArtistDisplay($0))] } ?? [],
                             album: song.albumName,
                             duration: song.duration,
                             thumbnailUrl: song.thumbnailUrl,

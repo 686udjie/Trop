@@ -91,7 +91,7 @@ extension AlbumDetailViewModel {
                     if let browse = (run["navigationEndpoint"] as? [String: Any])?["browseEndpoint"] as? [String: Any] {
                         artistId = browse["browseId"] as? String
                     }
-                    artists.append(YTArtist(name: text, id: artistId))
+                    artists.append(YTArtist(name: cleanArtistDisplay(text), id: artistId))
                 }
             }
             // Artist fallback from subtitle runs
@@ -106,7 +106,7 @@ extension AlbumDetailViewModel {
                     if let browse = (run["navigationEndpoint"] as? [String: Any])?["browseEndpoint"] as? [String: Any] {
                         artistId = browse["browseId"] as? String
                     }
-                    artists.append(YTArtist(name: trimmed, id: artistId))
+                    artists.append(YTArtist(name: cleanArtistDisplay(trimmed), id: artistId))
                 }
             }
 
@@ -150,7 +150,7 @@ extension AlbumDetailViewModel {
                            let browse = nav["browseEndpoint"] as? [String: Any] {
                             artistId = browse["browseId"] as? String
                         }
-                        artists.append(YTArtist(name: trimmed, id: artistId))
+                        artists.append(YTArtist(name: cleanArtistDisplay(trimmed), id: artistId))
                     }
                 }
 

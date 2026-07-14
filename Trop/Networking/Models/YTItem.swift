@@ -231,7 +231,7 @@ enum YTItem {
                 let episodeItem = EpisodeItem(
                     videoId: videoId,
                     title: title,
-                    artists: podcastName.map { [YTArtist(name: $0)] } ?? [],
+                    artists: podcastName.map { [YTArtist(name: SongItem.cleanArtistName($0))] } ?? [],
                     duration: parseDurationFromRenderer(renderer),
                     thumbnailUrl: thumbnailUrl,
                     publishDate: nil
@@ -266,7 +266,7 @@ enum YTItem {
                         year = y
                     } else if firstWord != "Album" && firstWord != "EP" && firstWord != "Single" {
                         for artistName in seg {
-                            artists.append(YTArtist(name: artistName, id: nil))
+                            artists.append(YTArtist(name: SongItem.cleanArtistName(artistName), id: nil))
                         }
                     }
                 }
@@ -410,7 +410,7 @@ struct SongItem {
     }
 
     // Strips the YouTube "- Topic" auto-generated channel suffix and bare years from a name.
-    private static func cleanArtistName(_ name: String) -> String {
+    static func cleanArtistName(_ name: String) -> String {
         var s = name
         for suffix in [" - Topic", " - topic"] {
             if s.hasSuffix(suffix) { s = String(s.dropLast(suffix.count)) }
@@ -604,7 +604,7 @@ extension SongItem {
     init(entity: SongEntity) {
         self.videoId = entity.id
         self.title = entity.title
-        self.artists = entity.artistName.map { [YTArtist(name: $0)] } ?? []
+        self.artists = entity.artistName.map { [YTArtist(name: SongItem.cleanArtistName($0))] } ?? []
         self.album = entity.albumName
         self.albumId = nil
         self.duration = entity.duration
