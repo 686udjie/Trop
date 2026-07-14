@@ -59,14 +59,14 @@ final class PlayerController {
         currentVideoId = nil
     }
 
-    func play(url: String, title: String? = nil, artist: String? = nil, videoId: String? = nil, duration: TimeInterval? = nil) async {
+    func play(url: String, title: String? = nil, artist: String? = nil, videoId: String? = nil, duration: TimeInterval? = nil, artists: [YTArtist] = []) async {
         guard let url = URL(string: url) else {
             print("[Player] Invalid URL: \(url)")
             return
         }
 
         if let videoId, let title, videoId != NowPlaying.shared.videoId {
-            NowPlaying.shared.update(title: title, artist: artist, videoId: videoId)
+            NowPlaying.shared.update(title: title, artist: artist, videoId: videoId, artists: artists)
         }
 
         let prevVideoId = currentVideoId

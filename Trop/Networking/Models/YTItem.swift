@@ -447,7 +447,12 @@ struct SongItem {
                 artists = segments[0].filter { isArtistSegment($0) }.map { YTArtist(name: cleanArtistName($0)) }
                 album = segments.count > 1 ? segments[1].first : nil
             } else {
-                artists = artistSegments.first!.filter { isArtistSegment($0) }.map { YTArtist(name: cleanArtistName($0)) }
+                // Flatten all artist segments to ensure featured artists are included.
+                var collected: [YTArtist] = []
+                for seg in artistSegments {
+                    collected.append(contentsOf: seg.filter { isArtistSegment($0) }.map { YTArtist(name: cleanArtistName($0)) })
+                }
+                artists = collected
                 album = artistSegments.dropFirst().first?.first
             }
         } else {

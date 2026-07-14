@@ -31,7 +31,8 @@ actor PlaybackManager {
                 title: cached.title,
                 artist: cached.author,
                 videoId: videoId,
-                duration: cached.duration.flatMap { $0 > 0 ? TimeInterval($0) : nil }
+                duration: cached.duration.flatMap { $0 > 0 ? TimeInterval($0) : nil },
+                artists: queueArtists(for: videoId)
             )
             return cached
         }
@@ -72,7 +73,8 @@ actor PlaybackManager {
                         title: result.title,
                         artist: result.author,
                         videoId: videoId,
-                        duration: result.duration.flatMap { $0 > 0 ? TimeInterval($0) : nil }
+                        duration: result.duration.flatMap { $0 > 0 ? TimeInterval($0) : nil },
+                        artists: queueArtists(for: videoId)
                     )
                     return result
                 }
@@ -90,7 +92,8 @@ actor PlaybackManager {
                     title: result.title,
                     artist: result.author,
                     videoId: videoId,
-                    duration: result.duration.flatMap { $0 > 0 ? TimeInterval($0) : nil }
+                    duration: result.duration.flatMap { $0 > 0 ? TimeInterval($0) : nil },
+                    artists: queueArtists(for: videoId)
                 )
                 return result
 
@@ -105,6 +108,11 @@ actor PlaybackManager {
 
     private func clearInflight(videoId: String) {
         inflightResolutions.removeValue(forKey: videoId)
+    }
+
+    /// Retrieves all artists for the current video to preserve metadata accuracy.
+    private func queueArtists(for videoId: String) -> [YTArtist] {
+        NowPlaying.shared.queueSongs.first { $0.videoId == videoId }?.artists ?? []
     }
 
     /// Generate PoToken for the given video. Returns playerRequestPoToken and streamingDataPoToken.

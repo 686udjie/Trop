@@ -7,6 +7,7 @@
 
 import SwiftUI
 import LNPopupUI
+import Marquee
 
 struct MiniPlayerView: View {
     private let player = PlayerController.shared
@@ -110,28 +111,51 @@ struct MiniPlayerView: View {
         np.lastManualSkipTime = Date()
         np.queueIndex = idx
         let song = np.queueSongs[idx]
-        np.update(title: song.title, artist: song.artists.map(\.name).joined(separator: ", "), videoId: song.videoId)
+        np.update(title: song.title, artist: song.artists.map(\.name).joined(separator: ", "), videoId: song.videoId, artists: song.artists)
         Task { try? await PlaybackManager.shared.resolveAndPlay(videoId: song.videoId) }
     }
 
     private var titleAndActionsRow: some View {
         HStack(alignment: .center) {
             VStack(alignment: .leading, spacing: 4) {
-                MarqueeText(
-                    text: np.title,
-                    font: .title3.weight(.bold),
-                    color: .white
-                )
+                Marquee {
+                    Text(np.title)
+                        .font(.title3.weight(.bold))
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                }
+                .marqueeDirection(.right2left)
+                .marqueeDuration(8.0)
+                .marqueeWhenNotFit(true)
+                .marqueeIdleAlignment(.leading)
                 .frame(height: 28)
-                
-                let cleanedArtist = cleanArtistDisplay(np.artist)
-                if !cleanedArtist.isEmpty {
-                    MarqueeText(
-                        text: cleanedArtist,
-                        font: .body,
-                        color: .white.opacity(0.7)
+                .mask(
+                    LinearGradient(
+                        stops: [
+                            .init(color: .black, location: 0),
+                            .init(color: .black, location: 0.92),
+                            .init(color: .clear, location: 1)
+                        ],
+                        startPoint: .leading,
+                        endPoint: .trailing
                     )
+                )
+                .foregroundStyle(.white)
+
+                let cleanedArtist = np.displayArtist
+                if !cleanedArtist.isEmpty {
+                    Marquee {
+                        Text(cleanedArtist)
+                            .font(.body)
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                    }
+                    .marqueeDirection(.right2left)
+                    .marqueeWhenNotFit(true)
+                    .marqueeDuration(8.0)
+                    .marqueeIdleAlignment(.leading)
                     .frame(height: 20)
+                    .foregroundStyle(.white.opacity(0.7))
                 }
             }
             

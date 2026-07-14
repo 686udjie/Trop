@@ -20,6 +20,7 @@ final class NowPlaying {
     var artist = ""
     var albumTitle = ""
     var videoId: String?
+    var artists: [YTArtist] = []
     var isPlaying = false
     var currentTime: TimeInterval = 0
     var duration: TimeInterval = 0
@@ -70,7 +71,7 @@ final class NowPlaying {
         queueIndex += 1
         let song = queueSongs[queueIndex]
         let displayArtist = song.artists.map(\.name).joined(separator: ", ")
-        update(title: song.title, artist: displayArtist, videoId: song.videoId, album: song.album)
+        update(title: song.title, artist: displayArtist, videoId: song.videoId, album: song.album, artists: song.artists)
         Task {
             do {
                 try await PlaybackManager.shared.resolveAndPlay(videoId: song.videoId)
@@ -90,7 +91,7 @@ final class NowPlaying {
         queueIndex -= 1
         let song = queueSongs[queueIndex]
         let displayArtist = song.artists.map(\.name).joined(separator: ", ")
-        update(title: song.title, artist: displayArtist, videoId: song.videoId, album: song.album)
+        update(title: song.title, artist: displayArtist, videoId: song.videoId, album: song.album, artists: song.artists)
         Task {
             do {
                 try await PlaybackManager.shared.resolveAndPlay(videoId: song.videoId)
@@ -100,9 +101,10 @@ final class NowPlaying {
         }
     }
 
-    func update(title: String, artist: String?, videoId: String, album: String? = nil) {
+    func update(title: String, artist: String?, videoId: String, album: String? = nil, artists: [YTArtist] = []) {
         self.isPlaying = true
         self.title = title
+        self.artists = artists
         self.artist = cleanArtist(artist ?? "")
         if let album {
             albumTitle = album
@@ -113,6 +115,16 @@ final class NowPlaying {
         }
         loadThumbnail(videoId: videoId)
         preloadNextTrack()
+    }
+
+    /// Cleaned artist string; prioritizes the structured `artists` array or falls back to `artist`.
+    var displayArtist: String {
+        let fromArray = artists
+            .map { cleanArtistDisplay($0.name) }
+            .filter { !$0.isEmpty }
+            .joined(separator: ", ")
+        if !fromArray.isEmpty { return fromArray }
+        return artist
     }
 
     func stopped(videoId: String?, isEof: Bool = true) {

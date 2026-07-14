@@ -42,9 +42,11 @@ struct AsyncImageView: View {
             return
         }
         let scale = displayScale
+        // Prevent zero-size layout passes from causing degenerate image cache requests.
+        let minPixels: CGFloat = 120 * scale
         let displaySize = CGSize(
-            width: targetSize.width * scale,
-            height: targetSize.height * scale
+            width: max(targetSize.width * scale, minPixels),
+            height: max(targetSize.height * scale, minPixels)
         )
         let request: ImageRequest
         if contentMode == .fill {
@@ -58,7 +60,9 @@ struct AsyncImageView: View {
         do {
             let image = try await ImagePipeline.shared.image(for: request)
             guard !Task.isCancelled else { return }
-            loadedImage = image
+            withAnimation(.easeInOut(duration: 0.2)) {
+                loadedImage = image
+            }
         } catch {
             guard !Task.isCancelled else { return }
             loadedImage = nil

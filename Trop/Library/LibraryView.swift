@@ -18,6 +18,12 @@ struct LibraryView: View {
     @State private var showCreateDialog = false
     @State private var playlistToDelete: PlaylistEntity?
 
+    @StateObject private var loginModel = LoginViewModel()
+    @State private var navigationPath = NavigationPath()
+    @State private var accountImageUrl: String?
+    @State private var isLoginSheetPresented = false
+    @State private var isAccountSheetPresented = false
+
     private let gridColumns = [GridItem(.adaptive(minimum: 160), spacing: 16)]
     private var autoPlaylists: [AutoPlaylistInfo] {
         [
@@ -41,6 +47,21 @@ struct LibraryView: View {
                         .font(.largeTitle)
                         .fontWeight(.bold)
                     Spacer()
+                    HStack(spacing: 8) {
+                        Button {
+                            navigationPath.append(DetailRoute.history)
+                        } label: {
+                            Image(systemName: "clock.arrow.circlepath")
+                                .font(.title3)
+                                .foregroundColor(.primary)
+                        }
+                        .buttonStyle(.plain)
+                        AccountButtonView(
+                            isLoggedIn: loginModel.isLoggedIn,
+                            accountImageUrl: accountImageUrl,
+                            onTap: { tapAccount() }
+                        )
+                    }
                 }
                 .padding(.horizontal)
                 .padding(.vertical, 8)
@@ -95,11 +116,33 @@ struct LibraryView: View {
                 }
             }
             .animation(.spring(response: 0.4, dampingFraction: 0.8), value: showCreateDialog)
+            .sheet(isPresented: $isLoginSheetPresented) {
+                NavigationStack {
+                    LoginWebView(model: loginModel)
+                        .ignoresSafeArea()
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("Cancel") { isLoginSheetPresented = false }
+                            }
+                        }
+                }
+            }
+            .sheet(isPresented: $isAccountSheetPresented) {
+                accountSheet
+            }
             .task {
                 await loadContent()
+                loginModel.restoreSessionIfPresent()
+                await fetchAccountInfo()
                 Task {
                     await IncrementalSyncService.shared.forceFullSync()
                     await loadContent()
+                }
+            }
+            .onChange(of: loginModel.isLoggedIn) { _, loggedIn in
+                if loggedIn {
+                    isLoginSheetPresented = false
+                    Task { await fetchAccountInfo() }
                 }
             }
             .task(id: isLoading) {
@@ -386,6 +429,74 @@ struct LibraryView: View {
         } catch {
             print("[LibraryView] Failed to delete playlist: \(error)")
         }
+    }
+
+    // MARK: - Account
+
+    private func tapAccount() {
+        if loginModel.isLoggedIn {
+            isAccountSheetPresented = true
+        } else {
+            isLoginSheetPresented = true
+        }
+    }
+
+    private func fetchAccountInfo() async {
+        guard loginModel.isLoggedIn else { return }
+        do {
+            let info = try await InnerTube.shared.accountInfo()
+            accountImageUrl = info.thumbnailUrl
+        } catch {
+            print("[LibraryView] Failed to fetch account info: \(error)")
+        }
+    }
+
+    private var accountSheet: some View {
+        NavigationStack {
+            List {
+                Section {
+                    HStack(spacing: 14) {
+                        AccountButtonView(
+                            isLoggedIn: loginModel.isLoggedIn,
+                            accountImageUrl: accountImageUrl,
+                            onTap: {}
+                        )
+                        .scaleEffect(1.3)
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(loginModel.isLoggedIn ? "Signed in" : "Not signed in")
+                                .font(.headline)
+                            if loginModel.isLoggedIn {
+                                Text("Your account")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+
+                if loginModel.isLoggedIn {
+                    Section {
+                        Button(role: .destructive) {
+                            loginModel.logout()
+                            accountImageUrl = nil
+                            isAccountSheetPresented = false
+                        } label: {
+                            Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Account")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { isAccountSheetPresented = false }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
     }
 }
 

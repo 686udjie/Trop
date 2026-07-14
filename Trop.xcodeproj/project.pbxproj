@@ -11,6 +11,7 @@
 		14B578DC2FF20002006B3990 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = 14B578DB2FF20001006B3990 /* GRDB */; };
 		14B578DF2FF20DCD006B3990 /* Nuke in Frameworks */ = {isa = PBXBuildFile; productRef = 14B578DE2FF20DCC006B3990 /* Nuke */; };
 		14B578E22FF20DD0006B3990 /* LNPopupUI-Static in Frameworks */ = {isa = PBXBuildFile; productRef = 14B578E12FF20DCF006B3990 /* LNPopupUI-Static */; };
+		14B578E52FF20DCF006B3990 /* Marquee in Frameworks */ = {isa = PBXBuildFile; productRef = 14B578E42FF20DCF006B3990 /* Marquee */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -34,6 +35,7 @@
 				14B578DC2FF20002006B3990 /* GRDB in Frameworks */,
 				14B578DF2FF20DCD006B3990 /* Nuke in Frameworks */,
 				14B578E22FF20DD0006B3990 /* LNPopupUI-Static in Frameworks */,
+				14B578E52FF20DCF006B3990 /* Marquee in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -115,6 +117,7 @@
 				14B578DA2FF20000006B3990 /* XCRemoteSwiftPackageReference "GRDB.swift" */,
 				14B578DD2FF20DCC006B3990 /* XCRemoteSwiftPackageReference "Nuke" */,
 				14B578E02FF20DCE006B3990 /* XCRemoteSwiftPackageReference "LNPopupUI" */,
+				14B578E32FF20DCF006B3990 /* XCRemoteSwiftPackageReference "Marquee" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 14B576302FF190EF006B3990 /* Products */;
@@ -412,6 +415,14 @@
 				minimumVersion = 3.0.0;
 			};
 		};
+		14B578E32FF20DCF006B3990 /* XCRemoteSwiftPackageReference "Marquee" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/SwiftUIKit/Marquee.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.3.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -434,6 +445,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 14B578E02FF20DCE006B3990 /* XCRemoteSwiftPackageReference "LNPopupUI" */;
 			productName = "LNPopupUI-Static";
+		};
+		14B578E42FF20DCF006B3990 /* Marquee */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 14B578E32FF20DCF006B3990 /* XCRemoteSwiftPackageReference "Marquee" */;
+			productName = Marquee;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
