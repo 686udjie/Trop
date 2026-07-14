@@ -18,6 +18,7 @@ final class PlayerController {
     private let playbackQueue = DispatchQueue(label: "com.686udjie.PlayerController")
     private var isRunning = false
     private var currentVideoId: String?
+    private var pendingVideoId: String?
 
     let playState = CurrentValueSubject<State, Never>(.stopped)
 
@@ -58,7 +59,7 @@ final class PlayerController {
         currentVideoId = nil
     }
 
-    func play(url: String, title: String? = nil, artist: String? = nil, videoId: String? = nil) {
+    func play(url: String, title: String? = nil, artist: String? = nil, videoId: String? = nil, duration: TimeInterval? = nil) async {
         guard let url = URL(string: url) else {
             print("[Player] Invalid URL: \(url)")
             return
@@ -71,10 +72,10 @@ final class PlayerController {
         let prevVideoId = currentVideoId
         currentVideoId = videoId
         if prevVideoId != nil, videoId != prevVideoId {
-            Task { await PlaybackStateService.shared.stopTracking() }
+            await PlaybackStateService.shared.stopTracking()
         }
         if let videoId {
-            Task { await PlaybackStateService.shared.startTracking(videoId: videoId) }
+            await PlaybackStateService.shared.startTracking(videoId: videoId)
         }
 
         guard let mpv = self.mpv else {
@@ -82,8 +83,14 @@ final class PlayerController {
             return
         }
 
+        pendingVideoId = videoId
         _ = ["loadfile", url.absoluteString, "replace"].withUnsafeCArg { mpv_command(mpv, $0) }
-        DispatchQueue.main.async { self.playState.send(.playing) }
+        NowPlaying.shared.isPlaying = true
+        NowPlaying.shared.currentTime = 0
+        if let duration, duration > 0 {
+            NowPlaying.shared.duration = duration
+        }
+        setNowPlayingMetadata()
     }
 
     func cleanup() {
@@ -142,13 +149,13 @@ final class PlayerController {
                     }
                 }
             case MPV_EVENT_FILE_LOADED:
-                var pause = Int32(1)
-                mpv_get_property(mpv, "pause", MPV_FORMAT_FLAG, &pause)
-                let actuallyPlaying = pause == 0
+                var pauseFlag = Int32(1)
+                mpv_get_property(mpv, "pause", MPV_FORMAT_FLAG, &pauseFlag)
+                let actuallyPlaying = pauseFlag == 0
                 DispatchQueue.main.async {
-                    self.playState.send(.playing)
+                    self.playState.send(actuallyPlaying ? .playing : .paused)
                     NowPlaying.shared.isPlaying = actuallyPlaying
-                    self.currentVideoId = NowPlaying.shared.videoId
+                    self.currentVideoId = self.pendingVideoId
                     self.updateNowPlayingProgress()
                 }
             case MPV_EVENT_START_FILE:
@@ -327,16 +334,19 @@ final class PlayerController {
     func seek(to time: TimeInterval) {
         guard let mpv = self.mpv else { return }
         var val = time
-        mpv_set_property(mpv, "time-pos", MPV_FORMAT_DOUBLE, &val)
+        let result = mpv_set_property(mpv, "time-pos", MPV_FORMAT_DOUBLE, &val)
+        if result < 0 {
+            print("[Player] seek failed: mpv error \(result)")
+        }
     }
 
     func togglePlayPause() {
         guard let mpv = self.mpv else { return }
         let willBePlaying = playState.value == .paused || playState.value == .stopped
+        var flag: Int32 = willBePlaying ? 0 : 1
+        mpv_set_property(mpv, "pause", MPV_FORMAT_FLAG, &flag)
         playState.send(willBePlaying ? .playing : .paused)
         NowPlaying.shared.isPlaying = willBePlaying
-        var flag: Int = willBePlaying ? 0 : 1
-        mpv_set_property(mpv, "pause", MPV_FORMAT_FLAG, &flag)
         updateNowPlayingProgress()
     }
 }

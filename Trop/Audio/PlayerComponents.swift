@@ -73,6 +73,7 @@ struct PlaybackControlsRow: View {
                 Image(systemName: isPlaying ? "pause.fill" : "play.fill")
                     .font(.system(size: 42))
                     .foregroundStyle(.white)
+                    .contentTransition(.symbolEffect(.replace))
             }
             .frame(width: 80, height: 80)
             .frame(maxWidth: .infinity)

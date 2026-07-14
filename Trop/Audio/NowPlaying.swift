@@ -54,6 +54,7 @@ final class NowPlaying {
 
     private var timer: Timer?
     var lastManualSkipTime: Date?
+    private var isResolvingNext = false
 
     private init() {}
 
@@ -65,6 +66,7 @@ final class NowPlaying {
     func playNext(automatic: Bool = false) {
         guard hasNext else { return }
         if !automatic { lastManualSkipTime = Date() }
+        isResolvingNext = true
         queueIndex += 1
         let song = queueSongs[queueIndex]
         let displayArtist = song.artists.map(\.name).joined(separator: ", ")
@@ -74,7 +76,11 @@ final class NowPlaying {
                 try await PlaybackManager.shared.resolveAndPlay(videoId: song.videoId)
             } catch {
                 print("[NowPlaying] playNext failed: \(error)")
+                if self.videoId == song.videoId {
+                    isPlaying = false
+                }
             }
+            isResolvingNext = false
         }
     }
 
@@ -95,16 +101,13 @@ final class NowPlaying {
     }
 
     func update(title: String, artist: String?, videoId: String, album: String? = nil) {
+        self.isPlaying = true
         self.title = title
         self.artist = cleanArtist(artist ?? "")
         if let album {
             albumTitle = album
         }
         self.videoId = videoId
-        self.isPlaying = true
-        currentTime = 0
-        duration = 0
-        PlayerController.shared.setNowPlayingMetadata()
         DispatchQueue.main.async { [weak self] in
             self?.startTimer()
         }
@@ -114,7 +117,7 @@ final class NowPlaying {
 
     func stopped(videoId: String?, isEof: Bool = true) {
         guard self.videoId == videoId else { return }
-        if let skipTime = lastManualSkipTime, Date().timeIntervalSince(skipTime) < 2 {
+        if let skipTime = lastManualSkipTime, Date().timeIntervalSince(skipTime) < 2, isResolvingNext {
             return
         }
         guard isEof else {
@@ -188,7 +191,6 @@ final class NowPlaying {
             guard let self else { return }
             currentTime = PlayerController.shared.currentTime
             duration = PlayerController.shared.duration
-            isPlaying = PlayerController.shared.playState.value == .playing
             PlayerController.shared.updateNowPlayingProgress()
         }
     }

@@ -72,6 +72,7 @@ struct MiniPlayerView: View {
                     onPlayPause: { player.togglePlayPause() },
                     onNext: { np.playNext() }
                 )
+                .animation(.spring(response: 0.3, dampingFraction: 0.7), value: np.isPlaying)
                 .padding(.bottom, 8)
                 
                 SecondaryActionsRow(
@@ -86,6 +87,7 @@ struct MiniPlayerView: View {
         .overlay(MiniPlayerPopupItems(
             queueSongs: np.queueSongs,
             videoId: np.videoId,
+            isPlaying: np.isPlaying,
             thumbnailImage: np.thumbnailImage,
             thumbnailVersion: np.thumbnailVersion,
             activeItemId: $activeItemId
@@ -229,12 +231,14 @@ struct MiniPlayerView: View {
 private struct MiniPlayerPopupItems: View, Equatable {
     let queueSongs: [SongItem]
     let videoId: String?
+    let isPlaying: Bool
     let thumbnailImage: Image?
     let thumbnailVersion: Int
     @Binding var activeItemId: String
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.videoId == rhs.videoId &&
+        lhs.isPlaying == rhs.isPlaying &&
         lhs.queueSongs.map(\.videoId) == rhs.queueSongs.map(\.videoId) &&
         lhs.thumbnailVersion == rhs.thumbnailVersion
     }
@@ -252,7 +256,8 @@ private struct MiniPlayerPopupItems: View, Equatable {
                     ) {
                         ToolbarItemGroup(placement: .popupBar) {
                             Button(action: { PlayerController.shared.togglePlayPause() }) {
-                                Image(systemName: "pause.fill")
+                                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                                    .contentTransition(.symbolEffect(.replace))
                             }
                         }
                     }

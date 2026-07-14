@@ -12,24 +12,33 @@ import Foundation
 actor PlaybackManager {
     static let shared = PlaybackManager()
 
+    private var inflightResolutions: [String: Task<PlaybackResult, Error>] = [:]
+
     private init() {}
 
     /// Resolve a video and start playback. Returns the result used, or throws.
     @discardableResult
     func resolveAndPlay(videoId: String) async throws -> PlaybackResult {
+        if let existing = inflightResolutions[videoId] {
+            print("[PlaybackManager] In-flight resolution found for videoId=\(videoId), awaiting...")
+            return try await existing.value
+        }
+
         if let cached = await StreamCache.shared.get(videoId: videoId) {
             print("[PlaybackManager] Cache hit for videoId=\(videoId)")
-            PlayerController.shared.play(
+            await PlayerController.shared.play(
                 url: cached.streamUrl,
                 title: cached.title,
                 artist: cached.author,
-                videoId: videoId
+                videoId: videoId,
+                duration: cached.duration.flatMap { $0 > 0 ? TimeInterval($0) : nil }
             )
             return cached
         }
 
         // Pre-generate PoToken in background while direct-URL clients are tried
         let poTokenTask = Task { try? await generatePoToken(videoId: videoId) }
+        defer { poTokenTask.cancel() }
 
         var lastError: Error?
 
@@ -55,20 +64,19 @@ actor PlaybackManager {
                     streamingDataPoToken: streamPoToken
                 )
 
-                // Skip HEAD validation for clients marked skipValidation
                 if fb.skipValidation {
                     print("[PlaybackManager] Using \(result.clientName) (skipped HEAD)")
                     await StreamCache.shared.set(videoId: videoId, result: result)
-                    PlayerController.shared.play(
+                    await PlayerController.shared.play(
                         url: result.streamUrl,
                         title: result.title,
                         artist: result.author,
-                        videoId: videoId
+                        videoId: videoId,
+                        duration: result.duration.flatMap { $0 > 0 ? TimeInterval($0) : nil }
                     )
                     return result
                 }
 
-                // HEAD validate for others
                 guard await StreamResolver.validateStream(url: result.streamUrl) else {
                     print("[PlaybackManager] \(result.clientName) HEAD validation failed, trying next")
                     lastError = StreamError.validationFailed(result.clientName)
@@ -77,11 +85,12 @@ actor PlaybackManager {
 
                 print("[PlaybackManager] Using \(result.clientName) (HEAD validated)")
                 await StreamCache.shared.set(videoId: videoId, result: result)
-                PlayerController.shared.play(
+                await PlayerController.shared.play(
                     url: result.streamUrl,
                     title: result.title,
                     artist: result.author,
-                    videoId: videoId
+                    videoId: videoId,
+                    duration: result.duration.flatMap { $0 > 0 ? TimeInterval($0) : nil }
                 )
                 return result
 
@@ -92,6 +101,10 @@ actor PlaybackManager {
         }
 
         throw lastError ?? StreamError.allClientsFailed
+    }
+
+    private func clearInflight(videoId: String) {
+        inflightResolutions.removeValue(forKey: videoId)
     }
 
     /// Generate PoToken for the given video. Returns playerRequestPoToken and streamingDataPoToken.
@@ -110,12 +123,19 @@ actor PlaybackManager {
 
     /// Resolve a video without playing. Useful for previews / testing.
     func resolve(videoId: String) async throws -> PlaybackResult {
+        if let existing = inflightResolutions[videoId] {
+            print("[PlaybackManager] In-flight resolution found for videoId=\(videoId)")
+            return try await existing.value
+        }
+
         if let cached = await StreamCache.shared.get(videoId: videoId) {
             print("[PlaybackManager] Cache hit for videoId=\(videoId)")
             return cached
         }
 
         let poTokenTask = Task { try? await generatePoToken(videoId: videoId) }
+        defer { poTokenTask.cancel() }
+
         var lastError: Error?
 
         for fb in ClientFallbackChain.preferred {
