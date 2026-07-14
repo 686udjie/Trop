@@ -104,6 +104,13 @@ struct HomeScreenView: View {
                     await IncrementalSyncService.shared.checkAndSyncIfStale()
                 }
             }
+            .task(id: viewModel.homeSections.count) {
+                let urls = viewModel.homeSections
+                    .flatMap(\.items)
+                    .compactMap(\.thumbnailUrl)
+                    .compactMap(URL.init)
+                await ImagePreloader.shared.preload(urls)
+            }
         }
     }
 

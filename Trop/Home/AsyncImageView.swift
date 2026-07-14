@@ -32,7 +32,12 @@ struct AsyncImageView: View {
     }
 
     private func loadImage(targetSize: CGSize) async {
-        guard let urlString = url, let url = URL(string: urlString) else {
+        guard let urlString = url else {
+            loadedImage = nil
+            return
+        }
+        let normalized = normalizeThumbnailURL(urlString)
+        guard let url = URL(string: normalized) else {
             loadedImage = nil
             return
         }
@@ -68,4 +73,30 @@ struct AsyncImageView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(.systemGray6))
     }
+}
+
+private func normalizeThumbnailURL(_ urlString: String) -> String {
+    var url = urlString
+
+    url = url.replacingOccurrences(of: "(?<=[sh]\\d+)-c", with: "", options: .regularExpression)
+
+    if url.contains("googleusercontent.com") || url.contains("ggpht.com") {
+        if let match = try? NSRegularExpression(pattern: "w(\\d+)-h(\\d+)"),
+           let result = match.firstMatch(in: url, range: NSRange(url.startIndex..., in: url)) {
+            guard let wRange = Range(result.range(at: 1), in: url),
+                  let hRange = Range(result.range(at: 2), in: url) else { return url }
+            let w = Int(url[wRange]) ?? 0
+            let h = Int(url[hRange]) ?? 0
+            let newW = max(w, 600)
+            let newH = max(h, 600)
+            if newW != w || newH != h {
+                url = url.replacingOccurrences(
+                    of: "w\(w)-h\(h)",
+                    with: "w\(newW)-h\(newH)"
+                )
+            }
+        }
+    }
+
+    return url
 }

@@ -73,6 +73,13 @@ struct SearchView: View {
                 }
                 viewModel.loadSearchHistory()
             }
+            .task(id: viewModel.searchSections.count) {
+                let urls = viewModel.searchSections
+                    .flatMap(\.items)
+                    .compactMap(\.thumbnailUrl)
+                    .compactMap(URL.init)
+                await ImagePreloader.shared.preload(urls)
+            }
         }
     }
 

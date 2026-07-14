@@ -102,6 +102,13 @@ struct LibraryView: View {
                     await loadContent()
                 }
             }
+            .task(id: isLoading) {
+                guard !isLoading else { return }
+                let urls = (playlists.map(\.thumbnailUrl) + albums.map(\.thumbnailUrl) + artists.map(\.thumbnailUrl) + podcasts.map(\.thumbnailUrl))
+                    .compactMap { $0 }
+                    .compactMap(URL.init)
+                await ImagePreloader.shared.preload(urls)
+            }
             .refreshable {
                 await IncrementalSyncService.shared.forceFullSync()
                 await loadContent()

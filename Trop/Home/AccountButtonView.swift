@@ -14,19 +14,10 @@ struct AccountButtonView: View {
 
     var body: some View {
         Button(action: onTap) {
-            if isLoggedIn, let urlString = accountImageUrl, let url = URL(string: urlString) {
-                AsyncImage(url: url) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image.resizable().scaledToFill()
-                    case .failure, .empty:
-                        fallback
-                    @unknown default:
-                        fallback
-                    }
-                }
-                .frame(width: 28, height: 28)
-                .clipShape(Circle())
+            if isLoggedIn {
+                AsyncImageView(url: accountImageUrl)
+                    .frame(width: 28, height: 28)
+                    .clipShape(Circle())
             } else {
                 fallback
             }
