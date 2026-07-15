@@ -1,0 +1,34 @@
+name: Nightly Build
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build-ios:
+    name: Build iOS IPA
+    runs-on: macos-26
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6.0.2
+
+      - name: Set up Xcode
+        uses: maxim-lobanov/setup-xcode@v1.7.0
+        with:
+          xcode-version: latest-stable
+
+      - name: Make build script executable
+        run: chmod +x ./build_ipa.sh
+
+      - name: Build iOS IPA
+        run: ./build_ipa.sh
+
+      - name: Upload iOS IPA artifact
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: Trop-iOS
+          path: build/Trop.ipa
