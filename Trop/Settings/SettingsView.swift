@@ -2,7 +2,7 @@
 //  SettingsView.swift
 //  Trop
 //
-//  Lyrics provider fallback configuration.
+//  Created by 686udjie on 16/07/2026.
 //
 
 import SwiftUI
@@ -12,7 +12,11 @@ struct SettingsView: View {
     @State private var order: [String] = LyricsSettings.shared.providerOrder
 
     private var providers: [LyricsProvider] {
-        order.compactMap { LyricsProviderRegistry.provider(for: $0) }
+        let ordered = order.compactMap { LyricsProviderRegistry.provider(for: $0) }
+        let extra = LyricsProviderRegistry.all.filter { provider in
+            !order.contains(provider.id)
+        }
+        return ordered + extra
     }
 
     var body: some View {

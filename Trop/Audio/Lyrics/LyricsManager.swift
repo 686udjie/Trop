@@ -16,12 +16,16 @@ final class LyricsSettings {
     /// Ordered provider ids. Defaults to a sensible fallback chain.
     var providerOrder: [String] {
         get {
-            guard let data = UserDefaults.standard.data(forKey: orderKey),
-                  let decoded = try? JSONDecoder().decode([String].self, from: data),
-                  !decoded.isEmpty else {
-                return LyricsProviderRegistry.defaultOrder
+            let saved: [String]
+            if let data = UserDefaults.standard.data(forKey: orderKey),
+               let decoded = try? JSONDecoder().decode([String].self, from: data),
+               !decoded.isEmpty {
+                saved = decoded
+            } else {
+                saved = LyricsProviderRegistry.defaultOrder
             }
-            return decoded
+            let merged = saved + LyricsProviderRegistry.defaultOrder.filter { !saved.contains($0) }
+            return merged
         }
         set {
             let data = (try? JSONEncoder().encode(newValue)) ?? Data()
@@ -35,11 +39,13 @@ final class LyricsSettings {
 /// Registry of all available providers.
 enum LyricsProviderRegistry {
     static let all: [LyricsProvider] = [
-        LRCLIBProvider()
+        LRCLIBProvider(),
+        MusixmatchProvider()
     ]
 
     static let defaultOrder: [String] = [
-        "lrclib"
+        "lrclib",
+        "musixmatch"
     ]
 
     static func provider(for id: String) -> LyricsProvider? {
