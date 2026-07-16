@@ -12,11 +12,7 @@ struct SettingsView: View {
     @State private var order: [String] = LyricsSettings.shared.providerOrder
 
     private var providers: [LyricsProvider] {
-        let ordered = order.compactMap { LyricsProviderRegistry.provider(for: $0) }
-        let extra = LyricsProviderRegistry.all.filter { provider in
-            !order.contains(provider.id)
-        }
-        return ordered + extra
+        order.compactMap { LyricsProviderRegistry.provider(for: $0) }
     }
 
     var body: some View {
@@ -39,7 +35,13 @@ struct SettingsView: View {
         }
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear { order = settings.providerOrder }
+        .onAppear {
+            var merged = settings.providerOrder
+            for provider in LyricsProviderRegistry.all where !merged.contains(provider.id) {
+                merged.append(provider.id)
+            }
+            order = merged
+        }
         .onDisappear { settings.providerOrder = order }
     }
 

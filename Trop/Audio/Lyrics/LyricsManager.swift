@@ -40,12 +40,14 @@ final class LyricsSettings {
 enum LyricsProviderRegistry {
     static let all: [LyricsProvider] = [
         LRCLIBProvider(),
-        MusixmatchProvider()
+        MusixmatchProvider(),
+        NeteaseProvider()
     ]
 
     static let defaultOrder: [String] = [
         "lrclib",
-        "musixmatch"
+        "musixmatch",
+        "netease"
     ]
 
     static func provider(for id: String) -> LyricsProvider? {
