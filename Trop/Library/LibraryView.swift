@@ -56,6 +56,14 @@ struct LibraryView: View {
                                 .foregroundColor(.primary)
                         }
                         .buttonStyle(.plain)
+                        Button {
+                            navigationPath.append(DetailRoute.settings)
+                        } label: {
+                            Image(systemName: "gearshape")
+                                .font(.title3)
+                                .foregroundColor(.primary)
+                        }
+                        .buttonStyle(.plain)
                         AccountButtonView(
                             isLoggedIn: loginModel.isLoggedIn,
                             accountImageUrl: accountImageUrl,
@@ -92,6 +100,8 @@ struct LibraryView: View {
                     PlaylistDetailView(autoPlaylistRoute: autoRoute)
                 case .history:
                     HistoryScreenView()
+                case .settings:
+                    SettingsView()
                 }
             }
             .overlay(alignment: .bottomTrailing) {

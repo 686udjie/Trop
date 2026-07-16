@@ -139,10 +139,14 @@ struct MiniPlayerView: View {
         .onChange(of: activeItemId) { _, newId in
             handleActiveItemChange(newId: newId)
         }
-        .onChange(of: np.videoId) { _, newId in activeItemId = newId ?? "" }
+        .onChange(of: np.videoId) { _, newId in
+            activeItemId = newId ?? ""
+            preloadLyrics()
+        }
         .onChange(of: np.queueSongs.count) { _, _ in
             activeItemId = np.videoId ?? ""
             preloadUpcomingThumbnails()
+            preloadLyrics()
         }
         .onChange(of: np.queueIndex) { _, _ in
             preloadUpcomingThumbnails()
@@ -159,6 +163,7 @@ struct MiniPlayerView: View {
             case .podcast(let browseId): PodcastDetailView(browseId: browseId)
             case .autoPlaylist(let autoRoute): PlaylistDetailView(autoPlaylistRoute: autoRoute)
             case .history: HistoryScreenView()
+            case .settings: SettingsView()
             }
         }
     }
@@ -173,6 +178,12 @@ struct MiniPlayerView: View {
         let song = np.queueSongs[idx]
         np.update(title: song.title, artist: song.artists.map(\.name).joined(separator: ", "), videoId: song.videoId, artists: song.artists)
         Task { try? await PlaybackManager.shared.resolveAndPlay(videoId: song.videoId) }
+    }
+
+    private func preloadLyrics() {
+        guard let id = np.videoId else { return }
+        let upcoming = Array(np.queueSongs.suffix(from: np.queueIndex + 1).prefix(3).map(\.videoId))
+        Task { await LyricsService.shared.preload(videoId: id, upcoming: upcoming) }
     }
 
     private func preloadUpcomingThumbnails() {

@@ -18,6 +18,7 @@ enum DetailRoute: Hashable, Identifiable {
         case .podcast(let browseId): return "podcast_\(browseId)"
         case .autoPlaylist(let route): return "autoPlaylist_\(String(describing: route))"
         case .history: return "history"
+        case .settings: return "settings"
         }
     }
 
@@ -27,6 +28,7 @@ enum DetailRoute: Hashable, Identifiable {
     case podcast(browseId: String)
     case autoPlaylist(AutoPlaylistRoute)
     case history
+    case settings
 }
 
 enum AutoPlaylistRoute: Hashable {

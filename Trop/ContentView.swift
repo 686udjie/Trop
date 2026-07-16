@@ -43,6 +43,7 @@ struct ContentView: View {
             }
             .popupBarStyle(.floatingCompact)
             .popupBarProgressViewStyle(.bottom)
+            .popupCloseButtonStyle(.none)
         }
     }
 }

@@ -30,6 +30,14 @@ struct HomeScreenView: View {
                                 .foregroundColor(.primary)
                         }
                         .buttonStyle(.plain)
+                        Button {
+                            navigationPath.append(DetailRoute.settings)
+                        } label: {
+                            Image(systemName: "gearshape")
+                                .font(.title3)
+                                .foregroundColor(.primary)
+                        }
+                        .buttonStyle(.plain)
                         AccountButtonView(
                             isLoggedIn: viewModel.isLoggedIn,
                             accountImageUrl: viewModel.accountImageUrl,
@@ -66,6 +74,8 @@ struct HomeScreenView: View {
                     PlaylistDetailView(autoPlaylistRoute: autoRoute)
                 case .history:
                     HistoryScreenView()
+                case .settings:
+                    SettingsView()
                 }
             }
             .navigationDestination(item: $pendingRoute) { route in
@@ -76,6 +86,7 @@ struct HomeScreenView: View {
                 case .podcast(let browseId): PodcastDetailView(browseId: browseId)
                 case .autoPlaylist(let autoRoute): PlaylistDetailView(autoPlaylistRoute: autoRoute)
                 case .history: HistoryScreenView()
+                case .settings: SettingsView()
                 }
             }
             .sheet(isPresented: $viewModel.isLoginSheetPresented) {

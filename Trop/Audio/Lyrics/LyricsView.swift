@@ -25,12 +25,7 @@ struct LyricsView<ProgressSlider: View>: View {
 
     @State private var lines: [LyricLine] = []
     @State private var isLoading = false
-    @State private var loadError: String?
     @State private var activeIndex: Int = 0
-
-    private var upcomingSongs: [SongItem] {
-        Array(np.queueSongs.suffix(from: np.queueIndex + 1))
-    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -51,16 +46,7 @@ struct LyricsView<ProgressSlider: View>: View {
     private var headerBar: some View {
         Color.clear
             .frame(height: 12)
-            .padding(.top, safeTopInset)
-    }
-
-    private var safeTopInset: CGFloat {
-        (UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .first?
-            .windows
-            .first(where: { $0.isKeyWindow })?
-            .safeAreaInsets.top) ?? 0
+            .padding(.top, 8)
     }
 
     // MARK: - Lyrics Body
@@ -72,18 +58,6 @@ struct LyricsView<ProgressSlider: View>: View {
                     .progressViewStyle(.circular)
                     .tint(.white)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let error = loadError {
-                VStack(spacing: 12) {
-                    Image(systemName: "exclamationmark.triangle")
-                        .font(.largeTitle)
-                        .foregroundStyle(.white.opacity(0.6))
-                    Text(error)
-                        .font(.subheadline)
-                        .foregroundStyle(.white.opacity(0.7))
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 32)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if lines.isEmpty {
                 VStack(spacing: 12) {
                     Image(systemName: "quote.bubble")
@@ -218,7 +192,6 @@ struct LyricsView<ProgressSlider: View>: View {
             return
         }
         isLoading = true
-        loadError = nil
         lines = []
         activeIndex = 0
         do {
@@ -231,7 +204,6 @@ struct LyricsView<ProgressSlider: View>: View {
         } catch {
             await MainActor.run {
                 self.isLoading = false
-                self.loadError = "Couldn't load lyrics"
             }
         }
     }

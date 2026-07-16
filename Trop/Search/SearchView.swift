@@ -66,6 +66,8 @@ struct SearchView: View {
                     PlaylistDetailView(autoPlaylistRoute: autoRoute)
                 case .history:
                     HistoryScreenView()
+                case .settings:
+                    SettingsView()
                 }
             }
             .navigationDestination(item: $pendingRoute) { route in
@@ -76,6 +78,8 @@ struct SearchView: View {
                 case .podcast(let browseId): PodcastDetailView(browseId: browseId)
                 case .autoPlaylist(let autoRoute): PlaylistDetailView(autoPlaylistRoute: autoRoute)
                 case .history: HistoryScreenView()
+                case .settings:
+                    SettingsView()
                 }
             }
             .onAppear {

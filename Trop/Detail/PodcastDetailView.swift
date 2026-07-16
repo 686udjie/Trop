@@ -287,6 +287,8 @@ struct PodcastDetailView: View {
             case .podcast(let browseId): PodcastDetailView(browseId: browseId)
             case .autoPlaylist(let autoRoute): PlaylistDetailView(autoPlaylistRoute: autoRoute)
             case .history: HistoryScreenView()
+            case .settings:
+                SettingsView()
             }
         }
     }

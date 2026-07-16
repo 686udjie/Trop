@@ -97,10 +97,11 @@ struct SecondaryActionsRow: View {
     @Binding var showQueue: Bool
     let onRepeat: () -> Void
     @State private var isRepeatActive = false
-    
+    @State private var lyricsState = LyricsState.shared
+
     var body: some View {
         HStack(spacing: 0) {
-            
+
             Button {
                 showLyrics.toggle()
             } label: {
@@ -110,6 +111,8 @@ struct SecondaryActionsRow: View {
                     .padding(10)
                     .background(showLyrics ? Circle().fill(.white.opacity(0.15)) : Circle().fill(.clear))
             }
+            .disabled(!lyricsState.isAvailable)
+            .opacity(lyricsState.isAvailable ? 1 : 0.3)
             .frame(maxWidth: .infinity)
             
             Button {
