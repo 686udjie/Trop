@@ -58,7 +58,20 @@ struct MiniPlayerView: View {
                     .padding(.top, 16)
                     .padding(.bottom, 16)
 
-                if showQueue {
+                if showLyrics {
+                    LyricsView(
+                        showLyrics: $showLyrics,
+                        showQueue: $showQueue,
+                        isLiked: $isLiked,
+                        isShuffleOn: $isShuffleOn,
+                        isRepeatOn: $isRepeatOn,
+                        isAutoplayOn: $isAutoplayOn,
+                        editingProgress: $editingProgress,
+                        isEditingSlider: $isEditingSlider,
+                        pendingRoute: $pendingRoute,
+                        progressSlider: { progressSlider }
+                    )
+                } else if showQueue {
                     QueueView(
                         showLyrics: $showLyrics,
                         showQueue: $showQueue,

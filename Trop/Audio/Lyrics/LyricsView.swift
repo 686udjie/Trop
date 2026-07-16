@@ -1,0 +1,256 @@
+//
+//  LyricsView.swift
+//  Trop
+//
+//  Created by 686udjie on 16/07/2026.
+//
+
+import SwiftUI
+import UIKit
+
+struct LyricsView<ProgressSlider: View>: View {
+    private let np = NowPlaying.shared
+    private let player = PlayerController.shared
+
+    @Binding var showLyrics: Bool
+    @Binding var showQueue: Bool
+    @Binding var isLiked: Bool
+    @Binding var isShuffleOn: Bool
+    @Binding var isRepeatOn: Bool
+    @Binding var isAutoplayOn: Bool
+    @Binding var editingProgress: Float
+    @Binding var isEditingSlider: Bool
+    let pendingRoute: Binding<DetailRoute?>
+    @ViewBuilder var progressSlider: () -> ProgressSlider
+
+    @State private var lines: [LyricLine] = []
+    @State private var isLoading = false
+    @State private var loadError: String?
+    @State private var activeIndex: Int = 0
+
+    private var upcomingSongs: [SongItem] {
+        Array(np.queueSongs.suffix(from: np.queueIndex + 1))
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            headerBar
+
+            lyricsBody
+                .layoutPriority(1)
+
+            bottomBar
+        }
+        .ignoresSafeArea(edges: .bottom)
+        .task(id: np.videoId) { await loadLyrics() }
+        .onChange(of: np.currentTime) { _, _ in updateActiveLine() }
+    }
+
+    // MARK: - Header
+
+    private var headerBar: some View {
+        Color.clear
+            .frame(height: 12)
+            .padding(.top, safeTopInset)
+    }
+
+    private var safeTopInset: CGFloat {
+        (UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first?
+            .windows
+            .first(where: { $0.isKeyWindow })?
+            .safeAreaInsets.top) ?? 0
+    }
+
+    // MARK: - Lyrics Body
+
+    private var lyricsBody: some View {
+        Group {
+            if isLoading {
+                ProgressView()
+                    .progressViewStyle(.circular)
+                    .tint(.white)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let error = loadError {
+                VStack(spacing: 12) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.largeTitle)
+                        .foregroundStyle(.white.opacity(0.6))
+                    Text(error)
+                        .font(.subheadline)
+                        .foregroundStyle(.white.opacity(0.7))
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 32)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if lines.isEmpty {
+                VStack(spacing: 12) {
+                    Image(systemName: "quote.bubble")
+                        .font(.largeTitle)
+                        .foregroundStyle(.white.opacity(0.5))
+                    Text("No lyrics available")
+                        .font(.subheadline)
+                        .foregroundStyle(.white.opacity(0.7))
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 18) {
+                            // Top spacer so first line isn't flush to the header
+                            Spacer().frame(height: 24)
+
+                            ForEach(Array(lines.enumerated()), id: \.element.id) { index, line in
+                                Text(line.text.isEmpty ? "♪" : line.text)
+                                    .font(.title3.weight(.semibold))
+                                    .foregroundStyle(index == activeIndex ? .white : .white.opacity(0.4))
+                                    .animation(.easeInOut(duration: 0.25), value: activeIndex)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.horizontal, 24)
+                                    .id(line.id)
+                                    .onTapGesture {
+                                        if let t = line.startTime {
+                                            player.seek(to: t)
+                                            np.currentTime = t
+                                        }
+                                    }
+                            }
+
+                            // Bottom spacer so last line can scroll above the bottom bar
+                            Spacer().frame(height: 120)
+                        }
+                        .padding(.vertical, 8)
+                    }
+                    .scrollIndicators(.hidden)
+                    .onChange(of: activeIndex) { _, newIndex in
+                        guard lines.indices.contains(newIndex) else { return }
+                        withAnimation(.easeInOut(duration: 0.4)) {
+                            proxy.scrollTo(lines[newIndex].id, anchor: .center)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Bottom Bar
+
+    private var bottomBar: some View {
+        VStack(spacing: 12) {
+            HStack(spacing: 12) {
+                if let uiImage = np.thumbnailUIImage {
+                    let cropped = uiImage.centerCroppedSquare()
+                    Image(uiImage: cropped)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: 48, height: 48)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                } else {
+                    Image(systemName: "music.note")
+                        .font(.title3)
+                        .foregroundStyle(.white.opacity(0.4))
+                        .frame(width: 48, height: 48)
+                }
+
+                let title = np.title
+                let artist = np.displayArtist
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+
+                    if !artist.isEmpty {
+                        Text(artist)
+                            .font(.subheadline)
+                            .foregroundStyle(.white.opacity(0.7))
+                            .lineLimit(1)
+                    }
+                }
+
+                Spacer()
+
+                Button {
+                    isLiked.toggle()
+                } label: {
+                    Image(systemName: isLiked ? "heart.fill" : "heart")
+                        .font(.system(size: 18))
+                        .foregroundStyle(isLiked ? .red : .white)
+                        .frame(width: 36, height: 36)
+                }
+            }
+            .padding(.horizontal, 20)
+
+            progressSlider()
+                .padding(.horizontal, 20)
+
+            PlaybackControlsRow(
+                isPlaying: np.isPlaying,
+                hasPrevious: np.hasPrevious,
+                hasNext: np.hasNext,
+                onPrevious: { np.playPrevious() },
+                onPlayPause: { player.togglePlayPause() },
+                onNext: { np.playNext() }
+            )
+            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: np.isPlaying)
+
+            SecondaryActionsRow(
+                showLyrics: $showLyrics,
+                showQueue: $showQueue,
+                onRepeat: {}
+            )
+        }
+        .padding(.bottom, 16)
+        .background(
+            LinearGradient(
+                colors: [.clear, .black.opacity(0.35)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        )
+    }
+
+    // MARK: - Data
+
+    private func loadLyrics() async {
+        guard let videoId = np.videoId else {
+            lines = []
+            return
+        }
+        isLoading = true
+        loadError = nil
+        lines = []
+        activeIndex = 0
+        do {
+            let result = try await LyricsService.shared.fetchLyrics(videoId: videoId)
+            await MainActor.run {
+                self.lines = result
+                self.isLoading = false
+                self.updateActiveLine()
+            }
+        } catch {
+            await MainActor.run {
+                self.isLoading = false
+                self.loadError = "Couldn't load lyrics"
+            }
+        }
+    }
+
+    private func updateActiveLine() {
+        guard !lines.isEmpty else { return }
+        let t = np.currentTime
+        var idx = 0
+        for (i, line) in lines.enumerated() {
+            guard let start = line.startTime else { continue }
+            if start <= t {
+                idx = i
+            } else {
+                break
+            }
+        }
+        if idx != activeIndex {
+            activeIndex = idx
+        }
+    }
+}
