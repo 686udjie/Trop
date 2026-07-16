@@ -452,6 +452,7 @@ struct PlaylistDetailView: View {
     @State private var viewModel: PlaylistDetailViewModel
     @State private var playlistEntity: PlaylistEntity?
     @State private var showAddSongs = false
+    @State private var pendingRoute: DetailRoute?
 
     @Environment(\.dismiss) private var dismiss
 
@@ -515,6 +516,16 @@ struct PlaylistDetailView: View {
             guard viewModel.isLoading else { return }
             await fetchEntity()
             await viewModel.load()
+        }
+        .navigationDestination(item: $pendingRoute) { route in
+            switch route {
+            case .album(let browseId): AlbumDetailView(browseId: browseId)
+            case .artist(let browseId): ArtistDetailView(browseId: browseId)
+            case .playlist(let playlistId): PlaylistDetailView(playlistId: playlistId)
+            case .podcast(let browseId): PodcastDetailView(browseId: browseId)
+            case .autoPlaylist(let autoRoute): PlaylistDetailView(autoPlaylistRoute: autoRoute)
+            case .history: HistoryScreenView()
+            }
         }
     }
 
@@ -660,10 +671,7 @@ struct PlaylistDetailView: View {
     private func songList(for playlist: PlaylistDetailInfo) -> some View {
         VStack(spacing: 0) {
             ForEach(Array(playlist.songs.enumerated()), id: \.offset) { index, song in
-                Button(action: { playSong(song, in: playlist) }) {
-                    PlaylistSongRow(song: song)
-                }
-                .buttonStyle(.plain)
+                PlaylistSongRow(song: song, onPlay: { playSong(song, in: playlist) }, onNavigate: { pendingRoute = $0 })
                 .contextMenu {
                     if isEditable {
                         Button(role: .destructive) {
@@ -746,6 +754,8 @@ struct PlaylistDetailView: View {
 
 struct PlaylistSongRow: View {
     let song: SongItem
+    var onPlay: (() -> Void)?
+    var onNavigate: ((DetailRoute) -> Void)?
 
     @State private var resolvedDuration: Int = 0
 
@@ -778,12 +788,20 @@ struct PlaylistSongRow: View {
 
             Spacer()
 
-            Image(systemName: "ellipsis")
-                .font(.body)
-                .foregroundStyle(.blue)
+            SongMenuView(
+                songItem: song,
+                webUrl: song.webUrl,
+                artistBrowseId: song.firstArtistBrowseId,
+                albumBrowseId: song.firstAlbumBrowseId,
+                onNavigate: { onNavigate?($0) }
+            )
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 6)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onPlay?()
+        }
         .task { await resolveDuration() }
         .onReceive(NotificationCenter.default.publisher(for: .durationDidUpdate)) { notification in
             guard let vid = notification.userInfo?["videoId"] as? String, vid == song.videoId else { return }

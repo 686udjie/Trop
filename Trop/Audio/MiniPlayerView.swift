@@ -20,6 +20,7 @@ struct MiniPlayerView: View {
     @State private var isLiked = false
     @State private var showLyrics = false
     @State private var showQueue = false
+    @State private var pendingRoute: DetailRoute?
 
     var body: some View {
         ZStack {
@@ -103,6 +104,16 @@ struct MiniPlayerView: View {
         }
         .onChange(of: np.videoId) { _, newId in activeItemId = newId ?? "" }
         .onChange(of: np.queueSongs.count) { _, _ in activeItemId = np.videoId ?? "" }
+        .navigationDestination(item: $pendingRoute) { route in
+            switch route {
+            case .album(let browseId): AlbumDetailView(browseId: browseId)
+            case .artist(let browseId): ArtistDetailView(browseId: browseId)
+            case .playlist(let playlistId): PlaylistDetailView(playlistId: playlistId)
+            case .podcast(let browseId): PodcastDetailView(browseId: browseId)
+            case .autoPlaylist(let autoRoute): PlaylistDetailView(autoPlaylistRoute: autoRoute)
+            case .history: HistoryScreenView()
+            }
+        }
     }
 
     private func handleActiveItemChange(newId: String) {
@@ -172,14 +183,39 @@ struct MiniPlayerView: View {
                         .background(Circle().fill(.white.opacity(0.15)))
                 }
                 
-                Button {
+            let currentSong = np.queueSongs.indices.contains(np.queueIndex) ? np.queueSongs[np.queueIndex] : nil
+            if let song = currentSong {
+                Menu {
+                    Button {
+                        UIPasteboard.general.string = song.webUrl
+                    } label: {
+                        Label("Copy Link", systemImage: "link")
+                    }
+                    if let artistId = song.firstArtistBrowseId {
+                        Button {
+                            pendingRoute = DetailRoute.artist(browseId: artistId)
+                        } label: {
+                            Label("Go to Artist", systemImage: "music.mic")
+                        }
+                    }
+                    if let albumId = song.firstAlbumBrowseId {
+                        Button {
+                            pendingRoute = DetailRoute.album(browseId: albumId)
+                        } label: {
+                            Label("Go to Album", systemImage: "record.circle")
+                        }
+                    }
+
                 } label: {
                     Image(systemName: "ellipsis")
                         .font(.system(size: 17, weight: .regular))
                         .foregroundStyle(.white)
                         .frame(width: 36, height: 36)
                         .background(Circle().fill(.white.opacity(0.15)))
+                        .rotationEffect(.degrees(90))
                 }
+                .menuOrder(.fixed)
+            }
             }
         }
     }

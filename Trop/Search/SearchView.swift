@@ -10,6 +10,7 @@ import SwiftUI
 struct SearchView: View {
     @State private var viewModel = SearchViewModel()
     @State private var navigationPath = NavigationPath()
+    @State private var pendingRoute: DetailRoute?
     var onExitSearch: (() -> Void)?
 
     var body: some View {
@@ -65,6 +66,16 @@ struct SearchView: View {
                     PlaylistDetailView(autoPlaylistRoute: autoRoute)
                 case .history:
                     HistoryScreenView()
+                }
+            }
+            .navigationDestination(item: $pendingRoute) { route in
+                switch route {
+                case .album(let browseId): AlbumDetailView(browseId: browseId)
+                case .artist(let browseId): ArtistDetailView(browseId: browseId)
+                case .playlist(let playlistId): PlaylistDetailView(playlistId: playlistId)
+                case .podcast(let browseId): PodcastDetailView(browseId: browseId)
+                case .autoPlaylist(let autoRoute): PlaylistDetailView(autoPlaylistRoute: autoRoute)
+                case .history: HistoryScreenView()
                 }
             }
             .onAppear {
@@ -153,7 +164,7 @@ struct SearchView: View {
                                 NowPlaying.shared.queueSongs = radio.songs
                                 NowPlaying.shared.queueIndex = radio.currentIndex
                             }
-                        })
+                        }, onNavigate: { pendingRoute = $0 })
                         .listRowInsets(EdgeInsets())
                         .padding(.vertical, 4)
                     }
@@ -167,7 +178,7 @@ struct SearchView: View {
                         ))
                         YouTubeListItemView(item: item, onTap: {
                             navigationPath.append(DetailRoute.artist(browseId: artist.id))
-                        })
+                        }, onNavigate: { pendingRoute = $0 })
                         .listRowInsets(EdgeInsets())
                         .padding(.vertical, 4)
                     }
@@ -184,7 +195,7 @@ struct SearchView: View {
                         ))
                         YouTubeListItemView(item: item, onTap: {
                             navigationPath.append(DetailRoute.album(browseId: album.id))
-                        })
+                        }, onNavigate: { pendingRoute = $0 })
                         .listRowInsets(EdgeInsets())
                         .padding(.vertical, 4)
                     }
@@ -199,7 +210,7 @@ struct SearchView: View {
                         ))
                         YouTubeListItemView(item: item, onTap: {
                             navigationPath.append(DetailRoute.playlist(playlistId: playlist.browseId ?? playlist.id))
-                        })
+                        }, onNavigate: { pendingRoute = $0 })
                         .listRowInsets(EdgeInsets())
                         .padding(.vertical, 4)
                     }
@@ -240,7 +251,7 @@ struct SearchView: View {
                     ForEach(section.items, id: \.id) { item in
                         YouTubeListItemView(item: item, onTap: {
                             handleItemTap(item)
-                        })
+                        }, onNavigate: { pendingRoute = $0 })
                         .listRowInsets(EdgeInsets())
                         .padding(.vertical, 4)
                     }

@@ -9,7 +9,18 @@ import Foundation
 
 /// Route destinations for detail view navigation.
 /// Used with NavigationStack + NavigationPath to push detail screens.
-enum DetailRoute: Hashable {
+enum DetailRoute: Hashable, Identifiable {
+    var id: String {
+        switch self {
+        case .album(let browseId): return "album_\(browseId)"
+        case .artist(let browseId): return "artist_\(browseId)"
+        case .playlist(let playlistId): return "playlist_\(playlistId)"
+        case .podcast(let browseId): return "podcast_\(browseId)"
+        case .autoPlaylist(let route): return "autoPlaylist_\(String(describing: route))"
+        case .history: return "history"
+        }
+    }
+
     case album(browseId: String)
     case artist(browseId: String)
     case playlist(playlistId: String)

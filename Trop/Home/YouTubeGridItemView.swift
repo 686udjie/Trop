@@ -108,6 +108,7 @@ struct YouTubeGridItemView: View {
 struct YouTubeListItemView: View {
     var item: YTItem
     var onTap: () -> Void
+    var onNavigate: ((DetailRoute) -> Void)?
 
     @State private var resolvedDuration: Int = 0
 
@@ -115,6 +116,14 @@ struct YouTubeListItemView: View {
         switch item {
         case .song(let s): return s.videoId
         case .episode(let e): return e.videoId
+        default: return nil
+        }
+    }
+
+    private var songItem: SongItem? {
+        switch item {
+        case .song(let s): return s
+        case .episode(let e): return e.toSongItem()
         default: return nil
         }
     }
@@ -163,9 +172,29 @@ struct YouTubeListItemView: View {
 
             Spacer()
 
-            Image(systemName: "ellipsis")
-                .font(.body)
-                .foregroundStyle(.blue)
+            if let song = songItem, let url = item.webUrl {
+                SongMenuView(
+                    songItem: song,
+                    webUrl: url,
+                    artistBrowseId: item.firstArtistBrowseId,
+                    albumBrowseId: item.firstAlbumBrowseId,
+                    onNavigate: { onNavigate?($0) }
+                )
+            } else if let url = item.webUrl {
+                Menu {
+                    Button {
+                        UIPasteboard.general.string = url
+                    } label: {
+                        Label("Copy Link", systemImage: "link")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.body)
+                        .foregroundStyle(.blue)
+                        .rotationEffect(.degrees(90))
+                }
+                .menuOrder(.fixed)
+            }
         }
         .contentShape(Rectangle())
         .onTapGesture {

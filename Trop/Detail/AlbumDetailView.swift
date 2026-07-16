@@ -266,6 +266,7 @@ extension AlbumDetailViewModel {
 struct AlbumDetailView: View {
     let browseId: String
     @State private var viewModel: AlbumDetailViewModel
+    @State private var pendingRoute: DetailRoute?
 
     @Environment(\.dismiss) private var dismiss
 
@@ -305,6 +306,16 @@ struct AlbumDetailView: View {
         .task {
             guard viewModel.isLoading else { return }
             await viewModel.load()
+        }
+        .navigationDestination(item: $pendingRoute) { route in
+            switch route {
+            case .album(let browseId): AlbumDetailView(browseId: browseId)
+            case .artist(let browseId): ArtistDetailView(browseId: browseId)
+            case .playlist(let playlistId): PlaylistDetailView(playlistId: playlistId)
+            case .podcast(let browseId): PodcastDetailView(browseId: browseId)
+            case .autoPlaylist(let autoRoute): PlaylistDetailView(autoPlaylistRoute: autoRoute)
+            case .history: HistoryScreenView()
+            }
         }
     }
 
@@ -416,42 +427,46 @@ struct AlbumDetailView: View {
     private func songList(for album: AlbumDetailInfo) -> some View {
         VStack(spacing: 0) {
             ForEach(Array(album.songs.enumerated()), id: \.offset) { index, song in
-                Button(action: { playSong(song, in: album) }) {
-                    HStack(spacing: 12) {
-                        // Song thumbnail
-                        AsyncImageView(url: song.thumbnailUrl)
-                            .frame(width: 40, height: 40)
-                            .clipShape(RoundedRectangle(cornerRadius: 4))
+                HStack(spacing: 12) {
+                    // Song thumbnail
+                    AsyncImageView(url: song.thumbnailUrl)
+                        .frame(width: 40, height: 40)
+                        .clipShape(RoundedRectangle(cornerRadius: 4))
 
-                        // Title and subtitle (artists • duration)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(song.title)
-                                .font(.subheadline)
-                                .fontWeight(.medium)
-                                .foregroundColor(.primary)
-                                .lineLimit(1)
+                    // Title and subtitle (artists • duration)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(song.title)
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                            .foregroundColor(.primary)
+                            .lineLimit(1)
 
-                            let artistStr = song.artists.map(\.name).joined(separator: ", ")
-                            let durationStr = song.duration.formattedDuration
-                            let subtitleText = artistStr.isEmpty ? durationStr : (durationStr.isEmpty ? artistStr : "\(artistStr) • \(durationStr)")
+                        let artistStr = song.artists.map(\.name).joined(separator: ", ")
+                        let durationStr = song.duration.formattedDuration
+                        let subtitleText = artistStr.isEmpty ? durationStr : (durationStr.isEmpty ? artistStr : "\(artistStr) • \(durationStr)")
 
-                            Text(subtitleText)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                                .lineLimit(1)
-                        }
-
-                        Spacer()
-
-                        // Options ellipsis
-                        Image(systemName: "ellipsis")
-                            .font(.body)
-                            .foregroundStyle(.blue)
+                        Text(subtitleText)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 6)
+
+                    Spacer()
+
+                    SongMenuView(
+                        songItem: song,
+                        webUrl: song.webUrl,
+                        artistBrowseId: song.firstArtistBrowseId,
+                        albumBrowseId: song.firstAlbumBrowseId,
+                        onNavigate: { pendingRoute = $0 }
+                    )
                 }
-                .buttonStyle(.plain)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 6)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    playSong(song, in: album)
+                }
 
                 if index < album.songs.count - 1 {
                     Divider()

@@ -433,35 +433,71 @@ struct SongItem {
         return true
     }
 
+    private static func artistIdMap(fromRuns runs: [[String: Any]]) -> [String: String] {
+        var map: [String: String] = [:]
+        for run in runs {
+            guard let text = run["text"] as? String else { continue }
+            let trimmed = text.trimmingCharacters(in: .whitespaces)
+            if let nav = run["navigationEndpoint"] as? [String: Any],
+               let browse = nav["browseEndpoint"] as? [String: Any],
+               let bid = browse["browseId"] as? String {
+                map[trimmed] = bid
+            }
+        }
+        return map
+    }
+
     private static func fromResponsiveListItem(renderer: [String: Any], flexColumns: [[String: Any]], videoId: String, duration: Int, playlistId: String?) -> SongItem? {
         let title = flexText(flexColumns, index: 0) ?? "Unknown"
         let runs = flexTextRuns(flexColumns, index: 1)
         let segments = splitRunsBySeparator(runs)
+        let idMap = artistIdMap(fromRuns: runs)
         let artists: [YTArtist]
-        let album: String?
+        var album: String?
+        var albumId: String?
+
+        // Try flexColumns[2] first — dedicated album column with navigation endpoint (like Metrolist)
+        if flexColumns.indices.contains(2) {
+            let albumRuns = flexTextRuns(flexColumns, index: 2)
+            if let firstRun = albumRuns.first,
+               let name = firstRun["text"] as? String,
+               let nav = firstRun["navigationEndpoint"] as? [String: Any],
+               let browse = nav["browseEndpoint"] as? [String: Any],
+               let bid = browse["browseId"] as? String {
+                album = name
+                albumId = bid
+            }
+        }
+
         if !segments.isEmpty {
             let artistSegments = segments.drop { seg in
                 seg.allSatisfy { !isArtistSegment($0) }
             }
             if artistSegments.isEmpty {
-                artists = segments[0].filter { isArtistSegment($0) }.map { YTArtist(name: cleanArtistName($0)) }
-                album = segments.count > 1 ? segments[1].first : nil
+                artists = segments[0].filter { isArtistSegment($0) }.map {
+                    YTArtist(name: cleanArtistName($0), id: idMap[$0])
+                }
+                if album == nil && segments.count > 1 {
+                    album = segments[1].first
+                }
             } else {
-                // Flatten all artist segments to ensure featured artists are included.
                 var collected: [YTArtist] = []
                 for seg in artistSegments {
-                    collected.append(contentsOf: seg.filter { isArtistSegment($0) }.map { YTArtist(name: cleanArtistName($0)) })
+                    collected.append(contentsOf: seg.filter { isArtistSegment($0) }.map {
+                        YTArtist(name: cleanArtistName($0), id: idMap[$0])
+                    })
                 }
                 artists = collected
-                album = artistSegments.dropFirst().first?.first
+                if album == nil {
+                    album = artistSegments.dropFirst().first?.first
+                }
             }
         } else {
             artists = []
-            album = nil
         }
         let thumbnailUrl = extractResponsiveThumbnail(renderer)
         return SongItem(
-            videoId: videoId, title: title, artists: artists, album: album,
+            videoId: videoId, title: title, artists: artists, album: album, albumId: albumId,
             duration: duration, thumbnailUrl: thumbnailUrl, isExplicit: false, playlistId: playlistId
         )
     }
@@ -471,6 +507,7 @@ struct SongItem {
         let thumbnailUrl = extractTwoRowThumbnail(renderer)
         var artists: [YTArtist] = []
         var album: String?
+        var albumId: String?
         if let subtitleDict = renderer["subtitle"] as? [String: Any],
            let runs = subtitleDict["runs"] as? [[String: Any]] {
             for run in runs {
@@ -482,13 +519,20 @@ struct SongItem {
                    let bid = browse["browseId"] as? String,
                    bid.hasPrefix("MPREb_") {
                     album = trimmed
+                    albumId = bid
                 } else if isArtistRun(run) {
-                    artists.append(YTArtist(name: cleanArtistName(trimmed)))
+                    var artistId: String?
+                    if let nav = run["navigationEndpoint"] as? [String: Any],
+                       let browse = nav["browseEndpoint"] as? [String: Any],
+                       let bid = browse["browseId"] as? String {
+                        artistId = bid
+                    }
+                    artists.append(YTArtist(name: cleanArtistName(trimmed), id: artistId))
                 }
             }
         }
         return SongItem(
-            videoId: videoId, title: title, artists: artists, album: album,
+            videoId: videoId, title: title, artists: artists, album: album, albumId: albumId,
             duration: duration, thumbnailUrl: thumbnailUrl, isExplicit: false, playlistId: playlistId
         )
     }
@@ -581,6 +625,66 @@ struct EpisodeItem {
         let thumbnailUrl = extractTwoRowThumbnail(renderer)
         let duration = parseDurationFromRenderer(renderer)
         return EpisodeItem(videoId: videoId, title: title, artists: [], duration: duration, thumbnailUrl: thumbnailUrl)
+    }
+}
+
+// MARK: - Web URL
+
+extension SongItem {
+    var webUrl: String {
+        "https://music.youtube.com/watch?v=\(videoId)"
+    }
+
+    var firstArtistBrowseId: String? {
+        artists.first(where: { $0.id != nil })?.id
+    }
+
+    var firstAlbumBrowseId: String? {
+        albumId
+    }
+}
+
+extension EpisodeItem {
+    var webUrl: String {
+        "https://music.youtube.com/watch?v=\(videoId)"
+    }
+
+    var firstArtistBrowseId: String? {
+        artists.first(where: { $0.id != nil })?.id
+    }
+}
+
+extension YTItem {
+    var firstArtistBrowseId: String? {
+        switch self {
+        case .song(let s): return s.firstArtistBrowseId
+        case .episode(let e): return e.firstArtistBrowseId
+        case .album(let a): return a.artists.first(where: { $0.id != nil })?.id
+        default: return nil
+        }
+    }
+
+    var firstAlbumBrowseId: String? {
+        switch self {
+        case .song(let s): return s.firstAlbumBrowseId
+        default: return nil
+        }
+    }
+
+    var webUrl: String? {
+        switch self {
+        case .song(let s): return s.webUrl
+        case .episode(let e): return e.webUrl
+        case .album(let a):
+            guard let pid = a.playlistId else { return nil }
+            return "https://music.youtube.com/playlist?list=\(pid)"
+        case .artist(let a):
+            return "https://music.youtube.com/channel/\(a.browseId)"
+        case .playlist(let p):
+            return "https://music.youtube.com/playlist?list=\(p.id)"
+        case .podcast:
+            return nil
+        }
     }
 }
 

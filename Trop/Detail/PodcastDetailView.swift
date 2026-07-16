@@ -238,6 +238,7 @@ extension PodcastDetailViewModel {
 struct PodcastDetailView: View {
     let browseId: String
     @State private var viewModel: PodcastDetailViewModel
+    @State private var pendingRoute: DetailRoute?
 
     @Environment(\.dismiss) private var dismiss
 
@@ -277,6 +278,16 @@ struct PodcastDetailView: View {
         .task {
             guard viewModel.isLoading else { return }
             await viewModel.load()
+        }
+        .navigationDestination(item: $pendingRoute) { route in
+            switch route {
+            case .album(let browseId): AlbumDetailView(browseId: browseId)
+            case .artist(let browseId): ArtistDetailView(browseId: browseId)
+            case .playlist(let playlistId): PlaylistDetailView(playlistId: playlistId)
+            case .podcast(let browseId): PodcastDetailView(browseId: browseId)
+            case .autoPlaylist(let autoRoute): PlaylistDetailView(autoPlaylistRoute: autoRoute)
+            case .history: HistoryScreenView()
+            }
         }
     }
 
@@ -364,38 +375,43 @@ struct PodcastDetailView: View {
     private func episodeList(for podcast: PodcastDetailInfo) -> some View {
         VStack(spacing: 0) {
             ForEach(Array(podcast.episodes.enumerated()), id: \.offset) { index, episode in
-                Button(action: { playEpisode(episode, in: podcast) }) {
-                    HStack(spacing: 12) {
-                        AsyncImageView(url: episode.thumbnailUrl)
-                            .frame(width: 40, height: 40)
-                            .clipShape(RoundedRectangle(cornerRadius: 4))
+                HStack(spacing: 12) {
+                    AsyncImageView(url: episode.thumbnailUrl)
+                        .frame(width: 40, height: 40)
+                        .clipShape(RoundedRectangle(cornerRadius: 4))
 
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(episode.title)
-                                .font(.subheadline)
-                                .fontWeight(.medium)
-                                .foregroundColor(.primary)
-                                .lineLimit(1)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(episode.title)
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                            .foregroundColor(.primary)
+                            .lineLimit(1)
 
-                            let durationStr = episode.duration.formattedDuration
-                            let subtitleText = durationStr.isEmpty ? "" : durationStr
+                        let durationStr = episode.duration.formattedDuration
+                        let subtitleText = durationStr.isEmpty ? "" : durationStr
 
-                            Text(subtitleText)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                                .lineLimit(1)
-                        }
-
-                        Spacer()
-
-                        Image(systemName: "ellipsis")
-                            .font(.body)
-                            .foregroundStyle(.blue)
+                        Text(subtitleText)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 6)
+
+                    Spacer()
+
+                    SongMenuView(
+                        songItem: episode.toSongItem(),
+                        webUrl: episode.webUrl,
+                        artistBrowseId: episode.firstArtistBrowseId,
+                        albumBrowseId: nil,
+                        onNavigate: { pendingRoute = $0 }
+                    )
                 }
-                .buttonStyle(.plain)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 6)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    playEpisode(episode, in: podcast)
+                }
 
                 if index < podcast.episodes.count - 1 {
                     Divider()

@@ -11,6 +11,7 @@ struct HomeScreenView: View {
     @State private var viewModel = HomeViewModel()
     @StateObject private var loginModel = LoginViewModel()
     @State private var navigationPath = NavigationPath()
+    @State private var pendingRoute: DetailRoute?
 
     var body: some View {
         NavigationStack(path: $navigationPath) {
@@ -65,6 +66,16 @@ struct HomeScreenView: View {
                     PlaylistDetailView(autoPlaylistRoute: autoRoute)
                 case .history:
                     HistoryScreenView()
+                }
+            }
+            .navigationDestination(item: $pendingRoute) { route in
+                switch route {
+                case .album(let browseId): AlbumDetailView(browseId: browseId)
+                case .artist(let browseId): ArtistDetailView(browseId: browseId)
+                case .playlist(let playlistId): PlaylistDetailView(playlistId: playlistId)
+                case .podcast(let browseId): PodcastDetailView(browseId: browseId)
+                case .autoPlaylist(let autoRoute): PlaylistDetailView(autoPlaylistRoute: autoRoute)
+                case .history: HistoryScreenView()
                 }
             }
             .sheet(isPresented: $viewModel.isLoginSheetPresented) {
@@ -237,7 +248,7 @@ struct HomeScreenView: View {
                 LazyHGrid(rows: Array(repeating: GridItem(.fixed(60)), count: 4), spacing: 12) {
                     ForEach(section.items.indices, id: \.self) { i in
                         let item = section.items[i]
-                        YouTubeListItemView(item: item, onTap: { handleItemTap(item) })
+                        YouTubeListItemView(item: item, onTap: { handleItemTap(item) }, onNavigate: { pendingRoute = $0 })
                             .frame(width: 280)
                     }
                 }
@@ -254,7 +265,7 @@ struct HomeScreenView: View {
                 LazyHGrid(rows: Array(repeating: GridItem(.fixed(60)), count: 4), spacing: 12) {
                     ForEach(section.items.indices, id: \.self) { i in
                         let item = section.items[i]
-                        YouTubeListItemView(item: item, onTap: { handleItemTap(item) })
+                        YouTubeListItemView(item: item, onTap: { handleItemTap(item) }, onNavigate: { pendingRoute = $0 })
                             .frame(width: 280)
                     }
                 }
