@@ -42,14 +42,16 @@ enum LyricsProviderRegistry {
         LRCLIBProvider(),
         MusixmatchProvider(),
         NeteaseProvider(),
-        KugouProvider()
+        KugouProvider(),
+        GeniusProvider()
     ]
 
     static let defaultOrder: [String] = [
         "lrclib",
         "musixmatch",
         "netease",
-        "kugou"
+        "kugou",
+        "genius"
     ]
 
     static func provider(for id: String) -> LyricsProvider? {
