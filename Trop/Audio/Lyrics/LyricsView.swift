@@ -183,7 +183,6 @@ struct LyricsView<ProgressSlider: View>: View {
             .padding(.horizontal, 20)
 
             progressSlider()
-                .padding(.horizontal, 20)
 
             PlaybackControlsRow(
                 isPlaying: np.isPlaying,

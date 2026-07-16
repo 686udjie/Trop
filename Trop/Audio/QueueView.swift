@@ -73,7 +73,6 @@ struct QueueView<ProgressSlider: View>: View {
             // Bottom control section is now naturally pinned to the bottom
             VStack(spacing: 16) {
                 progressSlider()
-                    .padding(.horizontal, 20)
                     .padding(.top, 16) // Match the artist→slider gap (16) used in the big player
 
                 PlaybackControlsRow(
