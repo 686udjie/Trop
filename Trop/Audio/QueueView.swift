@@ -116,19 +116,17 @@ struct QueueView<ProgressSlider: View>: View {
 
             let title = np.title
             let artist = np.displayArtist
-            let artistLonger = !artist.isEmpty && artist.count > title.count
-            let displayText = artistLonger ? title : (artist.isEmpty ? title : artist)
-            let placeAtTop = !artistLonger
             VStack(alignment: .leading, spacing: 2) {
-                if !placeAtTop {
-                    Spacer(minLength: 0)
-                }
-                Text(displayText)
+                Text(title)
                     .font(.body.weight(.semibold))
                     .foregroundStyle(.white)
                     .lineLimit(1)
-                if placeAtTop {
-                    Spacer(minLength: 0)
+
+                if !artist.isEmpty {
+                    Text(artist)
+                        .font(.subheadline)
+                        .foregroundStyle(.white.opacity(0.7))
+                        .lineLimit(1)
                 }
             }
             .frame(height: 64)

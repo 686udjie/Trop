@@ -172,10 +172,9 @@ struct MiniPlayerView: View {
         HStack(alignment: .center) {
             let title = np.title
             let artist = np.displayArtist
-            let shorterLine = artist.isEmpty ? title : (title.count <= artist.count ? title : artist)
             VStack(alignment: .leading, spacing: 4) {
                 Marquee {
-                    Text(shorterLine)
+                    Text(title)
                         .font(.title3.weight(.bold))
                         .lineLimit(1)
                         .fixedSize(horizontal: true, vertical: false)
@@ -197,6 +196,13 @@ struct MiniPlayerView: View {
                     )
                 )
                 .foregroundStyle(.white)
+
+                if !artist.isEmpty {
+                    Text(artist)
+                        .font(.subheadline)
+                        .foregroundStyle(.white.opacity(0.7))
+                        .lineLimit(1)
+                }
             }
 
             Spacer()
