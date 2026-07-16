@@ -16,11 +16,19 @@ struct MiniPlayerView: View {
     @State private var editingProgress: Float = 0
     @State private var isEditingSlider = false
     @State private var activeItemId = ""
-    
+
     @State private var isLiked = false
     @State private var showLyrics = false
     @State private var showQueue = false
     @State private var pendingRoute: DetailRoute?
+    @State private var isShuffleOn = false
+    @State private var isRepeatOn = false
+    @State private var isAutoplayOn = false
+
+
+    private var upcomingSongs: [SongItem] {
+        Array(np.queueSongs.suffix(from: np.queueIndex + 1))
+    }
 
     var body: some View {
         ZStack {
@@ -34,7 +42,7 @@ struct MiniPlayerView: View {
             )
             .ignoresSafeArea()
             .animation(.easeInOut(duration: 0.8), value: np.dominantColors)
-            
+
             Circle()
                 .fill(np.dominantColors.first ?? .blue)
                 .frame(width: 400, height: 400)
@@ -42,48 +50,63 @@ struct MiniPlayerView: View {
                 .opacity(0.45)
                 .offset(y: -150)
                 .ignoresSafeArea()
-            
+
             VStack(spacing: 0) {
                 Capsule()
                     .fill(.white.opacity(0.3))
                     .frame(width: 36, height: 5)
                     .padding(.top, 16)
                     .padding(.bottom, 16)
-                
-                Spacer(minLength: 8)
-                
-                artwork
-                    .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-                    .shadow(color: .black.opacity(0.4), radius: 20, x: 0, y: 12)
-                    .padding(.horizontal, 32)
-                
-                Spacer(minLength: 16)
-                
-                titleAndActionsRow
-                    .padding(.horizontal, 32)
-                    .padding(.bottom, 16)
-                
-                progressSlider
-                    .padding(.bottom, 16)
-                
-                PlaybackControlsRow(
-                    isPlaying: np.isPlaying,
-                    hasPrevious: np.hasPrevious,
-                    hasNext: np.hasNext,
-                    onPrevious: { np.playPrevious() },
-                    onPlayPause: { player.togglePlayPause() },
-                    onNext: { np.playNext() }
-                )
-                .animation(.spring(response: 0.3, dampingFraction: 0.7), value: np.isPlaying)
-                .padding(.bottom, 8)
-                
-                SecondaryActionsRow(
-                    showLyrics: $showLyrics,
-                    showQueue: $showQueue,
-                    onRepeat: {}
-                )
-                
-                Spacer(minLength: 8)
+
+                if showQueue {
+                    QueueView(
+                        showLyrics: $showLyrics,
+                        showQueue: $showQueue,
+                        isLiked: $isLiked,
+                        isShuffleOn: $isShuffleOn,
+                        isRepeatOn: $isRepeatOn,
+                        isAutoplayOn: $isAutoplayOn,
+                        editingProgress: $editingProgress,
+                        isEditingSlider: $isEditingSlider,
+                        pendingRoute: $pendingRoute,
+                        progressSlider: { progressSlider }
+                    )
+                } else {
+                    Spacer(minLength: 8)
+
+                    artwork
+                        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                        .shadow(color: .black.opacity(0.4), radius: 20, x: 0, y: 12)
+                        .padding(.horizontal, 32)
+
+                    Spacer(minLength: 16)
+
+                    titleAndActionsRow
+                        .padding(.horizontal, 32)
+                        .padding(.bottom, 16)
+
+                    progressSlider
+                        .padding(.bottom, 16)
+
+                    PlaybackControlsRow(
+                        isPlaying: np.isPlaying,
+                        hasPrevious: np.hasPrevious,
+                        hasNext: np.hasNext,
+                        onPrevious: { np.playPrevious() },
+                        onPlayPause: { player.togglePlayPause() },
+                        onNext: { np.playNext() }
+                    )
+                    .animation(.spring(response: 0.3, dampingFraction: 0.7), value: np.isPlaying)
+                    .padding(.bottom, 8)
+
+                    SecondaryActionsRow(
+                        showLyrics: $showLyrics,
+                        showQueue: $showQueue,
+                        onRepeat: {}
+                    )
+
+                    Spacer(minLength: 8)
+                }
             }
         }
         .overlay(MiniPlayerPopupItems(
@@ -96,6 +119,7 @@ struct MiniPlayerView: View {
         ).equatable())
         .popupBarCustomizer { bar in
             bar.imageView.contentMode = .scaleAspectFill
+            bar.imageView.layer.masksToBounds = true
             bar.imageView.cornerRadius = 6
         }
         .popupProgress(np.progress)
@@ -103,7 +127,17 @@ struct MiniPlayerView: View {
             handleActiveItemChange(newId: newId)
         }
         .onChange(of: np.videoId) { _, newId in activeItemId = newId ?? "" }
-        .onChange(of: np.queueSongs.count) { _, _ in activeItemId = np.videoId ?? "" }
+        .onChange(of: np.queueSongs.count) { _, _ in
+            activeItemId = np.videoId ?? ""
+            preloadUpcomingThumbnails()
+        }
+        .onChange(of: np.queueIndex) { _, _ in
+            preloadUpcomingThumbnails()
+        }
+        .onChange(of: showQueue) { _, newValue in
+            if newValue { preloadUpcomingThumbnails() }
+        }
+        .task { preloadUpcomingThumbnails() }
         .navigationDestination(item: $pendingRoute) { route in
             switch route {
             case .album(let browseId): AlbumDetailView(browseId: browseId)
@@ -116,6 +150,8 @@ struct MiniPlayerView: View {
         }
     }
 
+    // MARK: - Player Content
+
     private func handleActiveItemChange(newId: String) {
         guard newId != np.videoId else { return }
         guard let idx = np.queueSongs.firstIndex(where: { $0.videoId == newId }) else { return }
@@ -126,11 +162,20 @@ struct MiniPlayerView: View {
         Task { try? await PlaybackManager.shared.resolveAndPlay(videoId: song.videoId) }
     }
 
+    private func preloadUpcomingThumbnails() {
+        let urls = upcomingSongs.compactMap(\.thumbnailUrl).compactMap { URL(string: $0) }
+        guard !urls.isEmpty else { return }
+        Task { await ImagePreloader.shared.preload(urls) }
+    }
+
     private var titleAndActionsRow: some View {
         HStack(alignment: .center) {
+            let title = np.title
+            let artist = np.displayArtist
+            let shorterLine = artist.isEmpty ? title : (title.count <= artist.count ? title : artist)
             VStack(alignment: .leading, spacing: 4) {
                 Marquee {
-                    Text(np.title)
+                    Text(shorterLine)
                         .font(.title3.weight(.bold))
                         .lineLimit(1)
                         .fixedSize(horizontal: true, vertical: false)
@@ -152,26 +197,10 @@ struct MiniPlayerView: View {
                     )
                 )
                 .foregroundStyle(.white)
-
-                let cleanedArtist = np.displayArtist
-                if !cleanedArtist.isEmpty {
-                    Marquee {
-                        Text(cleanedArtist)
-                            .font(.body)
-                            .lineLimit(1)
-                            .fixedSize(horizontal: true, vertical: false)
-                    }
-                    .marqueeDirection(.right2left)
-                    .marqueeWhenNotFit(true)
-                    .marqueeDuration(8.0)
-                    .marqueeIdleAlignment(.leading)
-                    .frame(height: 20)
-                    .foregroundStyle(.white.opacity(0.7))
-                }
             }
-            
+
             Spacer()
-            
+
             HStack(spacing: 12) {
                 Button {
                     isLiked.toggle()
@@ -180,9 +209,8 @@ struct MiniPlayerView: View {
                         .font(.system(size: 17, weight: .regular))
                         .foregroundStyle(isLiked ? .red : .white)
                         .frame(width: 36, height: 36)
-                        .background(Circle().fill(.white.opacity(0.15)))
                 }
-                
+
             let currentSong = np.queueSongs.indices.contains(np.queueIndex) ? np.queueSongs[np.queueIndex] : nil
             if let song = currentSong {
                 Menu {
@@ -211,7 +239,6 @@ struct MiniPlayerView: View {
                         .font(.system(size: 17, weight: .regular))
                         .foregroundStyle(.white)
                         .frame(width: 36, height: 36)
-                        .background(Circle().fill(.white.opacity(0.15)))
                         .rotationEffect(.degrees(90))
                 }
                 .menuOrder(.fixed)
@@ -222,14 +249,13 @@ struct MiniPlayerView: View {
 
     private var artwork: some View {
         ZStack {
-            if let img = np.thumbnailImage {
+            if let uiImage = np.thumbnailUIImage {
+                let cropped = uiImage.centerCroppedSquare()
                 GeometryReader { geo in
-                    img
+                    Image(uiImage: cropped)
                         .resizable()
                         .aspectRatio(contentMode: .fill)
-                        .scaleEffect(x: 1.35, y: 1.35, anchor: .center)
                         .frame(width: geo.size.width, height: geo.size.height)
-                        .clipped()
                 }
             } else {
                 ZStack {
@@ -264,16 +290,16 @@ struct MiniPlayerView: View {
                     isEditingSlider = editing
                 }
             )
-            
+
             HStack {
                 Text(timeString(isEditingSlider
                     ? TimeInterval(editingProgress) * np.duration
                     : np.currentTime))
                     .font(.caption2.monospacedDigit())
                     .foregroundStyle(.white.opacity(0.6))
-                
+
                 Spacer()
-                
+
                 Text(timeString(np.duration))
                     .font(.caption2.monospacedDigit())
                     .foregroundStyle(.white.opacity(0.6))

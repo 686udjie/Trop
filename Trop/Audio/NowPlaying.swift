@@ -64,6 +64,26 @@ final class NowPlaying {
         queueIndex = startIndex
     }
 
+    func removeFromQueue(at indexSet: IndexSet) {
+        if queueIndex < queueSongs.count {
+            let currentVideoId = queueSongs[queueIndex].videoId
+            queueSongs.remove(atOffsets: indexSet)
+            if let newIdx = queueSongs.firstIndex(where: { $0.videoId == currentVideoId }) {
+                queueIndex = newIdx
+            }
+        } else {
+            queueSongs.remove(atOffsets: indexSet)
+        }
+    }
+
+    func moveQueue(from source: IndexSet, to destination: Int) {
+        let currentVideoId = queueSongs[queueIndex].videoId
+        queueSongs.move(fromOffsets: source, toOffset: destination)
+        if let newIdx = queueSongs.firstIndex(where: { $0.videoId == currentVideoId }) {
+            queueIndex = newIdx
+        }
+    }
+
     func playNext(automatic: Bool = false) {
         guard hasNext else { return }
         if !automatic { lastManualSkipTime = Date() }
@@ -167,11 +187,12 @@ final class NowPlaying {
         Task {
             do {
                 let platformImage = try await ImagePipeline.shared.image(for: url)
+                let cropped = platformImage.centerCroppedSquare()
                 await MainActor.run {
-                    thumbnailUIImage = platformImage
-                    thumbnailImage = Image(uiImage: platformImage)
+                    thumbnailUIImage = cropped
+                    thumbnailImage = Image(uiImage: cropped)
                     thumbnailVersion &+= 1
-                    updateDominantColors(from: platformImage)
+                    updateDominantColors(from: cropped)
                     PlayerController.shared.setNowPlayingMetadata()
                 }
             } catch {
