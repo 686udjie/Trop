@@ -7,7 +7,6 @@
 
 import SwiftUI
 import LNPopupUI
-import Marquee
 
 struct MiniPlayerView: View {
     private let player = PlayerController.shared
@@ -126,6 +125,7 @@ struct MiniPlayerView: View {
             queueSongs: np.queueSongs,
             videoId: np.videoId,
             isPlaying: np.isPlaying,
+            progress: np.progress,
             thumbnailImage: np.thumbnailImage,
             thumbnailVersion: np.thumbnailVersion,
             activeItemId: $activeItemId
@@ -197,29 +197,11 @@ struct MiniPlayerView: View {
             let title = np.title
             let artist = np.displayArtist
             VStack(alignment: .leading, spacing: 4) {
-                Marquee {
-                    Text(title)
-                        .font(.title3.weight(.bold))
-                        .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: false)
-                }
-                .marqueeDirection(.right2left)
-                .marqueeDuration(8.0)
-                .marqueeWhenNotFit(true)
-                .marqueeIdleAlignment(.leading)
-                .frame(height: 28)
-                .mask(
-                    LinearGradient(
-                        stops: [
-                            .init(color: .black, location: 0),
-                            .init(color: .black, location: 0.92),
-                            .init(color: .clear, location: 1)
-                        ],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
+                MarqueeText(
+                    text: title,
+                    font: .title3.weight(.bold),
+                    frameHeight: 28
                 )
-                .foregroundStyle(.white)
 
                 if !artist.isEmpty {
                     Text(artist)
@@ -265,11 +247,10 @@ struct MiniPlayerView: View {
                     }
 
                 } label: {
-                    Image(systemName: "ellipsis")
-                        .font(.system(size: 17, weight: .regular))
+                    Text("\u{22EE}")
+                        .font(.system(size: 20, weight: .black))
                         .foregroundStyle(.white)
                         .frame(width: 36, height: 36)
-                        .rotationEffect(.degrees(90))
                 }
                 .menuOrder(.fixed)
             }
@@ -348,6 +329,7 @@ private struct MiniPlayerPopupItems: View, Equatable {
     let queueSongs: [SongItem]
     let videoId: String?
     let isPlaying: Bool
+    let progress: Float
     let thumbnailImage: Image?
     let thumbnailVersion: Int
     @Binding var activeItemId: String
@@ -355,6 +337,7 @@ private struct MiniPlayerPopupItems: View, Equatable {
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.videoId == rhs.videoId &&
         lhs.isPlaying == rhs.isPlaying &&
+        lhs.progress == rhs.progress &&
         lhs.queueSongs.map(\.videoId) == rhs.queueSongs.map(\.videoId) &&
         lhs.thumbnailVersion == rhs.thumbnailVersion
     }
@@ -368,7 +351,7 @@ private struct MiniPlayerPopupItems: View, Equatable {
                         verbatimTitle: song.title,
                         verbatimSubtitle: song.artists.map { cleanArtistDisplay($0.name) }.filter { !$0.isEmpty }.joined(separator: ", "),
                         image: thumbnailImage,
-                        progress: 0
+                        progress: progress
                     ) {
                         ToolbarItemGroup(placement: .popupBar) {
                             Button(action: { PlayerController.shared.togglePlayPause() }) {

@@ -130,10 +130,11 @@ struct LyricsView<ProgressSlider: View>: View {
                 let title = np.title
                 let artist = np.displayArtist
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
+                    MarqueeText(
+                        text: title,
+                        font: .body.weight(.semibold),
+                        frameHeight: 24
+                    )
 
                     if !artist.isEmpty {
                         Text(artist)

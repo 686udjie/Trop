@@ -37,10 +37,9 @@ struct SongMenuView: View {
             }
 
         } label: {
-            Image(systemName: "ellipsis")
-                .font(.body)
+            Text("\u{22EE}")
+                .font(.body.weight(.black))
                 .foregroundStyle(.blue)
-                .rotationEffect(.degrees(90))
         }
         .menuOrder(.fixed)
     }

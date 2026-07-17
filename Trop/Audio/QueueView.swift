@@ -116,10 +116,11 @@ struct QueueView<ProgressSlider: View>: View {
             let title = np.title
             let artist = np.displayArtist
             VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
+                MarqueeText(
+                    text: title,
+                    font: .body.weight(.semibold),
+                    frameHeight: 24
+                )
 
                 if !artist.isEmpty {
                     Text(artist)
@@ -164,11 +165,10 @@ struct QueueView<ProgressSlider: View>: View {
                         }
                     }
                 } label: {
-                    Image(systemName: "ellipsis")
-                        .font(.system(size: 18))
+                    Text("\u{22EE}")
+                        .font(.system(size: 20, weight: .black))
                         .foregroundStyle(.white.opacity(0.6))
                         .frame(width: 36, height: 36)
-                        .rotationEffect(.degrees(90))
                 }
                 .menuOrder(.fixed)
             }
@@ -280,11 +280,11 @@ struct QueueSongRow: View {
                 .clipShape(RoundedRectangle(cornerRadius: 6))
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(song.title)
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
+                MarqueeText(
+                    text: song.title,
+                    font: .subheadline.weight(.medium),
+                    frameHeight: 20
+                )
 
                 let artistStr = song.artists.map(\.name).joined(separator: ", ")
                 if !artistStr.isEmpty {

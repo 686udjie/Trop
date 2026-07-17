@@ -44,6 +44,7 @@ struct ContentView: View {
             .popupBarStyle(.floatingCompact)
             .popupBarProgressViewStyle(.bottom)
             .popupCloseButtonStyle(.none)
+            .popupBarMarqueeScrollEnabled(true, scrollRate: 25, delay: 2.0, coordinateAnimations: true)
         }
     }
 }

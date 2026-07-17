@@ -11,7 +11,7 @@ import Nuke
 actor ImagePreloader {
     private let prefetcher = ImagePrefetcher(
         pipeline: ImagePipeline.shared,
-        maxConcurrentRequestCount: 4
+        maxConcurrentRequestCount: 8
     )
     private var pending: [URL] = []
     private var isActive = false
@@ -19,7 +19,7 @@ actor ImagePreloader {
 
     nonisolated static let shared = ImagePreloader()
 
-    init(batchSize: Int = 10) {
+    init(batchSize: Int = 20) {
         self.batchSize = batchSize
     }
 
@@ -48,7 +48,7 @@ actor ImagePreloader {
         prefetcher.startPrefetching(with: batch)
 
         Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(300))
+            try? await Task.sleep(for: .milliseconds(100))
             await self?.prefetchNextBatch()
         }
     }

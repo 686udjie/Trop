@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import GRDB
 
 struct LibraryView: View {
     @State private var artists: [ArtistEntity] = []
@@ -17,6 +18,7 @@ struct LibraryView: View {
     @State private var selectedFilter: LibraryFilter? = nil
     @State private var showCreateDialog = false
     @State private var playlistToDelete: PlaylistEntity?
+    @State private var playlistSongCounts: [String: Int] = [:]
 
     @StateObject private var loginModel = LoginViewModel()
     @State private var navigationPath = NavigationPath()
@@ -40,7 +42,7 @@ struct LibraryView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $navigationPath) {
             VStack(spacing: 0) {
                 HStack(alignment: .center) {
                     Text("Library")
@@ -127,7 +129,7 @@ struct LibraryView: View {
             }
             .animation(.spring(response: 0.4, dampingFraction: 0.8), value: showCreateDialog)
             .sheet(isPresented: $isLoginSheetPresented) {
-                NavigationStack {
+        NavigationStack(path: $navigationPath) {
                     LoginWebView(model: loginModel)
                         .ignoresSafeArea()
                         .toolbar {
@@ -258,7 +260,7 @@ struct LibraryView: View {
                     itemCell(
                         url: playlist.thumbnailUrl,
                         title: playlist.name,
-                        subtitle: playlist.remoteSongCount.map { "\($0) songs" }
+                        subtitle: playlistSongCounts[playlist.id].map { "\($0) songs" }
                     )
                 }
                 .buttonStyle(.plain)
@@ -425,6 +427,13 @@ struct LibraryView: View {
             albums = try await albumsFetch
             podcasts = try await podcastsFetch
             likedSongCount = try await countFetch
+
+            let rows: [(String, Int)] = try await DatabaseService.shared.read { db in
+                try Row.fetchAll(db, sql: "SELECT playlist_id, COUNT(*) as cnt FROM playlist_song_map GROUP BY playlist_id")
+                    .map { ($0["playlist_id"] as String, $0["cnt"] as Int) }
+            }
+            playlistSongCounts = Dictionary(uniqueKeysWithValues: rows)
+
             isLoading = false
         } catch {
             print("[LibraryView] Failed to load: \(error)")
@@ -462,7 +471,7 @@ struct LibraryView: View {
     }
 
     private var accountSheet: some View {
-        NavigationStack {
+        NavigationStack(path: $navigationPath) {
             List {
                 Section {
                     HStack(spacing: 14) {
