@@ -130,6 +130,8 @@ final class PlayerController {
                 return
             }
 
+            mpv_observe_property(mpv, 0, "duration", MPV_FORMAT_DOUBLE)
+
             self.isRunning = true
             self.eventLoop(mpv)
         }
@@ -156,7 +158,21 @@ final class PlayerController {
                     self.playState.send(actuallyPlaying ? .playing : .paused)
                     NowPlaying.shared.isPlaying = actuallyPlaying
                     self.currentVideoId = self.pendingVideoId
-                    self.updateNowPlayingProgress()
+                    self.assertAudioSession()
+                    self.setNowPlayingMetadata()
+                }
+            case MPV_EVENT_PROPERTY_CHANGE:
+                if let prop = event.pointee.data?.load(as: mpv_event_property.self),
+                   String(cString: prop.name) == "duration",
+                   prop.format == MPV_FORMAT_DOUBLE,
+                   let ptr = prop.data?.assumingMemoryBound(to: Double.self) {
+                    let newDur = ptr.pointee
+                    if newDur > 0 {
+                        DispatchQueue.main.async {
+                            NowPlaying.shared.duration = newDur
+                            self.setNowPlayingMetadata()
+                        }
+                    }
                 }
             case MPV_EVENT_START_FILE:
                 break
@@ -254,17 +270,41 @@ final class PlayerController {
     func setNowPlayingMetadata() {
         assertAudioSession()
         let np = NowPlaying.shared
+
+        var liveDur = Double(0)
+        if let mpv { mpv_get_property(mpv, "duration", MPV_FORMAT_DOUBLE, &liveDur) }
+        let duration = liveDur > 0 ? liveDur : np.duration
+        if duration > 0 { np.duration = duration }
+
+        var livePos = Double(0)
+        if let mpv { mpv_get_property(mpv, "time-pos", MPV_FORMAT_DOUBLE, &livePos) }
+        let elapsed = livePos > 0 ? livePos : np.currentTime
+
         nowPlayingInfo[MPMediaItemPropertyTitle] = np.title
         nowPlayingInfo[MPMediaItemPropertyArtist] = np.artist
         nowPlayingInfo[MPMediaItemPropertyAlbumTitle] = np.albumTitle
         nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] = np.isPlaying ? 1.0 : 0.0
         nowPlayingInfo[MPNowPlayingInfoPropertyMediaType] = MPNowPlayingInfoMediaType.audio.rawValue
-        nowPlayingInfo[MPMediaItemPropertyPlaybackDuration] = np.duration
-        nowPlayingInfo[MPNowPlayingInfoPropertyElapsedPlaybackTime] = np.currentTime
+        if duration > 0 {
+            nowPlayingInfo[MPMediaItemPropertyPlaybackDuration] = duration
+        }
+        nowPlayingInfo[MPNowPlayingInfoPropertyElapsedPlaybackTime] = elapsed
         nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackQueueIndex] = np.queueIndex
         nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackQueueCount] = np.queueSongs.count
         if let image = np.thumbnailUIImage {
             nowPlayingInfo[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+        } else {
+            nowPlayingInfo[MPMediaItemPropertyArtwork] = nil
+        }
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
+    }
+
+    func updateNowPlayingArtwork() {
+        let np = NowPlaying.shared
+        if let image = np.thumbnailUIImage {
+            nowPlayingInfo[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+        } else {
+            nowPlayingInfo[MPMediaItemPropertyArtwork] = nil
         }
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
     }
@@ -275,20 +315,22 @@ final class PlayerController {
 
         var dur = Double(0)
         mpv_get_property(mpv, "duration", MPV_FORMAT_DOUBLE, &dur)
-        if dur > 0 {
-            nowPlayingInfo[MPMediaItemPropertyPlaybackDuration] = dur
-            np.duration = dur
-        }
+        guard dur > 0 else { return }
+
+        var info = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? nowPlayingInfo
+        info[MPMediaItemPropertyPlaybackDuration] = dur
+        np.duration = dur
 
         var pos = Double(0)
         mpv_get_property(mpv, "time-pos", MPV_FORMAT_DOUBLE, &pos)
-        nowPlayingInfo[MPNowPlayingInfoPropertyElapsedPlaybackTime] = pos
+        info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = pos
         np.currentTime = pos
 
-        nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] = np.isPlaying ? 1.0 : 0.0
-        nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackQueueIndex] = np.queueIndex
-        nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackQueueCount] = np.queueSongs.count
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
+        info[MPNowPlayingInfoPropertyPlaybackRate] = np.isPlaying ? 1.0 : 0.0
+        info[MPNowPlayingInfoPropertyPlaybackQueueIndex] = np.queueIndex
+        info[MPNowPlayingInfoPropertyPlaybackQueueCount] = np.queueSongs.count
+        nowPlayingInfo = info
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
     }
 
     // MARK: - Remote Commands

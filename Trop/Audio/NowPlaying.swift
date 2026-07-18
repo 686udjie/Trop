@@ -236,6 +236,8 @@ final class NowPlaying {
     private func loadThumbnail(videoId: String) {
         guard videoId != lastLoadedVideoId else { return }
         lastLoadedVideoId = videoId
+        thumbnailUIImage = nil
+        thumbnailImage = nil
         let urlString = "https://i.ytimg.com/vi/\(videoId)/hqdefault.jpg"
         guard let url = URL(string: urlString) else {
             thumbnailImage = Image(systemName: "music.note")
@@ -253,7 +255,7 @@ final class NowPlaying {
                     thumbnailImage = Image(uiImage: cropped)
                     thumbnailVersion &+= 1
                     updateDominantColors(from: cropped)
-                    PlayerController.shared.setNowPlayingMetadata()
+                    PlayerController.shared.updateNowPlayingArtwork()
                 }
             } catch {
                 await MainActor.run {
