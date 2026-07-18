@@ -35,19 +35,19 @@ actor LyricsService {
     func fetchLyrics(videoId: String) async throws -> [LyricLine] {
         if let cached = cache[videoId] {
             print("[Lyrics] cache hit for \(videoId) (\(cached.count) lines)")
-            await updateAvailability(!cached.isEmpty)
+            await updateAvailability(videoId: videoId, available: !cached.isEmpty)
             return cached
         }
         guard let query = resolveQuery(videoId: videoId) else {
             print("[Lyrics] no query metadata for \(videoId), skipping")
-            await updateAvailability(false)
+            await updateAvailability(videoId: videoId, available: false)
             throw LyricsError.notFound
         }
         print("[Lyrics] fetching for \"\(query.title)\" — \(query.artist) (\(query.durationSeconds)s)")
         let lines = try await LyricsManager.shared.fetchLyrics(query: query)
         cache[videoId] = lines
         print("[Lyrics] got \(lines.count) lines for \(videoId)")
-        await updateAvailability(!lines.isEmpty)
+        await updateAvailability(videoId: videoId, available: !lines.isEmpty)
         return lines
     }
 
@@ -59,7 +59,8 @@ actor LyricsService {
         }
     }
 
-    private func updateAvailability(_ available: Bool) async {
+    private func updateAvailability(videoId: String, available: Bool) async {
+        guard NowPlaying.shared.videoId == videoId else { return }
         await MainActor.run { LyricsState.shared.isAvailable = available }
     }
 

@@ -41,6 +41,12 @@ final class NowPlaying {
     var queueSongs: [SongItem] = []
     var queueIndex = 0
 
+    var isShuffleOn = false
+    var isRepeatOn = false
+
+    private var originalQueue: [SongItem]?
+    private var originalIndex: Int = 0
+
     var hasNext: Bool {
         queueIndex + 1 < queueSongs.count
     }
@@ -62,6 +68,56 @@ final class NowPlaying {
     func setQueue(_ songs: [SongItem], startIndex: Int) {
         queueSongs = songs
         queueIndex = startIndex
+        originalQueue = nil
+        isShuffleOn = false
+    }
+
+    /// Shuffle the upcoming songs while keeping the current song playing.
+    /// Tapping again re-shuffles into a new order.
+    func shuffleQueue() {
+        guard queueSongs.count > 1 else {
+            isShuffleOn = true
+            return
+        }
+        if originalQueue == nil {
+            originalQueue = queueSongs
+            originalIndex = queueIndex
+        }
+        let current = queueSongs[queueIndex]
+        var rest = Array(queueSongs[(queueIndex + 1)...])
+        rest.shuffle()
+        queueSongs = [current] + rest
+        queueIndex = 0
+        isShuffleOn = true
+    }
+
+    /// Restore the original (unshuffled) queue order.
+    func disableShuffle() {
+        if let orig = originalQueue {
+            let currentVideoId = queueSongs[queueIndex].videoId
+            queueSongs = orig
+            queueIndex = orig.firstIndex(where: { $0.videoId == currentVideoId }) ?? originalIndex
+        }
+        originalQueue = nil
+        isShuffleOn = false
+    }
+
+    func repeatCurrent() {
+        guard queueSongs.indices.contains(queueIndex) else { return }
+        isResolvingNext = true
+        let song = queueSongs[queueIndex]
+        Task {
+            do {
+                try await PlaybackManager.shared.resolveAndPlay(videoId: song.videoId)
+            } catch {
+                print("[NowPlaying] repeatCurrent failed: \(error)")
+                if self.videoId == song.videoId {
+                    isPlaying = false
+                }
+            }
+            isResolvingNext = false
+            isRepeatOn = false
+        }
     }
 
     func removeFromQueue(at indexSet: IndexSet) {
@@ -157,6 +213,10 @@ final class NowPlaying {
             return
         }
         currentTime = duration
+        if isRepeatOn {
+            repeatCurrent()
+            return
+        }
         if hasNext {
             playNext(automatic: true)
         } else {

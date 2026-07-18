@@ -10,7 +10,7 @@ import LNPopupUI
 
 struct MiniPlayerView: View {
     private let player = PlayerController.shared
-    private let np = NowPlaying.shared
+    @Bindable private var np = NowPlaying.shared
 
     @State private var editingProgress: Float = 0
     @State private var isEditingSlider = false
@@ -20,10 +20,6 @@ struct MiniPlayerView: View {
     @State private var showLyrics = false
     @State private var showQueue = false
     @State private var pendingRoute: DetailRoute?
-    @State private var isShuffleOn = false
-    @State private var isRepeatOn = false
-    @State private var isAutoplayOn = false
-
 
     private var upcomingSongs: [SongItem] {
         Array(np.queueSongs.suffix(from: np.queueIndex + 1))
@@ -61,10 +57,8 @@ struct MiniPlayerView: View {
                     LyricsView(
                         showLyrics: $showLyrics,
                         showQueue: $showQueue,
-                        isLiked: $isLiked,
-                        isShuffleOn: $isShuffleOn,
-                        isRepeatOn: $isRepeatOn,
-                        isAutoplayOn: $isAutoplayOn,
+                        isShuffleOn: $np.isShuffleOn,
+                        isRepeatOn: $np.isRepeatOn,
                         editingProgress: $editingProgress,
                         isEditingSlider: $isEditingSlider,
                         pendingRoute: $pendingRoute,
@@ -75,9 +69,8 @@ struct MiniPlayerView: View {
                         showLyrics: $showLyrics,
                         showQueue: $showQueue,
                         isLiked: $isLiked,
-                        isShuffleOn: $isShuffleOn,
-                        isRepeatOn: $isRepeatOn,
-                        isAutoplayOn: $isAutoplayOn,
+                        isShuffleOn: $np.isShuffleOn,
+                        isRepeatOn: $np.isRepeatOn,
                         editingProgress: $editingProgress,
                         isEditingSlider: $isEditingSlider,
                         pendingRoute: $pendingRoute,
@@ -114,6 +107,7 @@ struct MiniPlayerView: View {
                     SecondaryActionsRow(
                         showLyrics: $showLyrics,
                         showQueue: $showQueue,
+                        isRepeatOn: $np.isRepeatOn,
                         onRepeat: {}
                     )
 

@@ -95,8 +95,8 @@ struct PlaybackControlsRow: View {
 struct SecondaryActionsRow: View {
     @Binding var showLyrics: Bool
     @Binding var showQueue: Bool
+    @Binding var isRepeatOn: Bool
     let onRepeat: () -> Void
-    @State private var isRepeatActive = false
     @State private var lyricsState = LyricsState.shared
 
     var body: some View {
@@ -137,20 +137,18 @@ struct SecondaryActionsRow: View {
                         .background(showQueue ? Circle().fill(.white.opacity(0.15)) : Circle().fill(.clear))
                 }
                 
-                Button {
-                    isRepeatActive.toggle()
-                    onRepeat()
-                } label: {
-                    Image(systemName: isRepeatActive ? "repeat.1" : "repeat")
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(isRepeatActive ? .white : .white.opacity(0.7))
-                        .padding(4)
-                        .background(
-                            Circle()
-                                .fill(isRepeatActive ? .white.opacity(0.25) : .white.opacity(0.1))
-                        )
+                if !showQueue {
+                    Button {
+                        isRepeatOn.toggle()
+                        onRepeat()
+                    } label: {
+                        Image(systemName: isRepeatOn ? "repeat.1" : "repeat")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(isRepeatOn ? .white : .white.opacity(0.7))
+                            .padding(4)
+                    }
+                    .offset(x: 2, y: -2)
                 }
-                .offset(x: 2, y: -2)
             }
             .frame(maxWidth: .infinity)
         }

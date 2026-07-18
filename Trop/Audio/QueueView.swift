@@ -16,7 +16,6 @@ struct QueueView<ProgressSlider: View>: View {
     @Binding var isLiked: Bool
     @Binding var isShuffleOn: Bool
     @Binding var isRepeatOn: Bool
-    @Binding var isAutoplayOn: Bool
     @Binding var editingProgress: Float
     @Binding var isEditingSlider: Bool
     let pendingRoute: Binding<DetailRoute?>
@@ -48,10 +47,9 @@ struct QueueView<ProgressSlider: View>: View {
                             let absoluteIndex = np.queueIndex + 1 + offset
                             let song = upcomingSongs[offset]
 
-                            QueueSongRow(song: song)
-                                .onTapGesture {
-                                    playSong(at: absoluteIndex)
-                                }
+                            QueueSongRow(song: song, onPlay: {
+                                playSong(at: absoluteIndex)
+                            })
                                 .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                                     Button(role: .destructive) {
                                         withAnimation(.spring(response: 0.3)) {
@@ -88,6 +86,7 @@ struct QueueView<ProgressSlider: View>: View {
                 SecondaryActionsRow(
                     showLyrics: $showLyrics,
                     showQueue: $showQueue,
+                    isRepeatOn: $isRepeatOn,
                     onRepeat: {}
                 )
             }
@@ -187,17 +186,23 @@ struct QueueView<ProgressSlider: View>: View {
 
     private var playbackPillsRow: some View {
         HStack(spacing: 8) {
-            pillButton(isOn: $isShuffleOn, icon: "shuffle")
+            pillButton(isOn: $isShuffleOn, icon: "shuffle") {
+                if isShuffleOn {
+                    np.shuffleQueue()
+                } else {
+                    np.disableShuffle()
+                }
+            }
             pillButton(isOn: $isRepeatOn, icon: "repeat")
-            pillButton(isOn: $isAutoplayOn, icon: "infinity")
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 8)
     }
 
-    private func pillButton(isOn: Binding<Bool>, icon: String) -> some View {
+    private func pillButton(isOn: Binding<Bool>, icon: String, action: (() -> Void)? = nil) -> some View {
         Button {
             isOn.wrappedValue.toggle()
+            action?()
         } label: {
             Image(systemName: icon)
                 .font(.system(size: 13, weight: .semibold))
@@ -219,18 +224,6 @@ struct QueueView<ProgressSlider: View>: View {
                 .textCase(.uppercase)
 
             Spacer()
-
-            if np.queueSongs.count > 1 {
-                Button {
-                    let current = np.queueSongs[np.queueIndex]
-                    np.queueSongs = [current]
-                    np.queueIndex = 0
-                } label: {
-                    Text("Clear")
-                        .font(.subheadline)
-                        .foregroundStyle(.white.opacity(0.5))
-                }
-            }
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 8)
