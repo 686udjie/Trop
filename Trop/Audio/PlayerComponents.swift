@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import AVKit
 
 // MARK: - ProgressBar
 struct ProgressBar: View {
@@ -116,7 +117,7 @@ struct SecondaryActionsRow: View {
             .frame(maxWidth: .infinity)
             
             Button {
-                // airplay
+                // airplay, handled by overlay
             } label: {
                 Image(systemName: "airplayaudio")
                     .font(.title3)
@@ -124,6 +125,7 @@ struct SecondaryActionsRow: View {
                     .padding(10)
             }
             .frame(maxWidth: .infinity)
+            .overlay(AirPlayButton())
             
             // Queue + Repeat stacked like Apple Music
             ZStack(alignment: .topTrailing) {
@@ -154,4 +156,17 @@ struct SecondaryActionsRow: View {
         }
         .padding(.vertical, 16)
     }
+}
+
+// MARK: - AirPlayButton
+struct AirPlayButton: UIViewRepresentable {
+    func makeUIView(context: UIViewRepresentableContext<Self>) -> AVRoutePickerView {
+        let picker = AVRoutePickerView()
+        picker.tintColor = UIColor.clear
+        picker.activeTintColor = UIColor.clear
+        picker.prioritizesVideoDevices = false
+        return picker
+    }
+
+    func updateUIView(_ uiView: AVRoutePickerView, context: UIViewRepresentableContext<Self>) {}
 }
