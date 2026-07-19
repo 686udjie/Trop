@@ -31,7 +31,9 @@ enum StreamResolver {
     // - streamingDataPoToken: optional PoToken appended to stream URL (&pot=)
     static func resolve(videoId: String, client: YouTubeClient,
                         poToken: String? = nil,
-                        streamingDataPoToken: String? = nil) async throws -> PlaybackResult {
+                        streamingDataPoToken: String? = nil,
+                        preferredFormat: Format? = nil,
+                        forDownload: Bool = false) async throws -> PlaybackResult {
         print("[StreamResolver] Resolving videoId=\(videoId) client=\(client.clientName) v\(client.clientVersion)")
 
         // Fetch signature timestamp if the client requires it
@@ -73,8 +75,16 @@ enum StreamResolver {
         let adaptiveFormats = streamingData.adaptiveFormats ?? []
         print("[StreamResolver] Got \(adaptiveFormats.count) adaptive formats, expiresIn=\(streamingData.expiresInSeconds ?? "?")s")
 
-        // Select best audio format
-        guard let selectedFormat = FormatSelector.bestAudioFormat(from: adaptiveFormats) else {
+        // Select best audio format. For downloads, prefer an AAC/MP4 streams
+        let selectedFormat: Format
+        if let preferred = preferredFormat, adaptiveFormats.contains(where: { $0.itag == preferred.itag }) {
+            selectedFormat = preferred
+            print("[StreamResolver] Using preferred format itag=\(preferred.itag ?? 0)")
+        } else if forDownload, let downloadFormat = FormatSelector.bestDownloadFormat(from: adaptiveFormats) {
+            selectedFormat = downloadFormat
+        } else if let best = FormatSelector.bestAudioFormat(from: adaptiveFormats) {
+            selectedFormat = best
+        } else {
             throw StreamError.noSuitableFormat
         }
 

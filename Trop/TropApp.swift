@@ -12,6 +12,7 @@ import SwiftUI
 struct TropApp: App {
     init() {
         configureNuke()
+        ensureDirectories()
     }
 
     var body: some Scene {
@@ -29,5 +30,11 @@ struct TropApp: App {
         config.imageCache = ImageCache(costLimit: 100 * 1024 * 1024)
 
         ImagePipeline.shared = ImagePipeline(configuration: config)
+    }
+
+    private func ensureDirectories() {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        try? FileManager.default.createDirectory(at: docs.appendingPathComponent("Trop/Downloads"), withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(at: docs.appendingPathComponent("Trop/Player"), withIntermediateDirectories: true)
     }
 }

@@ -17,6 +17,12 @@ struct SongMenuView: View {
     var body: some View {
         Menu {
             Button {
+                Task { await DownloadManager.shared.download(song: songItem) }
+            } label: {
+                Label("Download", systemImage: "square.and.arrow.down")
+            }
+
+            Button {
                 UIPasteboard.general.string = webUrl
             } label: {
                 Label("Copy Link", systemImage: "link")

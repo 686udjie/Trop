@@ -149,4 +149,95 @@ enum DatabaseMigrations {
         }
         print("[DB] v4 migration complete")
     }
+
+    static let v5: (Database) throws -> Void = { db in
+        print("[DB] Running v5 migration")
+        if try db.tableExists("downloaded_track") == false {
+            try db.create(table: "downloaded_track") { t in
+                t.column("id", .text).primaryKey()
+                t.column("title", .text).notNull()
+                t.column("artist", .text).notNull()
+                t.column("duration", .integer).notNull()
+                t.column("thumbnail_url", .text)
+                t.column("local_path", .text).notNull()
+                t.column("downloaded_at", .text).notNull()
+            }
+        } else if try db.columns(in: "downloaded_track").contains(where: { $0.name == "artist" }) == false {
+            // Table existed from an earlier schema without the artist column.
+            try db.alter(table: "downloaded_track") { t in
+                t.add(column: "artist", .text).notNull().defaults(to: "")
+            }
+        }
+        print("[DB] v5 migration complete")
+    }
+
+    static let v6: (Database) throws -> Void = { db in
+        print("[DB] Running v6 migration")
+        // Earlier schemas may have created downloaded_track with fewer columns
+        // than DownloadedTrackEntity expects. Add any missing columns so inserts
+        // from the app succeed on existing databases.
+        if try db.tableExists("downloaded_track") {
+            let existing = try db.columns(in: "downloaded_track").map(\.name)
+            let required: [(name: String, type: Database.ColumnType, notNull: Bool)] = [
+                ("artist", .text, true),
+                ("thumbnail_url", .text, false),
+                ("local_path", .text, true),
+                ("downloaded_at", .text, true),
+                ("duration", .integer, true),
+                ("title", .text, true)
+            ]
+            for col in required where !existing.contains(col.name) {
+                try db.alter(table: "downloaded_track") { t in
+                    let added = t.add(column: col.name, col.type)
+                    if col.notNull {
+                        added.notNull().defaults(to: col.name == "downloaded_at" ? "" : "")
+                    }
+                }
+            }
+        }
+        print("[DB] v6 migration complete")
+    }
+
+    static let v7: (Database) throws -> Void = { db in
+        print("[DB] Running v7 migration")
+        // The existing downloaded_track table may have been created by an older
+        // schema (e.g. with a file_size column) that doesn't match
+        // DownloadedTrackEntity. Rebuild it to exactly match the entity,
+        // preserving any rows we can carry over by id.
+        if try db.tableExists("downloaded_track") {
+            try db.create(table: "downloaded_track_new") { t in
+                t.column("id", .text).primaryKey()
+                t.column("title", .text).notNull()
+                t.column("artist", .text).notNull()
+                t.column("duration", .integer).notNull()
+                t.column("thumbnail_url", .text)
+                t.column("local_path", .text).notNull()
+                t.column("downloaded_at", .text).notNull()
+            }
+            // Carry over rows that have the columns we need (id + local_path).
+            if try db.columns(in: "downloaded_track").contains(where: { $0.name == "local_path" }) {
+                // Use a real ISO8601 timestamp for any row missing downloaded_at,
+                // so GRDB can decode it back into a Date on fetch.
+                let fallbackDate = ISO8601DateFormatter().string(from: Date())
+                try db.execute(
+                    sql: """
+                        INSERT INTO downloaded_track_new (id, title, artist, duration, thumbnail_url, local_path, downloaded_at)
+                        SELECT id,
+                               COALESCE(title, ''),
+                               COALESCE(artist, ''),
+                               COALESCE(duration, 0),
+                               thumbnail_url,
+                               local_path,
+                               COALESCE(NULLIF(downloaded_at, ''), ?)
+                        FROM downloaded_track
+                        WHERE local_path IS NOT NULL
+                    """,
+                    arguments: [fallbackDate]
+                )
+            }
+            try db.drop(table: "downloaded_track")
+            try db.rename(table: "downloaded_track_new", to: "downloaded_track")
+        }
+        print("[DB] v7 migration complete")
+    }
 }

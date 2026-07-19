@@ -19,6 +19,33 @@ actor PlaybackManager {
     /// Resolve a video and start playback. Returns the result used, or throws.
     @discardableResult
     func resolveAndPlay(videoId: String) async throws -> PlaybackResult {
+        if let localPath = await DownloadManager.shared.localURL(for: videoId) {
+            print("[PlaybackManager] Playing local file: \(localPath.path)")
+            let song = NowPlaying.shared.queueSongs.first { $0.videoId == videoId }
+            let artists = song?.artists ?? []
+            await PlayerController.shared.play(
+                url: localPath.absoluteString,
+                title: song?.title,
+                artist: song?.artists.map(\.name).joined(separator: ", "),
+                videoId: videoId,
+                duration: song.map { TimeInterval($0.duration) },
+                artists: artists
+            )
+            return PlaybackResult(
+                streamUrl: localPath.absoluteString,
+                itag: 0,
+                mimeType: "audio/mp4",
+                bitrate: 0,
+                audioQuality: "local",
+                videoId: videoId,
+                title: song?.title,
+                author: song?.artists.map(\.name).joined(separator: ", "),
+                duration: song?.duration,
+                expiresInSeconds: Int.max,
+                clientName: "local"
+            )
+        }
+
         if let existing = inflightResolutions[videoId] {
             print("[PlaybackManager] In-flight resolution found for videoId=\(videoId), awaiting...")
             return try await existing.value
@@ -130,7 +157,7 @@ actor PlaybackManager {
     }
 
     /// Resolve a video without playing. Useful for previews / testing.
-    func resolve(videoId: String) async throws -> PlaybackResult {
+    func resolve(videoId: String, preferredFormat: Format? = nil, forDownload: Bool = false) async throws -> PlaybackResult {
         if let existing = inflightResolutions[videoId] {
             print("[PlaybackManager] In-flight resolution found for videoId=\(videoId)")
             return try await existing.value
@@ -160,7 +187,9 @@ actor PlaybackManager {
                     videoId: videoId,
                     client: fb.client,
                     poToken: playerPoToken,
-                    streamingDataPoToken: streamPoToken
+                    streamingDataPoToken: streamPoToken,
+                    preferredFormat: preferredFormat,
+                    forDownload: forDownload
                 )
 
                 if fb.skipValidation {

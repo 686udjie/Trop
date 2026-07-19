@@ -49,6 +49,41 @@ enum FormatSelector {
         return selected
     }
 
+    // Picks the optimal audio format for downloads
+    static func bestDownloadFormat(from formats: [Format]) -> Format? {
+        guard !formats.isEmpty else {
+            print("[FormatSelector] No formats to select from (download)")
+            return nil
+        }
+
+        let audioFormats = formats.filter { $0.isAudioOnly }
+        guard !audioFormats.isEmpty else {
+            print("[FormatSelector] No audio-only formats found (download)")
+            return nil
+        }
+
+        let aacFormats = audioFormats.filter { format in
+            let c = format.codec.lowercased()
+            return c.contains("mp4a") || c.contains("aac")
+        }
+
+        let pool = aacFormats.isEmpty ? audioFormats : aacFormats
+        print("[FormatSelector] Download pool: \(pool.count) format(s)"
+            + (aacFormats.isEmpty ? " (no AAC, falling back to Opus)" : " (AAC preferred)"))
+
+        let selected = pool.max { a, b in
+            formatScore(a) < formatScore(b)
+        }
+
+        if let selected {
+            print("[FormatSelector] Download selected: itag=\(selected.itag ?? 0)"
+                + " codec=\(selected.codec)"
+                + " bitrate=\(selected.bitrate ?? 0)")
+        }
+
+        return selected
+    }
+
     // Computes a sortable score for a format based on quality, channels, codec, bitrate
     private static func formatScore(_ format: Format) -> Int {
         let qualityScore: Int = {
