@@ -20,6 +20,11 @@ struct PlaybackResult {
     let duration: Int?
     let expiresInSeconds: Int
     let clientName: String
+    let musicVideoType: String?
+    /// True if video dimensions exist, serving as a reliable signal for clients omitting musicVideoType
+    let hasVideoContent: Bool
+    /// Provides a combined audio-video stream URL to enable instant toggling by swapping the `vid` track, avoiding reloads and network fetches
+    let muxedStreamUrl: String?
 }
 
 // Resolves an audio stream URL for a given client.
@@ -75,6 +80,11 @@ enum StreamResolver {
         let adaptiveFormats = streamingData.adaptiveFormats ?? []
         print("[StreamResolver] Got \(adaptiveFormats.count) adaptive formats, expiresIn=\(streamingData.expiresInSeconds ?? "?")s")
 
+        let allFormats = (streamingData.formats ?? []) + adaptiveFormats
+        let maxVideoHeight = allFormats.compactMap { $0.height }.max() ?? 0
+        let hasVideoContent = maxVideoHeight >= 480
+        print("[StreamResolver] hasVideoContent=\(hasVideoContent) (maxVideoHeight=\(maxVideoHeight), video formats: \(allFormats.filter { $0.width != nil }.count))")
+
         // Select best audio format. For downloads, prefer an AAC/MP4 streams
         let selectedFormat: Format
         if let preferred = preferredFormat, adaptiveFormats.contains(where: { $0.itag == preferred.itag }) {
@@ -116,6 +126,20 @@ enum StreamResolver {
         // Build result metadata
         let videoDetails = response.videoDetails
         let duration = videoDetails?.lengthSeconds.flatMap(Int.init)
+        let musicVideoType = videoDetails?.musicVideoType
+
+        let muxedStreamUrl: String? = {
+            guard let videoFormat = FormatSelector.bestVideoFormat(from: allFormats),
+                  let url = videoFormat.url, !url.isEmpty else {
+                return nil
+            }
+            var muxed = url
+            if let pot = streamingDataPoToken, client.useWebPoTokens {
+                muxed += "&pot=" + pot.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)!
+            }
+            return muxed
+        }()
+
         let result = PlaybackResult(
             streamUrl: finalStreamUrl,
             itag: selectedFormat.itag ?? 0,
@@ -127,8 +151,12 @@ enum StreamResolver {
             author: videoDetails?.author,
             duration: duration,
             expiresInSeconds: streamingData.expiresInSeconds.flatMap(Int.init) ?? 0,
-            clientName: client.clientName
+            clientName: client.clientName,
+            musicVideoType: musicVideoType,
+            hasVideoContent: hasVideoContent,
+            muxedStreamUrl: muxedStreamUrl
         )
+        print("[StreamResolver] musicVideoType=\(musicVideoType ?? "nil")")
 
         if let duration, let vid = videoDetails?.videoId {
             DurationCache.set(vid, duration)

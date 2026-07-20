@@ -10,6 +10,7 @@ import Libmpv
 import MediaPlayer
 import Combine
 import AVFoundation
+import UIKit
 
 final class PlayerController {
     static let shared = PlayerController()
@@ -20,7 +21,21 @@ final class PlayerController {
     private var currentVideoId: String?
     private var pendingVideoId: String?
 
+    /// Metal layer mpv renders into; created up-front so `wid` is valid at init.
+    /// `contentsScale` is set from the window's screen when hosted (MpvVideoUIView).
+    var videoLayer: CAMetalLayer = {
+        let layer = CAMetalLayer()
+        layer.framebufferOnly = true
+        layer.isOpaque = false
+        layer.contentsScale = 1.0
+        layer.backgroundColor = UIColor.clear.cgColor
+        return layer
+    }()
+
     let playState = CurrentValueSubject<State, Never>(.stopped)
+
+    /// Resume position (seconds) applied via `seek` after the next file loads.
+    private var pendingResumeAt: TimeInterval = 0
 
     var currentTime: TimeInterval {
         guard let mpv else { return 0 }
@@ -70,9 +85,14 @@ final class PlayerController {
         }
 
         let prevVideoId = currentVideoId
+        let isNewSong = prevVideoId != nil && videoId != prevVideoId
         currentVideoId = videoId
-        if prevVideoId != nil, videoId != prevVideoId {
+        if isNewSong {
             await PlaybackStateService.shared.stopTracking()
+            loadedMuxedURL = nil
+            muxedActive = false
+            pendingResumeAt = 0
+            videoModeSwitchInFlight = false
         }
         if let videoId {
             await PlaybackStateService.shared.startTracking(videoId: videoId)
@@ -81,6 +101,13 @@ final class PlayerController {
         guard let mpv = self.mpv else {
             print("[Player] mpv not ready")
             return
+        }
+
+        // Never set `vid=no` here — it tears down gpu-next's device mid-flight
+        // and crashes MoltenVK. The audio-only stream has no video track, so
+        // just clear any stale crop from the previous song.
+        if isNewSong {
+            setVideoCrop(.none)
         }
 
         pendingVideoId = videoId
@@ -116,11 +143,27 @@ final class PlayerController {
             }
             self.mpv = mpv
 
-            mpv_set_option_string(mpv, "vo", "null")
+            // gpu-next + MoltenVK (Vulkan-on-Metal), rendering into our CAMetalLayer.
+            mpv_set_option_string(mpv, "vo", "gpu-next")
+            mpv_set_option_string(mpv, "gpu-api", "vulkan")
+            mpv_set_option_string(mpv, "gpu-context", "moltenvk")
+            var wid = unsafeBitCast(self.videoLayer, to: Int64.self)
+            mpv_set_option(mpv, "wid", MPV_FORMAT_INT64, &wid)
+            // Start with video track disabled; enabled when entering video mode.
+            mpv_set_option_string(mpv, "vid", "no")
+            // Simulator can't use VideoToolbox hwdec; real devices can.
+            #if targetEnvironment(simulator)
+            mpv_set_option_string(mpv, "hwdec", "no")
+            #else
+            mpv_set_option_string(mpv, "hwdec", "videotoolbox")
+            #endif
             mpv_set_option_string(mpv, "keep-open", "no")
             mpv_set_option_string(mpv, "cache", "yes")
+            mpv_set_option_string(mpv, "cache-secs", "120")
             mpv_set_option_string(mpv, "demuxer-max-bytes", "200M")
             mpv_set_option_string(mpv, "gapless-audio", "yes")
+            // Transparent letterbox/pillarbox bars.
+            mpv_set_option_string(mpv, "background", "0x00000000")
             mpv_request_log_messages(mpv, "info")
 
             if mpv_initialize(mpv) < 0 {
@@ -160,6 +203,7 @@ final class PlayerController {
                     self.currentVideoId = self.pendingVideoId
                     self.assertAudioSession()
                     self.setNowPlayingMetadata()
+                    self.applyPendingResumeIfNeeded()
                 }
             case MPV_EVENT_PROPERTY_CHANGE:
                 if let prop = event.pointee.data?.load(as: mpv_event_property.self),
@@ -390,6 +434,116 @@ final class PlayerController {
         playState.send(willBePlaying ? .playing : .paused)
         NowPlaying.shared.isPlaying = willBePlaying
         updateNowPlayingProgress()
+    }
+
+    /// Video mode loads the muxed stream once and keeps it resident; later
+    /// toggles are pure SwiftUI opacity (no `loadfile`/`vid` switch/device
+    /// teardown). `vid=auto` stays selected so re-enabling is instant.
+    private var videoModeSwitchInFlight = false
+    private var loadedMuxedURL: String?
+    private var muxedActive = false
+
+    func setVideoMode(_ enabled: Bool) {
+        guard let videoId = NowPlaying.shared.videoId else { return }
+        // Disabling only hides the layer; the stream stays resident.
+        if !enabled { return }
+        if muxedActive { return }
+        guard !videoModeSwitchInFlight else { return }
+        videoModeSwitchInFlight = true
+        Task {
+            defer { videoModeSwitchInFlight = false }
+            do {
+                let resumeAt = self.currentTime
+                let url: String
+                if let muxed = self.loadedMuxedURL {
+                    url = muxed
+                } else {
+                    url = try await PlaybackManager.shared.resolveMuxedURL(videoId: videoId)
+                    guard NowPlaying.shared.videoId == videoId else { return }
+                    self.loadedMuxedURL = url
+                }
+                guard NowPlaying.shared.videoId == videoId else { return }
+                self.setVideoTrack(enabled: true)
+                self.loadFileReplacing(url, startAt: resumeAt)
+                self.muxedActive = true
+            } catch {
+                print("[Player] setVideoMode failed: \(error)")
+                if enabled {
+                    DispatchQueue.main.async {
+                        NowPlaying.shared.isVideoMode = false
+                    }
+                }
+            }
+        }
+    }
+
+    /// Resolves and caches the muxed URL in the background so toggling video
+    /// mode is instant. Discarded if the song changes before it finishes.
+    func preloadVideoURL() {
+        guard loadedMuxedURL == nil else { return }
+        guard let videoId = NowPlaying.shared.videoId else { return }
+        Task {
+            do {
+                let url = try await PlaybackManager.shared.resolveMuxedURL(videoId: videoId)
+                guard NowPlaying.shared.videoId == videoId, self.loadedMuxedURL == nil else { return }
+                self.loadedMuxedURL = url
+            } catch {
+                print("[Player] Video preload failed: \(error)")
+            }
+        }
+    }
+
+    /// Selects the video track (`vid=auto` always) and applies the square crop.
+    private func setVideoTrack(enabled: Bool) {
+        guard let mpv else { return }
+        mpv_set_property_string(mpv, "vid", "auto")
+        setVideoCrop(enabled ? .square : .none)
+    }
+
+    /// Center-crops the video to a square to match the artwork presentation.
+    private enum VideoCropMode { case none, square }
+
+    private func setVideoCrop(_ mode: VideoCropMode) {
+        guard let mpv else { return }
+        switch mode {
+        case .none:
+            mpv_set_property_string(mpv, "video-crop", "")
+        case .square:
+            var w = Int64(0), h = Int64(0)
+            mpv_get_property(mpv, "video-params/w", MPV_FORMAT_INT64, &w)
+            mpv_get_property(mpv, "video-params/h", MPV_FORMAT_INT64, &h)
+            if w > 0, h > 0 {
+                let side = min(w, h)
+                mpv_set_property_string(mpv, "video-crop", "\(side)x\(side)")
+            } else {
+                // Frame size not known yet; retry once decoded.
+                var vid: UnsafeMutablePointer<CChar>?
+                defer { if let vid { mpv_free(vid) } }
+                if mpv_get_property(mpv, "vid", MPV_FORMAT_STRING, &vid) == 0,
+                   let vid, String(cString: vid) != "no" {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                        self?.setVideoCrop(.square)
+                    }
+                }
+            }
+        }
+    }
+
+    /// Loads a new URL into mpv, replacing the current file. `startAt` (seconds)
+    /// resumes via `seek` after the file loads (mpv's `start=` option is
+    /// unreliable in this build).
+    private func loadFileReplacing(_ url: String, startAt: TimeInterval = 0) {
+        guard let mpv else { return }
+        pendingResumeAt = startAt
+        let args = ["loadfile", url, "replace"]
+        _ = args.withUnsafeCArg { mpv_command(mpv, $0) }
+    }
+
+    private func applyPendingResumeIfNeeded() {
+        guard pendingResumeAt > 0 else { return }
+        let target = pendingResumeAt
+        pendingResumeAt = 0
+        seek(to: target)
     }
 }
 

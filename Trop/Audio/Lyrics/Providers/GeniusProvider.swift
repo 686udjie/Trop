@@ -33,7 +33,6 @@ struct GeniusProvider: LyricsProvider {
 
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            print("[Lyrics][Genius] search unexpected status \(String(describing: (response as? HTTPURLResponse)?.statusCode))")
             throw LyricsError.notFound
         }
 
@@ -42,10 +41,8 @@ struct GeniusProvider: LyricsProvider {
             .compactMap { $0.hits }
             .flatMap { $0 }
         guard let first = hits.first else {
-            print("[Lyrics][Genius] no search hits for \"\(title)\" — \(artist)")
             throw LyricsError.notFound
         }
-        print("[Lyrics][Genius] matched \"\(first.result.fullTitle)\"")
 
         return try await fetchLyricsPage(urlString: first.result.url)
     }
@@ -57,7 +54,6 @@ struct GeniusProvider: LyricsProvider {
 
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            print("[Lyrics][Genius] page unexpected status \(String(describing: (response as? HTTPURLResponse)?.statusCode))")
             throw LyricsError.notFound
         }
         guard let html = String(data: data, encoding: .utf8) else {
@@ -66,7 +62,6 @@ struct GeniusProvider: LyricsProvider {
 
         let containers = extractLyricsContainers(html)
         guard !containers.isEmpty else {
-            print("[Lyrics][Genius] no lyrics containers found")
             throw LyricsError.notFound
         }
 
@@ -92,7 +87,6 @@ struct GeniusProvider: LyricsProvider {
             URLQueryItem(name: "q", value: "\(artist) \(title)")
         ]
         guard let url = components.url else { throw LyricsError.invalidURL }
-        print("[Lyrics][Genius] search GET \(url)")
         return url
     }
 

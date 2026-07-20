@@ -142,6 +142,25 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		14B5763D2FF190F0006B3990 /* SwiftLint */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = SwiftLint;
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "if [ \"${SKIP_SWIFTLINT}\" != \"YES\" ] && which swiftlint > /dev/null; then swiftlint; fi\n";
+		};
 		250D2C10929042AA8A8BE59906F78CD5 /* InjectUIFileSharingEnabled */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
@@ -161,25 +180,6 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "/usr/libexec/PlistBuddy -c \"Add UIFileSharingEnabled bool true\" \"${BUILT_PRODUCTS_DIR}/${INFOPLIST_PATH}\" 2>/dev/null || /usr/libexec/PlistBuddy -c \"Set UIFileSharingEnabled bool true\" \"${BUILT_PRODUCTS_DIR}/${INFOPLIST_PATH}\"\n";
-		};
-		14B5763D2FF190F0006B3990 /* SwiftLint */ = {
-			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-			);
-			name = SwiftLint;
-			outputFileListPaths = (
-			);
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "if [ \"${SKIP_SWIFTLINT}\" != \"YES\" ] && which swiftlint > /dev/null; then swiftlint; fi\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 

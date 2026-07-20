@@ -70,17 +70,13 @@ actor LyricsManager {
 
         for id in order {
             guard let provider = LyricsProviderRegistry.provider(for: id) else { continue }
-            print("[Lyrics] trying provider \(id)")
             do {
                 let lines = try await provider.fetch(query: query)
                 if !lines.isEmpty {
-                    print("[Lyrics] provider \(id) returned \(lines.count) lines")
                     return lines
                 }
-                print("[Lyrics] provider \(id) returned no lines")
             } catch {
                 lastError = error
-                print("[Lyrics] provider \(id) failed: \(error.localizedDescription)")
                 continue
             }
         }

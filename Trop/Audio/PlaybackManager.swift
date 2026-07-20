@@ -7,8 +7,7 @@
 
 import Foundation
 
-/// Orchestrates stream resolution → playback.
-/// Tries the fallback client chain, caches results, and hands off to PlayerController.
+/// Resolves streams and hands off to PlayerController, trying the client fallback chain.
 actor PlaybackManager {
     static let shared = PlaybackManager()
 
@@ -20,7 +19,6 @@ actor PlaybackManager {
     @discardableResult
     func resolveAndPlay(videoId: String) async throws -> PlaybackResult {
         if let localPath = await DownloadManager.shared.localURL(for: videoId) {
-            print("[PlaybackManager] Playing local file: \(localPath.path)")
             let song = NowPlaying.shared.queueSongs.first { $0.videoId == videoId }
             let artists = song?.artists ?? []
             await PlayerController.shared.play(
@@ -42,17 +40,18 @@ actor PlaybackManager {
                 author: song?.artists.map(\.name).joined(separator: ", "),
                 duration: song?.duration,
                 expiresInSeconds: Int.max,
-                clientName: "local"
+                clientName: "local",
+                musicVideoType: nil,
+                hasVideoContent: false,
+                muxedStreamUrl: nil
             )
         }
 
         if let existing = inflightResolutions[videoId] {
-            print("[PlaybackManager] In-flight resolution found for videoId=\(videoId), awaiting...")
             return try await existing.value
         }
 
         if let cached = await StreamCache.shared.get(videoId: videoId) {
-            print("[PlaybackManager] Cache hit for videoId=\(videoId)")
             await PlayerController.shared.play(
                 url: cached.streamUrl,
                 title: cached.title,
@@ -78,9 +77,6 @@ actor PlaybackManager {
                 if let tokens = await poTokenTask.value {
                     playerPoToken = tokens.playerRequestPoToken
                     streamPoToken = tokens.streamingDataPoToken
-                    print("[PlaybackManager] Got PoToken for \(fb.client.clientName)")
-                } else {
-                    print("[PlaybackManager] PoToken unavailable for \(fb.client.clientName)")
                 }
             }
 
@@ -93,7 +89,6 @@ actor PlaybackManager {
                 )
 
                 if fb.skipValidation {
-                    print("[PlaybackManager] Using \(result.clientName) (skipped HEAD)")
                     await StreamCache.shared.set(videoId: videoId, result: result)
                     await PlayerController.shared.play(
                         url: result.streamUrl,
@@ -103,6 +98,18 @@ actor PlaybackManager {
                         duration: result.duration.flatMap { $0 > 0 ? TimeInterval($0) : nil },
                         artists: queueArtists(for: videoId)
                     )
+                    if let musicVideoType = result.musicVideoType {
+                        await MainActor.run {
+                            NowPlaying.shared.updateVideoAvailability(
+                                musicVideoType: musicVideoType,
+                                hasVideoContent: result.hasVideoContent
+                            )
+                        }
+                    } else {
+                        await MainActor.run {
+                            NowPlaying.shared.updateVideoAvailability(hasVideoContent: result.hasVideoContent)
+                        }
+                    }
                     return result
                 }
 
@@ -112,8 +119,6 @@ actor PlaybackManager {
                     continue
                 }
 
-                print("[PlaybackManager] Using \(result.clientName) (HEAD validated)")
-                await StreamCache.shared.set(videoId: videoId, result: result)
                 await PlayerController.shared.play(
                     url: result.streamUrl,
                     title: result.title,
@@ -122,6 +127,18 @@ actor PlaybackManager {
                     duration: result.duration.flatMap { $0 > 0 ? TimeInterval($0) : nil },
                     artists: queueArtists(for: videoId)
                 )
+                if let musicVideoType = result.musicVideoType {
+                    await MainActor.run {
+                        NowPlaying.shared.updateVideoAvailability(
+                            musicVideoType: musicVideoType,
+                            hasVideoContent: result.hasVideoContent
+                        )
+                    }
+                } else {
+                    await MainActor.run {
+                        NowPlaying.shared.updateVideoAvailability(hasVideoContent: result.hasVideoContent)
+                    }
+                }
                 return result
 
             } catch {
@@ -142,6 +159,60 @@ actor PlaybackManager {
         NowPlaying.shared.queueSongs.first { $0.videoId == videoId }?.artists ?? []
     }
 
+    /// Resolves the muxed (audio+video) stream URL for video mode.
+    func resolveVideoStream(videoId: String) async throws -> String {
+        for fb in ClientFallbackChain.preferred {
+            do {
+                let signatureTimestamp: Int?
+                if fb.client.useSignatureTimestamp {
+                    signatureTimestamp = try? await PlayerJsFetcher.shared.getSignatureTimestamp()
+                } else {
+                    signatureTimestamp = nil
+                }
+
+                let response = try await InnerTube.shared.playerResponse(
+                    videoId: videoId,
+                    client: fb.client,
+                    signatureTimestamp: signatureTimestamp,
+                    poToken: nil
+                )
+
+                guard let streamingData = response.streamingData else {
+                    continue
+                }
+
+                let allFormats = (streamingData.formats ?? []) + (streamingData.adaptiveFormats ?? [])
+
+                if let videoFormat = FormatSelector.bestVideoFormat(from: allFormats),
+                   let url = videoFormat.url {
+                    return url
+                }
+            } catch {
+                print("[PlaybackManager] Video resolution failed for \(fb.client.clientName): \(error)")
+            }
+        }
+
+        throw StreamError.noSuitableFormat
+    }
+
+    /// Returns the cached audio-only stream URL, re-resolving if not cached.
+    func resolveAndPlayAudioURL(videoId: String) async throws -> String {
+        if let cached = await StreamCache.shared.get(videoId: videoId) {
+            return cached.streamUrl
+        }
+        let result = try await resolve(videoId: videoId)
+        return result.streamUrl
+    }
+
+    /// Returns the muxed stream URL for video mode, preferring the cached one.
+    func resolveMuxedURL(videoId: String) async throws -> String {
+        if let cached = await StreamCache.shared.get(videoId: videoId),
+           let muxed = cached.muxedStreamUrl {
+            return muxed
+        }
+        return try await resolveVideoStream(videoId: videoId)
+    }
+
     /// Generate PoToken for the given video. Returns playerRequestPoToken and streamingDataPoToken.
     private func generatePoToken(videoId: String) async throws -> PoTokenResult {
         let sessionId = await getSessionId()
@@ -155,16 +226,13 @@ actor PlaybackManager {
         // Use visitorData from InnerTube as session identifier
         "SESSION"
     }
-
     /// Resolve a video without playing. Useful for previews / testing.
     func resolve(videoId: String, preferredFormat: Format? = nil, forDownload: Bool = false) async throws -> PlaybackResult {
         if let existing = inflightResolutions[videoId] {
-            print("[PlaybackManager] In-flight resolution found for videoId=\(videoId)")
             return try await existing.value
         }
 
         if let cached = await StreamCache.shared.get(videoId: videoId) {
-            print("[PlaybackManager] Cache hit for videoId=\(videoId)")
             return cached
         }
 
@@ -193,18 +261,15 @@ actor PlaybackManager {
                 )
 
                 if fb.skipValidation {
-                    print("[PlaybackManager] Resolved with \(result.clientName) (no HEAD)")
                     await StreamCache.shared.set(videoId: videoId, result: result)
                     return result
                 }
 
                 guard await StreamResolver.validateStream(url: result.streamUrl) else {
-                    print("[PlaybackManager] \(result.clientName) HEAD failed, trying next")
                     lastError = StreamError.validationFailed(result.clientName)
                     continue
                 }
 
-                print("[PlaybackManager] Resolved with \(result.clientName) (HEAD valid)")
                 await StreamCache.shared.set(videoId: videoId, result: result)
                 return result
 

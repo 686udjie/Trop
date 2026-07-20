@@ -34,25 +34,20 @@ actor LyricsService {
 
     func fetchLyrics(videoId: String) async throws -> [LyricLine] {
         if let cached = cache[videoId] {
-            print("[Lyrics] cache hit for \(videoId) (\(cached.count) lines)")
             await updateAvailability(videoId: videoId, available: !cached.isEmpty)
             return cached
         }
         guard let query = resolveQuery(videoId: videoId) else {
-            print("[Lyrics] no query metadata for \(videoId), skipping")
             await updateAvailability(videoId: videoId, available: false)
             throw LyricsError.notFound
         }
-        print("[Lyrics] fetching for \"\(query.title)\" — \(query.artist) (\(query.durationSeconds)s)")
         let lines = try await LyricsManager.shared.fetchLyrics(query: query)
         cache[videoId] = lines
-        print("[Lyrics] got \(lines.count) lines for \(videoId)")
         await updateAvailability(videoId: videoId, available: !lines.isEmpty)
         return lines
     }
 
     func preload(videoId: String, upcoming: [String] = []) async {
-        print("[Lyrics] preload \(videoId) + upcoming \(upcoming)")
         _ = try? await fetchLyrics(videoId: videoId)
         for id in upcoming where cache[id] == nil {
             _ = try? await fetchLyrics(videoId: id)

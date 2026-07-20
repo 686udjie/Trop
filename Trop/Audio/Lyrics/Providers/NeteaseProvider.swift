@@ -26,7 +26,6 @@ struct NeteaseProvider: LyricsProvider {
             URLQueryItem(name: "keywords", value: keyword)
         ]
         guard let url = components.url else { throw LyricsError.invalidURL }
-        print("[Lyrics][Netease] search GET \(url)")
 
         let (data, response) = try await URLSession.shared.data(for: URLRequest(url: url))
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
@@ -83,14 +82,8 @@ struct NeteaseProvider: LyricsProvider {
 
         // Reject weak matches
         guard bestScore > 0, let songId = songs[bestIndex]["id"] else {
-            print("[Lyrics][Netease] no confident match for \"\(cleanTitle)\" — \(songs.count) candidates, best score \(String(format: "%.0f", bestScore))")
             throw LyricsError.notFound
         }
-        let chosen = songs[bestIndex]
-        let chosenArtists = (chosen["artists"] as? [[String: Any]] ?? [])
-            .compactMap { $0["name"] as? String }
-            .joined(separator: ", ")
-        print("[Lyrics][Netease] matched \"\(songName(chosen))\" — \(chosenArtists) (score \(String(format: "%.0f", bestScore)))")
         return try await fetchLyrics(songId: "\(songId)")
     }
 
@@ -98,7 +91,6 @@ struct NeteaseProvider: LyricsProvider {
         guard var components = URLComponents(string: lyricURL) else { throw LyricsError.invalidURL }
         components.queryItems = [URLQueryItem(name: "id", value: songId)]
         guard let url = components.url else { throw LyricsError.invalidURL }
-        print("[Lyrics][Netease] lyric GET \(url)")
 
         let (data, response) = try await URLSession.shared.data(for: URLRequest(url: url))
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {

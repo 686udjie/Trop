@@ -116,4 +116,70 @@ enum FormatSelector {
         if lowercased.contains("mp4a") || lowercased.contains("aac") { return 1 }
         return 0
     }
+
+    // MARK: - Video Format Selection
+
+    /// Picks the best muxed video format (audio+video combined) for video playback.
+    /// Prefers H.264 (avc/mp4) because the iOS Simulator cannot decode VP9/webm
+    /// (VideoToolbox fails with err=-12847 and produces no frames). Real devices
+    /// can decode VP9, but H.264 is the safe, universally-playable choice.
+    ///
+    /// A format only qualifies if it carries BOTH video dimensions AND an audio
+    /// track (`audioChannels != nil`). DASH adaptive video entries (e.g. itag=137)
+    /// have width/height but no audio, so playing one would yield "No video or
+    /// audio streams selected" — they must be excluded.
+    static func bestVideoFormat(from formats: [Format]) -> Format? {
+        guard !formats.isEmpty else {
+            print("[FormatSelector] No formats to select from (video)")
+            return nil
+        }
+
+        // Require a genuinely combined stream: video dimensions AND audio.
+        // (Static-image "videos" are video-only with no audio track, so they're
+        // excluded here by `audioChannels != nil`. The 480p floor used for
+        // *toggle visibility* in StreamResolver does not apply here — the only
+        // universally-playable muxed stream on the simulator is 360p itag=18.)
+        let muxedFormats = formats.filter {
+            !$0.isAudioOnly
+            && $0.width != nil && $0.height != nil
+            && $0.audioChannels != nil
+            && $0.url != nil
+        }
+
+        guard !muxedFormats.isEmpty else {
+            print("[FormatSelector] No muxed (audio+video) formats found in \(formats.count) total formats")
+            return nil
+        }
+
+        print("[FormatSelector] Selecting from \(muxedFormats.count) muxed video formats")
+
+        // Split into H.264 (avc) and everything else
+        let h264 = muxedFormats.filter { $0.codec.lowercased().contains("avc") || $0.mimeType?.lowercased().contains("mp4") == true }
+        let pool = h264.isEmpty ? muxedFormats : h264
+        if h264.isEmpty {
+            print("[FormatSelector] No H.264 muxed format; falling back to any muxed format")
+        } else {
+            print("[FormatSelector] Using \(h264.count) H.264 muxed format(s)")
+        }
+
+        let selected = pool.max { a, b in
+            videoFormatScore(a) < videoFormatScore(b)
+        }
+
+        if let selected {
+            print("[FormatSelector] Selected video: itag=\(selected.itag ?? 0)"
+                + " resolution=\(selected.width ?? 0)x\(selected.height ?? 0)"
+                + " codec=\(selected.codec)"
+                + " bitrate=\(selected.bitrate ?? 0)")
+        }
+
+        return selected
+    }
+
+    private static func videoFormatScore(_ format: Format) -> Int {
+        let widthScore = (format.width ?? 0) * 10
+        let heightScore = (format.height ?? 0) * 10
+        let bitrateScore = (format.bitrate ?? 0) / 1000
+        return widthScore + heightScore + bitrateScore
+    }
 }

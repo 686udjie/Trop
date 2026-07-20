@@ -44,6 +44,10 @@ final class NowPlaying {
     var isShuffleOn = false
     var isRepeatOn = false
 
+    var hasVideo: Bool = false
+    var isVideoMode: Bool = false
+    var musicVideoType: String?
+
     private var originalQueue: [SongItem]?
     private var originalIndex: Int = 0
 
@@ -72,8 +76,7 @@ final class NowPlaying {
         isShuffleOn = false
     }
 
-    /// Shuffle the upcoming songs while keeping the current song playing.
-    /// Tapping again re-shuffles into a new order.
+    /// Shuffles upcoming songs, keeping the current one; tapping again re-shuffles.
     func shuffleQueue() {
         guard queueSongs.count > 1 else {
             isShuffleOn = true
@@ -193,7 +196,22 @@ final class NowPlaying {
         preloadNextTrack()
     }
 
-    /// Cleaned artist string; prioritizes the structured `artists` array or falls back to `artist`.
+    /// Updates video availability from `musicVideoType` and/or `hasVideoContent`.
+    func updateVideoAvailability(musicVideoType: String? = nil, hasVideoContent: Bool = false) {
+        if let musicVideoType {
+            self.musicVideoType = musicVideoType
+        }
+        let typeHasVideo = musicVideoType != nil &&
+            musicVideoType != "MUSIC_VIDEO_TYPE_ATV" &&
+            musicVideoType != "MUSIC_VIDEO_TYPE_PODCAST_EPISODE"
+        let hasVideo = typeHasVideo || hasVideoContent
+        self.hasVideo = hasVideo
+        if hasVideo {
+            PlayerController.shared.preloadVideoURL()
+        }
+    }
+
+    /// Artist string from `artists`, falling back to `artist`.
     var displayArtist: String {
         let fromArray = artists
             .map { cleanArtistDisplay($0.name) }

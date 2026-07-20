@@ -23,10 +23,8 @@ struct LRCLIBProvider: LyricsProvider {
         ]
 
         guard let url = components.url else { throw LyricsError.invalidURL }
-        print("[Lyrics][LRCLIB] GET \(url)")
         let (data, response) = try await URLSession.shared.data(for: URLRequest(url: url))
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            print("[Lyrics][LRCLIB] unexpected status \(String(describing: (response as? HTTPURLResponse)?.statusCode))")
             throw LyricsError.notFound
         }
 

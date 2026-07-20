@@ -57,7 +57,6 @@ struct KugouProvider: LyricsProvider {
             URLQueryItem(name: "keyword", value: buildSearchQuery(keyword))
         ]
         guard let url = components.url else { throw LyricsError.invalidURL }
-        print("[Lyrics][KuGou] searchSongs GET \(url)")
 
         let (data, response) = try await URLSession.shared.data(for: URLRequest(url: url))
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
@@ -101,7 +100,6 @@ struct KugouProvider: LyricsProvider {
 
     private func performLyricsSearch(_ components: URLComponents) async throws -> SearchLyricsResponse {
         guard let url = components.url else { throw LyricsError.invalidURL }
-        print("[Lyrics][KuGou] searchLyrics GET \(url)")
         let (data, response) = try await URLSession.shared.data(for: URLRequest(url: url))
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             throw LyricsError.notFound
@@ -125,7 +123,6 @@ struct KugouProvider: LyricsProvider {
             URLQueryItem(name: "accesskey", value: accessKey)
         ]
         guard let url = components.url else { throw LyricsError.invalidURL }
-        print("[Lyrics][KuGou] downloadLyrics GET \(url)")
 
         let (data, response) = try await URLSession.shared.data(for: URLRequest(url: url))
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {

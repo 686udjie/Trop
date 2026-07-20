@@ -39,13 +39,11 @@ struct MusixmatchProvider: LyricsProvider {
         ]
 
         guard let url = components.url else { throw LyricsError.invalidURL }
-        print("[Lyrics][Musixmatch] GET \(url)")
         var request = URLRequest(url: url)
         applyHeaders(to: &request)
 
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            print("[Lyrics][Musixmatch] unexpected status \(String(describing: (response as? HTTPURLResponse)?.statusCode))")
             throw LyricsError.notFound
         }
 
