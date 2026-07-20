@@ -30,7 +30,7 @@ final class PodcastDetailViewModel {
         do {
             let json = try await innerTube.browse(browseId: browseId)
             let parsed = Self.parsePodcastDetail(from: json, browseId: browseId)
-            print("[PodcastDetail] title=\(parsed.title) author=\(parsed.author ?? "nil") episodes=\(parsed.episodes.count)")
+            Log.podcastDetail.debug("title=\(parsed.title) author=\(parsed.author ?? "nil") episodes=\(parsed.episodes.count)")
             podcast = parsed
             isLoading = false
         } catch {

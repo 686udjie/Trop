@@ -25,19 +25,19 @@ final class AlbumDetailViewModel {
 
     /// Fetches album browse page from InnerTube and parses the response.
     func load() async {
-        print("[AlbumDetailViewModel] Loading album browseId=\(browseId)")
+        Log.albumDetailViewModel.debug("Loading album browseId=\(browseId)")
         isLoading = true
         error = nil
 
         do {
             let json = try await innerTube.browse(browseId: browseId)
-            print("[AlbumDetailViewModel] Got browse response, parsing...")
+            Log.albumDetailViewModel.debug("Got browse response, parsing...")
             let parsed = Self.parseAlbumDetail(from: json, browseId: browseId)
             album = parsed
-            print("[AlbumDetailViewModel] Parsed album: \(parsed.title), \(parsed.songs.count) songs")
+            Log.albumDetailViewModel.debug("Parsed album: \(parsed.title), \(parsed.songs.count) songs")
             isLoading = false
         } catch {
-            print("[AlbumDetailViewModel] Failed: \(error)")
+            Log.albumDetailViewModel.error("Failed: \(error)")
             self.error = error
             isLoading = false
         }
@@ -486,9 +486,9 @@ struct AlbumDetailView: View {
         Task {
             do {
                 try await PlaybackManager.shared.resolveAndPlay(videoId: first.videoId)
-                print("[AlbumDetailView] Playing \(first.title) from album \(album.title)")
+                Log.albumDetail.debug("Playing \(first.title) from album \(album.title)")
             } catch {
-                print("[AlbumDetailView] Playback failed: \(error)")
+                Log.albumDetail.error("Playback failed: \(error)")
             }
         }
     }
@@ -501,9 +501,9 @@ struct AlbumDetailView: View {
         Task {
             do {
                 try await PlaybackManager.shared.resolveAndPlay(videoId: first.videoId)
-                print("[AlbumDetailView] Shuffle playing \(first.title) from album \(album.title)")
+                Log.albumDetail.debug("Shuffle playing \(first.title) from album \(album.title)")
             } catch {
-                print("[AlbumDetailView] Shuffle playback failed: \(error)")
+                Log.albumDetail.error("Shuffle playback failed: \(error)")
             }
         }
     }
@@ -514,9 +514,9 @@ struct AlbumDetailView: View {
         Task {
             do {
                 try await PlaybackManager.shared.resolveAndPlay(videoId: song.videoId)
-                print("[AlbumDetailView] Playing \(song.title)")
+                Log.albumDetail.debug("Playing \(song.title)")
             } catch {
-                print("[AlbumDetailView] Playback failed: \(error)")
+                Log.albumDetail.error("Playback failed: \(error)")
             }
         }
     }

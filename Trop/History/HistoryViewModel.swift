@@ -35,7 +35,7 @@ final class HistoryView {
             let raw = try await db.fetchHistory(limit: 100)
             groupedEntries = Self.groupByDate(raw)
         } catch {
-            print("[HistoryView] Failed to load local history: \(error)")
+            Log.historyView.error("Failed to load local history: \(error)")
         }
     }
 
@@ -48,7 +48,7 @@ final class HistoryView {
             let sections = Self.parseRemoteHistory(from: json)
             remoteSections = sections
         } catch {
-            print("[HistoryView] Failed to load remote history: \(error)")
+            Log.historyView.error("Failed to load remote history: \(error)")
             remoteError = error
         }
         isRemoteLoading = false
@@ -123,11 +123,11 @@ final class HistoryView {
 
     private static func parseRemoteHistory(from json: [String: Any]) -> [(title: String, songs: [SongItem])] {
         guard let contents = json["contents"] as? [String: Any] else {
-            print("[HistoryView] No 'contents' in response, keys: \(json.keys.sorted())")
+            Log.historyView.debug("No 'contents' in response, keys: \(json.keys.sorted())")
             return []
         }
         guard let singleColumn = contents["singleColumnBrowseResultsRenderer"] as? [String: Any] else {
-            print("[HistoryView] No singleColumnBrowseResultsRenderer, keys: \(contents.keys.sorted())")
+            Log.historyView.debug("No singleColumnBrowseResultsRenderer, keys: \(contents.keys.sorted())")
             return []
         }
         guard let tabs = singleColumn["tabs"] as? [[String: Any]],
@@ -136,7 +136,7 @@ final class HistoryView {
               let content = tabRenderer["content"] as? [String: Any],
               let sectionList = content["sectionListRenderer"] as? [String: Any],
               let shelfList = sectionList["contents"] as? [[String: Any]] else {
-            print("[HistoryView] Couldn't navigate to sectionListRenderer.contents")
+            Log.historyView.debug("Couldn't navigate to sectionListRenderer.contents")
             return []
         }
 
@@ -144,7 +144,7 @@ final class HistoryView {
 
         for shelfDict in shelfList {
             guard let shelf = shelfDict["musicShelfRenderer"] as? [String: Any] else {
-                print("[HistoryView] Skipping non-musicShelfRenderer: \(shelfDict.keys.sorted())")
+                Log.historyView.debug("Skipping non-musicShelfRenderer: \(shelfDict.keys.sorted())")
                 continue
             }
 

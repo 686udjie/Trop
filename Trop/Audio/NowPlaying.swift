@@ -113,7 +113,7 @@ final class NowPlaying {
             do {
                 try await PlaybackManager.shared.resolveAndPlay(videoId: song.videoId)
             } catch {
-                print("[NowPlaying] repeatCurrent failed: \(error)")
+                Log.nowPlaying.error("repeatCurrent failed: \(error)")
                 if self.videoId == song.videoId {
                     isPlaying = false
                 }
@@ -155,7 +155,7 @@ final class NowPlaying {
             do {
                 try await PlaybackManager.shared.resolveAndPlay(videoId: song.videoId)
             } catch {
-                print("[NowPlaying] playNext failed: \(error)")
+                Log.nowPlaying.error("playNext failed: \(error)")
                 if self.videoId == song.videoId {
                     isPlaying = false
                 }
@@ -175,7 +175,7 @@ final class NowPlaying {
             do {
                 try await PlaybackManager.shared.resolveAndPlay(videoId: song.videoId)
             } catch {
-                print("[NowPlaying] playPrevious failed: \(error)")
+                Log.nowPlaying.error("playPrevious failed: \(error)")
             }
         }
     }
@@ -291,9 +291,9 @@ final class NowPlaying {
         Task {
             do {
                 _ = try await PlaybackManager.shared.resolve(videoId: nextId)
-                print("[NowPlaying] Pre-resolved next track: \(nextId)")
+                Log.nowPlaying.debug("Pre-resolved next track: \(nextId)")
             } catch {
-                print("[NowPlaying] Pre-resolve failed: \(error)")
+                Log.nowPlaying.error("Pre-resolve failed: \(error)")
             }
         }
     }

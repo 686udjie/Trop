@@ -346,7 +346,7 @@ struct SearchView: View {
             do {
                 try await PlaybackManager.shared.resolveAndPlay(videoId: videoId)
             } catch {
-                print("[SearchView] Playback failed: \(error)")
+                Log.searchView.error("Playback failed: \(error)")
             }
         }
     }

@@ -39,14 +39,14 @@ enum StreamResolver {
                         streamingDataPoToken: String? = nil,
                         preferredFormat: Format? = nil,
                         forDownload: Bool = false) async throws -> PlaybackResult {
-        print("[StreamResolver] Resolving videoId=\(videoId) client=\(client.clientName) v\(client.clientVersion)")
+        Log.streamResolver.debug("Resolving videoId=\(videoId) client=\(client.clientName) v\(client.clientVersion)")
 
         // Fetch signature timestamp if the client requires it
         let signatureTimestamp: Int?
         if client.useSignatureTimestamp {
             signatureTimestamp = try? await PlayerJsFetcher.shared.getSignatureTimestamp()
-            if signatureTimestamp != nil {
-                print("[StreamResolver] Using signatureTimestamp=\(signatureTimestamp!)")
+            if let ts = signatureTimestamp {
+                Log.streamResolver.debug("Using signatureTimestamp=\(ts)")
             }
         } else {
             signatureTimestamp = nil
@@ -66,11 +66,11 @@ enum StreamResolver {
 
         guard playabilityStatus.status == "OK" else {
             let reason = playabilityStatus.reason ?? "Unknown"
-            print("[StreamResolver] ❌ Not playable: status=\(playabilityStatus.status ?? "?") reason=\(reason)")
+            Log.streamResolver.error("❌ Not playable: status=\(playabilityStatus.status ?? "?") reason=\(reason)")
             throw StreamError.unplayable(reason: reason)
         }
 
-        print("[StreamResolver] ✅ Playable: status=OK")
+        Log.streamResolver.debug("✅ Playable: status=OK")
 
         // Extract streaming data
         guard let streamingData = response.streamingData else {
@@ -78,18 +78,18 @@ enum StreamResolver {
         }
 
         let adaptiveFormats = streamingData.adaptiveFormats ?? []
-        print("[StreamResolver] Got \(adaptiveFormats.count) adaptive formats, expiresIn=\(streamingData.expiresInSeconds ?? "?")s")
+        Log.streamResolver.debug("Got \(adaptiveFormats.count) adaptive formats, expiresIn=\(streamingData.expiresInSeconds ?? "?")s")
 
         let allFormats = (streamingData.formats ?? []) + adaptiveFormats
         let maxVideoHeight = allFormats.compactMap { $0.height }.max() ?? 0
         let hasVideoContent = maxVideoHeight >= 480
-        print("[StreamResolver] hasVideoContent=\(hasVideoContent) (maxVideoHeight=\(maxVideoHeight), video formats: \(allFormats.filter { $0.width != nil }.count))")
+        Log.streamResolver.debug("hasVideoContent=\(hasVideoContent) (maxVideoHeight=\(maxVideoHeight), video formats: \(allFormats.filter { $0.width != nil }.count))")
 
         // Select best audio format. For downloads, prefer an AAC/MP4 streams
         let selectedFormat: Format
         if let preferred = preferredFormat, adaptiveFormats.contains(where: { $0.itag == preferred.itag }) {
             selectedFormat = preferred
-            print("[StreamResolver] Using preferred format itag=\(preferred.itag ?? 0)")
+            Log.streamResolver.debug("Using preferred format itag=\(preferred.itag ?? 0)")
         } else if forDownload, let downloadFormat = FormatSelector.bestDownloadFormat(from: adaptiveFormats) {
             selectedFormat = downloadFormat
         } else if let best = FormatSelector.bestAudioFormat(from: adaptiveFormats) {
@@ -102,16 +102,16 @@ enum StreamResolver {
         let streamUrl: String
         if let url = selectedFormat.url, !url.isEmpty {
             streamUrl = url
-            print("[StreamResolver] Direct URL: \(streamUrl.prefix(120))...")
+            Log.streamResolver.debug("Direct URL: \(streamUrl.prefix(120))...")
         } else if let cipherText = selectedFormat.signatureCipher ?? selectedFormat.cipher {
-            print("[StreamResolver] Format requires cipher deobfuscation")
+            Log.streamResolver.debug("Format requires cipher deobfuscation")
             let playerJs = try await PlayerJsFetcher.shared.getPlayerJs()
             streamUrl = try await CipherExecutor.shared.resolveCipherURL(
                 cipherText: cipherText,
                 playerJs: playerJs,
                 playerHash: nil
             )
-            print("[StreamResolver] Resolved cipher URL: \(streamUrl.prefix(120))...")
+            Log.streamResolver.debug("Resolved cipher URL: \(streamUrl.prefix(120))...")
         } else {
             throw StreamError.noStreamUrl
         }
@@ -120,7 +120,7 @@ enum StreamResolver {
         var finalStreamUrl = streamUrl
         if let pot = streamingDataPoToken, client.useWebPoTokens {
             finalStreamUrl += "&pot=" + pot.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)!
-            print("[StreamResolver] Appended &pot= to stream URL")
+            Log.streamResolver.debug("Appended &pot= to stream URL")
         }
 
         // Build result metadata
@@ -156,17 +156,13 @@ enum StreamResolver {
             hasVideoContent: hasVideoContent,
             muxedStreamUrl: muxedStreamUrl
         )
-        print("[StreamResolver] musicVideoType=\(musicVideoType ?? "nil")")
+        Log.streamResolver.debug("musicVideoType=\(musicVideoType ?? "nil")")
 
         if let duration, let vid = videoDetails?.videoId {
             DurationCache.set(vid, duration)
         }
 
-        print("[StreamResolver] Result: title=\"\(result.title ?? "?")\""
-            + " author=\"\(result.author ?? "?")\""
-            + " itag=\(result.itag)"
-            + " quality=\(result.audioQuality)"
-            + " bitrate=\(result.bitrate)")
+        Log.streamResolver.debug("Result: title=\"\(result.title ?? "?")\" author=\"\(result.author ?? "?")\" itag=\(result.itag) quality=\(result.audioQuality) bitrate=\(result.bitrate)")
 
         // Cache format info for playback tracking
         let trackingUrl = response.playbackTracking?.videostatsPlaybackUrl?.baseUrl
@@ -191,7 +187,7 @@ enum StreamResolver {
     // Validates a stream URL by sending a HEAD request
     static func validateStream(url: String) async -> Bool {
         guard let url = URL(string: url) else {
-            print("[StreamResolver] Invalid URL for validation")
+            Log.streamResolver.error("Invalid URL for validation")
             return false
         }
 
@@ -202,14 +198,14 @@ enum StreamResolver {
         do {
             let (_, response) = try await URLSession.shared.data(for: request)
             guard let httpResponse = response as? HTTPURLResponse else {
-                print("[StreamResolver] HEAD validation: invalid response type")
+                Log.streamResolver.error("HEAD validation: invalid response type")
                 return false
             }
             let valid = (200...299).contains(httpResponse.statusCode)
-            print("[StreamResolver] HEAD validation: status=\(httpResponse.statusCode) valid=\(valid)")
+            Log.streamResolver.debug("HEAD validation: status=\(httpResponse.statusCode) valid=\(valid)")
             return valid
         } catch {
-            print("[StreamResolver] HEAD validation failed: \(error.localizedDescription)")
+            Log.streamResolver.error("HEAD validation failed: \(error.localizedDescription)")
             return false
         }
     }

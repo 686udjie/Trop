@@ -303,7 +303,7 @@ struct HomeScreenView: View {
     }
 
     private func handleItemTap(_ item: YTItem) {
-        print("[HomeScreenView] Tapped item: \(item.title) type=\(typeName(item))")
+        Log.homeScreenView.debug("Tapped item: \(item.title) type=\(typeName(item))")
         switch item {
         case .song(let s):
             NowPlaying.shared.setQueue([s], startIndex: 0)
@@ -314,21 +314,21 @@ struct HomeScreenView: View {
                 guard NowPlaying.shared.videoId == s.videoId else { return }
                 NowPlaying.shared.queueSongs = radio.songs
                 NowPlaying.shared.queueIndex = radio.currentIndex
-                print("[HomeScreenView] Set radio queue with \(radio.songs.count) songs at index \(radio.currentIndex)")
+                Log.homeScreenView.debug("Set radio queue with \(radio.songs.count) songs at index \(radio.currentIndex)")
             }
         case .episode(let e):
             playVideo(videoId: e.videoId)
         case .album(let a):
-            print("[HomeScreenView] Navigating to album: \(a.browseId)")
+            Log.homeScreenView.debug("Navigating to album: \(a.browseId)")
             navigationPath.append(DetailRoute.album(browseId: a.browseId))
         case .artist(let a):
-            print("[HomeScreenView] Navigating to artist: \(a.browseId)")
+            Log.homeScreenView.debug("Navigating to artist: \(a.browseId)")
             navigationPath.append(DetailRoute.artist(browseId: a.browseId))
         case .playlist(let p):
-            print("[HomeScreenView] Navigating to playlist: \(p.id)")
+            Log.homeScreenView.debug("Navigating to playlist: \(p.id)")
             navigationPath.append(DetailRoute.playlist(playlistId: p.id))
         case .podcast(let p):
-            print("[HomeScreenView] Navigating to podcast: \(p.browseId)")
+            Log.homeScreenView.debug("Navigating to podcast: \(p.browseId)")
             navigationPath.append(DetailRoute.podcast(browseId: p.browseId))
         }
     }
@@ -348,9 +348,9 @@ struct HomeScreenView: View {
         Task {
             do {
                 try await PlaybackManager.shared.resolveAndPlay(videoId: videoId)
-                print("[HomeScreenView] Playing videoId=\(videoId)")
+                Log.homeScreenView.debug("Playing videoId=\(videoId)")
             } catch {
-                print("[HomeScreenView] Playback failed: \(error)")
+                Log.homeScreenView.error("Playback failed: \(error)")
             }
         }
     }

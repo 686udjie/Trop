@@ -36,7 +36,7 @@ import Combine
             self.isLoggedIn = true
             self.isPresented = false
         } catch {
-            print("[LoginViewModel] importSession failed: \(error)")
+            Log.loginViewModel.error("importSession failed: \(error)")
         }
             }
         }

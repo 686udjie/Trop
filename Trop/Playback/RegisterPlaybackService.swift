@@ -14,7 +14,7 @@ actor RegisterPlaybackService {
     private init() {}
 
     func registerPlayback(url: String) async throws {
-        print("[RegisterPlayback] Delegating to InnerTube for YTM tracking")
+        Log.registerPlayback.debug("Delegating to InnerTube for YTM tracking")
         try await innerTube.registerPlayback(trackingUrl: url)
     }
 }

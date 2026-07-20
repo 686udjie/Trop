@@ -102,7 +102,7 @@ final class HomeViewModel {
             accountName = info.name
             accountImageUrl = info.thumbnailUrl
         } catch {
-            print("[HomeViewModel] Failed to fetch account info: \(error)")
+            Log.homeViewModel.error("Failed to fetch account info: \(error)")
         }
     }
 
@@ -224,7 +224,7 @@ final class HomeViewModel {
                     mergeSections()
                 }
             } catch {
-                print("[HomeViewModel] Continuation error: \(error)")
+                Log.homeViewModel.error("Continuation error: \(error)")
             }
         }
     }

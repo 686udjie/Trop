@@ -36,7 +36,7 @@ class DownloadManager: ObservableObject {
     func download(song: SongItem) async {
         let videoId = song.videoId
         let artist = song.artists.map(\.name).joined(separator: ", ")
-        print("[DownloadManager] Starting download: \(artist) - \(song.title) (\(videoId))")
+        Log.downloadManager.debug("Starting download: \(artist) - \(song.title) (\(videoId))")
         downloads[videoId] = .downloading(0)
 
         do {
@@ -56,7 +56,7 @@ class DownloadManager: ObservableObject {
             let streamURL = result.streamUrl
             let isAACStream = result.mimeType.lowercased().contains("mp4a")
                 || result.mimeType.lowercased().contains("aac")
-            print("[DownloadManager] Resolved stream: codec=\(result.mimeType) isAAC=\(isAACStream)")
+            Log.downloadManager.debug("Resolved stream: codec=\(result.mimeType) isAAC=\(isAACStream)")
 
             // Stream the response in chunks (avoids per-byte copies and
             // per-byte @Published notifications, which were the main slowdown).
@@ -79,12 +79,12 @@ class DownloadManager: ObservableObject {
                 }
             }
             if !chunk.isEmpty { data.append(chunk) }
-            print("[DownloadManager] Fetched \(data.count) bytes for \(videoId)")
+            Log.downloadManager.debug("Fetched \(data.count) bytes for \(videoId)")
 
             ensureDirectories()
             if isAACStream {
                 // Fast path: write AAC bytes directly, then re-mux to attach metadata.
-                print("[DownloadManager] AAC stream detected — saving directly (no transcode)")
+                Log.downloadManager.debug("AAC stream detected — saving directly (no transcode)")
                 try data.write(to: fileURL)
                 try await attachMetadata(to: fileURL, title: song.title, artist: artist, thumbnailUrl: song.thumbnailUrl)
             } else {
@@ -109,11 +109,11 @@ class DownloadManager: ObservableObject {
             try await DatabaseService.shared.insertOrReplace(entity)
 
             downloads[videoId] = .completed
-            print("[DownloadManager] Completed download: \(artist) - \(song.title) -> \(fileURL.path)")
+            Log.downloadManager.debug("Completed download: \(artist) - \(song.title) -> \(fileURL.path)")
             objectWillChange.send()
         } catch {
             downloads[videoId] = .failed(error.localizedDescription)
-            print("[DownloadManager] Failed download \(videoId): \(error.localizedDescription)")
+            Log.downloadManager.error("Failed download \(videoId): \(error.localizedDescription)")
             objectWillChange.send()
         }
     }

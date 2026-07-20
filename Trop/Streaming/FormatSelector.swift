@@ -19,31 +19,28 @@ enum FormatSelector {
     static func bestAudioFormat(from formats: [Format]) -> Format? {
         // Filter to audio-only formats (no video dimensions)
         guard !formats.isEmpty else {
-            print("[FormatSelector] No formats to select from")
+            Log.formatSelector.debug("No formats to select from")
             return nil
         }
 
         let audioFormats = formats.filter { $0.isAudioOnly }
 
         guard !audioFormats.isEmpty else {
-            print("[FormatSelector] No audio-only formats found in \(formats.count) total formats")
+            Log.formatSelector.debug("No audio-only formats found in \(formats.count) total formats")
             return nil
         }
 
-        print("[FormatSelector] Selecting from \(audioFormats.count) audio-only formats")
+        Log.formatSelector.debug("Selecting from \(audioFormats.count) audio-only formats")
 
         let selected = audioFormats.max { a, b in
             formatScore(a) < formatScore(b)
         }
 
         if let selected {
-            print("[FormatSelector] Selected: itag=\(selected.itag ?? 0)"
-                + " quality=\(selected.audioQuality ?? "?")"
-                + " channels=\(selected.audioChannels ?? 0)"
-                + " codec=\(selected.codec)"
-                + " bitrate=\(selected.bitrate ?? 0)")
+            Log.formatSelector.debug("Selected: itag=\(selected.itag ?? 0) quality=\(selected.audioQuality ?? "?")"
+                + " channels=\(selected.audioChannels ?? 0) codec=\(selected.codec) bitrate=\(selected.bitrate ?? 0)")
         } else {
-            print("[FormatSelector] No format could be selected")
+            Log.formatSelector.debug("No format could be selected")
         }
 
         return selected
@@ -52,13 +49,13 @@ enum FormatSelector {
     // Picks the optimal audio format for downloads
     static func bestDownloadFormat(from formats: [Format]) -> Format? {
         guard !formats.isEmpty else {
-            print("[FormatSelector] No formats to select from (download)")
+            Log.formatSelector.debug("No formats to select from (download)")
             return nil
         }
 
         let audioFormats = formats.filter { $0.isAudioOnly }
         guard !audioFormats.isEmpty else {
-            print("[FormatSelector] No audio-only formats found (download)")
+            Log.formatSelector.debug("No audio-only formats found (download)")
             return nil
         }
 
@@ -68,17 +65,14 @@ enum FormatSelector {
         }
 
         let pool = aacFormats.isEmpty ? audioFormats : aacFormats
-        print("[FormatSelector] Download pool: \(pool.count) format(s)"
-            + (aacFormats.isEmpty ? " (no AAC, falling back to Opus)" : " (AAC preferred)"))
+        Log.formatSelector.debug("Download pool: \(pool.count) format(s)\(aacFormats.isEmpty ? " (no AAC, falling back to Opus)" : " (AAC preferred)")")
 
         let selected = pool.max { a, b in
             formatScore(a) < formatScore(b)
         }
 
         if let selected {
-            print("[FormatSelector] Download selected: itag=\(selected.itag ?? 0)"
-                + " codec=\(selected.codec)"
-                + " bitrate=\(selected.bitrate ?? 0)")
+            Log.formatSelector.debug("Download selected: itag=\(selected.itag ?? 0) codec=\(selected.codec) bitrate=\(selected.bitrate ?? 0)")
         }
 
         return selected
@@ -100,12 +94,7 @@ enum FormatSelector {
         let bitrateScore = (format.bitrate ?? 0) / 1000  // normalize to kbps for readability
 
         let total = qualityScore + channelsScore + codecScore + bitrateScore
-        print("[FormatSelector]   Scoring itag=\(format.itag ?? 0):"
-            + " quality=\(qualityScore)"
-            + " channels=\(channelsScore)"
-            + " codec=\(codecScore)"
-            + " bitrate=\(bitrateScore)"
-            + " total=\(total)")
+        Log.formatSelector.debug("  Scoring itag=\(format.itag ?? 0): quality=\(qualityScore) channels=\(channelsScore) codec=\(codecScore) bitrate=\(bitrateScore) total=\(total)")
 
         return total
     }
@@ -130,7 +119,7 @@ enum FormatSelector {
     /// audio streams selected" — they must be excluded.
     static func bestVideoFormat(from formats: [Format]) -> Format? {
         guard !formats.isEmpty else {
-            print("[FormatSelector] No formats to select from (video)")
+            Log.formatSelector.debug("No formats to select from (video)")
             return nil
         }
 
@@ -147,19 +136,19 @@ enum FormatSelector {
         }
 
         guard !muxedFormats.isEmpty else {
-            print("[FormatSelector] No muxed (audio+video) formats found in \(formats.count) total formats")
+            Log.formatSelector.debug("No muxed (audio+video) formats found in \(formats.count) total formats")
             return nil
         }
 
-        print("[FormatSelector] Selecting from \(muxedFormats.count) muxed video formats")
+        Log.formatSelector.debug("Selecting from \(muxedFormats.count) muxed video formats")
 
         // Split into H.264 (avc) and everything else
         let h264 = muxedFormats.filter { $0.codec.lowercased().contains("avc") || $0.mimeType?.lowercased().contains("mp4") == true }
         let pool = h264.isEmpty ? muxedFormats : h264
         if h264.isEmpty {
-            print("[FormatSelector] No H.264 muxed format; falling back to any muxed format")
+            Log.formatSelector.debug("No H.264 muxed format; falling back to any muxed format")
         } else {
-            print("[FormatSelector] Using \(h264.count) H.264 muxed format(s)")
+            Log.formatSelector.debug("Using \(h264.count) H.264 muxed format(s)")
         }
 
         let selected = pool.max { a, b in
@@ -167,10 +156,7 @@ enum FormatSelector {
         }
 
         if let selected {
-            print("[FormatSelector] Selected video: itag=\(selected.itag ?? 0)"
-                + " resolution=\(selected.width ?? 0)x\(selected.height ?? 0)"
-                + " codec=\(selected.codec)"
-                + " bitrate=\(selected.bitrate ?? 0)")
+            Log.formatSelector.debug("Selected video: itag=\(selected.itag ?? 0) resolution=\(selected.width ?? 0)x\(selected.height ?? 0) codec=\(selected.codec) bitrate=\(selected.bitrate ?? 0)")
         }
 
         return selected

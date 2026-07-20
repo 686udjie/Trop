@@ -101,7 +101,7 @@ enum DatabaseMigrations {
     }
 
     static let v3: (Database) throws -> Void = { db in
-        print("[DB] Running v3 migration")
+        Log.db.debug("Running v3 migration")
         try db.alter(table: "artist") { t in
             t.add(column: "channel_id", .text)
         }
@@ -139,19 +139,19 @@ enum DatabaseMigrations {
             t.column("position", .integer).notNull()
             t.uniqueKey(["podcast_id", "episode_id"])
         }
-        print("[DB] v3 migration complete")
+        Log.db.debug("v3 migration complete")
     }
 
     static let v4: (Database) throws -> Void = { db in
-        print("[DB] Running v4 migration")
+        Log.db.debug("Running v4 migration")
         try db.alter(table: "playlist") { t in
             t.add(column: "thumbnail_url", .text)
         }
-        print("[DB] v4 migration complete")
+        Log.db.debug("v4 migration complete")
     }
 
     static let v5: (Database) throws -> Void = { db in
-        print("[DB] Running v5 migration")
+        Log.db.debug("Running v5 migration")
         if try db.tableExists("downloaded_track") == false {
             try db.create(table: "downloaded_track") { t in
                 t.column("id", .text).primaryKey()
@@ -168,11 +168,11 @@ enum DatabaseMigrations {
                 t.add(column: "artist", .text).notNull().defaults(to: "")
             }
         }
-        print("[DB] v5 migration complete")
+        Log.db.debug("v5 migration complete")
     }
 
     static let v6: (Database) throws -> Void = { db in
-        print("[DB] Running v6 migration")
+        Log.db.debug("Running v6 migration")
         // Earlier schemas may have created downloaded_track with fewer columns
         // than DownloadedTrackEntity expects. Add any missing columns so inserts
         // from the app succeed on existing databases.
@@ -195,11 +195,11 @@ enum DatabaseMigrations {
                 }
             }
         }
-        print("[DB] v6 migration complete")
+        Log.db.debug("v6 migration complete")
     }
 
     static let v7: (Database) throws -> Void = { db in
-        print("[DB] Running v7 migration")
+        Log.db.debug("Running v7 migration")
         // The existing downloaded_track table may have been created by an older
         // schema (e.g. with a file_size column) that doesn't match
         // DownloadedTrackEntity. Rebuild it to exactly match the entity,
@@ -238,6 +238,6 @@ enum DatabaseMigrations {
             try db.drop(table: "downloaded_track")
             try db.rename(table: "downloaded_track_new", to: "downloaded_track")
         }
-        print("[DB] v7 migration complete")
+        Log.db.debug("v7 migration complete")
     }
 }

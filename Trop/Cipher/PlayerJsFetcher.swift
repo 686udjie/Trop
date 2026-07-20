@@ -134,7 +134,7 @@ actor PlayerJsFetcher {
               let js = try? String(contentsOf: jsPath, encoding: .utf8) else {
             return nil
         }
-        print("[Cipher] Using cached player.js (hash=\(hash))")
+        Log.cipher.debug("Using cached player.js (hash=\(hash))")
         return js
     }
 
@@ -148,7 +148,7 @@ actor PlayerJsFetcher {
         if let infoPath = hashInfoPath {
             try info.write(to: infoPath, atomically: true, encoding: .utf8)
         }
-        print("[Cipher] Cached player.js (hash=\(hash))")
+        Log.cipher.debug("Cached player.js (hash=\(hash))")
     }
 
     // MARK: - Signature Timestamp Extraction

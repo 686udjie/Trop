@@ -258,7 +258,7 @@ actor InnerTube {
                 guard attempt < maxAttempts - 1,
                       isRetryable(error) else { break }
                 let delay = backoffBase * pow(backoffFactor, Double(attempt))
-                print("[InnerTube] Retry \(attempt + 1)/\(maxAttempts - 1) for \(error.localizedDescription)")
+                Log.innerTube.debug("Retry \(attempt + 1)/\(maxAttempts - 1) for \(error.localizedDescription)")
                 try? await Task.sleep(for: delay)
             }
         }
@@ -300,7 +300,7 @@ actor InnerTube {
             } else {
                 message = "HTTP \(httpResponse.statusCode)"
             }
-            print("[InnerTube] HTTP \(httpResponse.statusCode) | \(endpoint) [\(client.clientName)]: \(message)")
+            Log.innerTube.error("HTTP \(httpResponse.statusCode) | \(endpoint) [\(client.clientName)]: \(message)")
             throw InnerTubeError.httpError(statusCode: httpResponse.statusCode, data: data)
         }
         return (data, httpResponse)
@@ -319,7 +319,7 @@ actor InnerTube {
         } catch {
             if let raw = String(data: data, encoding: .utf8) {
                 let preview = raw.prefix(2000)
-                print("[InnerTube] Decoding failed for \(endpoint) [\(client.clientName)]. Raw response:\n\(preview)")
+                Log.innerTube.error("Decoding failed for \(endpoint) [\(client.clientName)]. Raw response:\n\(preview)")
             }
             throw error
         }
@@ -442,21 +442,21 @@ actor InnerTube {
             sapisid: sapisid,
             playlistId: playlistId
         ) else {
-            print("[InnerTube] Failed to build playback tracking request")
+            Log.innerTube.error("Failed to build playback tracking request")
             throw InnerTubeError.invalidResponse
         }
 
-        print("[InnerTube] Registering playback cpn=\(cpn)")
+        Log.innerTube.debug("Registering playback cpn=\(cpn)")
         let (data, response) = try await session.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else {
             throw InnerTubeError.invalidResponse
         }
         guard (200...299).contains(httpResponse.statusCode) else {
             let body = String(data: data, encoding: .utf8) ?? ""
-            print("[InnerTube] Playback tracking HTTP \(httpResponse.statusCode): \(body.prefix(200))")
+            Log.innerTube.error("Playback tracking HTTP \(httpResponse.statusCode): \(body.prefix(200))")
             throw InnerTubeError.httpError(statusCode: httpResponse.statusCode, data: data)
         }
-        print("[InnerTube] Playback registered — status=\(httpResponse.statusCode) bytes=\(data.count)")
+        Log.innerTube.debug("Playback registered — status=\(httpResponse.statusCode) bytes=\(data.count)")
     }
 }
 

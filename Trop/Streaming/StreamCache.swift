@@ -33,7 +33,7 @@ actor StreamCache {
         let ttl = max(result.expiresInSeconds, 60)
         let entry = Entry(result: result, expiresAt: Date().addingTimeInterval(TimeInterval(ttl)))
         cache[videoId] = entry
-        print("[StreamCache] Cached videoId=\(videoId) expires in \(ttl)s")
+        Log.streamCache.debug("Cached videoId=\(videoId) expires in \(ttl)s")
     }
 
     func remove(videoId: String) {

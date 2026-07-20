@@ -503,7 +503,7 @@ struct ArtistDetailView: View {
             do {
                 try await PlaybackManager.shared.resolveAndPlay(videoId: first.videoId)
             } catch {
-                print("[ArtistDetailView] Playback failed: \(error)")
+                Log.artistDetail.error("Playback failed: \(error)")
             }
         }
     }
@@ -517,7 +517,7 @@ struct ArtistDetailView: View {
             do {
                 try await PlaybackManager.shared.resolveAndPlay(videoId: first.videoId)
             } catch {
-                print("[ArtistDetailView] Shuffle playback failed: \(error)")
+                Log.artistDetail.error("Shuffle playback failed: \(error)")
             }
         }
     }
@@ -530,7 +530,7 @@ struct ArtistDetailView: View {
             do {
                 try await PlaybackManager.shared.resolveAndPlay(videoId: song.videoId)
             } catch {
-                print("[ArtistDetailView] Playback failed: \(error)")
+                Log.artistDetail.error("Playback failed: \(error)")
             }
         }
     }
@@ -570,7 +570,7 @@ struct ArtistDetailView: View {
                     }
                 }
             } catch {
-                print("[ArtistDetailView] Subscribe failed: \(error)")
+                Log.artistDetail.error("Subscribe failed: \(error)")
             }
         }
     }

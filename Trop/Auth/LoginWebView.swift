@@ -80,32 +80,32 @@ private final class LoginNavigationDelegate: NSObject, WKNavigationDelegate {
             return
         }
 
-        print("[Login] Redirected to \(url.host ?? "") — extracting cookies...")
+        Log.login.debug("Redirected to \(url.host ?? "") — extracting cookies...")
 
         webView.configuration.websiteDataStore.httpCookieStore.getAllCookies { [weak self] cookies in
             var cookieDict: [String: String] = [:]
             var sapisid: String?
             var visitorData: String?
 
-            print("[Login] Found \(cookies.count) total cookies")
+            Log.login.debug("Found \(cookies.count) total cookies")
 
             for cookie in cookies where cookie.domain.contains("youtube.com") || cookie.domain.contains("google.com") {
                 cookieDict[cookie.name] = cookie.value
-                print("[Login]   Cookie: \(cookie.name) = \(cookie.value.prefix(20))... (domain: \(cookie.domain))")
+                Log.login.debug("  Cookie: \(cookie.name) = \(cookie.value.prefix(20))... (domain: \(cookie.domain))")
 
                 if cookie.name == "__Secure-3PSAPISID" || cookie.name == "SAPISID" {
                     sapisid = cookie.value
-                    print("[Login]   ✅ Found SAPISID!")
+                    Log.login.debug("  ✅ Found SAPISID!")
                 }
 
                 if cookie.name == "visitor_data" {
                     visitorData = cookie.value
-                    print("[Login]   ✅ Found visitor_data!")
+                    Log.login.debug("  ✅ Found visitor_data!")
                 }
             }
 
             if sapisid == nil {
-                print("[Login]   ❌ No SAPISID found — login may have failed")
+                Log.login.notice("  ❌ No SAPISID found — login may have failed")
             }
 
             self?.model.cookies = cookieDict
@@ -118,11 +118,11 @@ private final class LoginNavigationDelegate: NSObject, WKNavigationDelegate {
             webView.evaluateJavaScript("window.yt?.config_?.DATASYNC_ID ?? ''") { result, error in
                 if let dataSyncId = result as? String, !dataSyncId.isEmpty {
                     self?.model.dataSyncId = dataSyncId
-                    print("[Login]   ✅ Found dataSyncId: \(dataSyncId.prefix(15))...")
+                    Log.login.debug("  ✅ Found dataSyncId: \(dataSyncId.prefix(15))...")
                 } else if let error = error {
-                    print("[Login]   ⚠️ JS eval for dataSyncId failed: \(error.localizedDescription)")
+                    Log.login.error("  ⚠️ JS eval for dataSyncId failed: \(error.localizedDescription)")
                 } else {
-                    print("[Login]   ⚠️ dataSyncId not found in page context")
+                    Log.login.notice("  ⚠️ dataSyncId not found in page context")
                 }
             }
         }

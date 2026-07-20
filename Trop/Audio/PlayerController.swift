@@ -76,7 +76,7 @@ final class PlayerController {
 
     func play(url: String, title: String? = nil, artist: String? = nil, videoId: String? = nil, duration: TimeInterval? = nil, artists: [YTArtist] = []) async {
         guard let url = URL(string: url) else {
-            print("[Player] Invalid URL: \(url)")
+            Log.player.error("Invalid URL: \(url)")
             return
         }
 
@@ -99,7 +99,7 @@ final class PlayerController {
         }
 
         guard let mpv = self.mpv else {
-            print("[Player] mpv not ready")
+            Log.player.error("mpv not ready")
             return
         }
 
@@ -138,7 +138,7 @@ final class PlayerController {
             guard let self else { return }
 
             guard let mpv = mpv_create() else {
-                print("[Player] mpv_create failed")
+                Log.player.error("mpv_create failed")
                 return
             }
             self.mpv = mpv
@@ -167,7 +167,7 @@ final class PlayerController {
             mpv_request_log_messages(mpv, "info")
 
             if mpv_initialize(mpv) < 0 {
-                print("[Player] mpv_initialize failed")
+                Log.player.error("mpv_initialize failed")
                 mpv_destroy(mpv)
                 self.mpv = nil
                 return
@@ -190,7 +190,7 @@ final class PlayerController {
                 if let prop = event.pointee.data?.load(as: mpv_event_log_message.self) {
                     let text = String(cString: prop.text)
                     if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        print("[mpv] \(text)", terminator: "")
+                        Log.mpv.debug("\(text)")
                     }
                 }
             case MPV_EVENT_FILE_LOADED:
@@ -253,7 +253,7 @@ final class PlayerController {
             )
             try AVAudioSession.sharedInstance().setActive(true)
         } catch {
-            print("[Player] Failed to assert audio session: \(error)")
+            Log.player.error("Failed to assert audio session: \(error)")
         }
     }
 
@@ -422,7 +422,7 @@ final class PlayerController {
         var val = time
         let result = mpv_set_property(mpv, "time-pos", MPV_FORMAT_DOUBLE, &val)
         if result < 0 {
-            print("[Player] seek failed: mpv error \(result)")
+            Log.player.error("seek failed: mpv error \(result)")
         }
     }
 
@@ -467,7 +467,7 @@ final class PlayerController {
                 self.loadFileReplacing(url, startAt: resumeAt)
                 self.muxedActive = true
             } catch {
-                print("[Player] setVideoMode failed: \(error)")
+                Log.player.error("setVideoMode failed: \(error)")
                 if enabled {
                     DispatchQueue.main.async {
                         NowPlaying.shared.isVideoMode = false
@@ -488,7 +488,7 @@ final class PlayerController {
                 guard NowPlaying.shared.videoId == videoId, self.loadedMuxedURL == nil else { return }
                 self.loadedMuxedURL = url
             } catch {
-                print("[Player] Video preload failed: \(error)")
+                Log.player.error("Video preload failed: \(error)")
             }
         }
     }

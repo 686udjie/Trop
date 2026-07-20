@@ -66,13 +66,13 @@ actor PlayerConfigStore {
         if let bundled = try? loadBundled() {
             configs = bundled
             loaded = true
-            print("[CipherConfig] Loaded \(configs.count) configs from bundle")
+            Log.cipherConfig.debug("Loaded \(configs.count) configs from bundle")
             return
         }
         // 2. Empty — all extraction will use heuristics
         configs = [:]
         loaded = true
-        print("[CipherConfig] No bundled config, using heuristic extraction only")
+        Log.cipherConfig.debug("No bundled config, using heuristic extraction only")
     }
 
     private func loadBundled() throws -> [String: PlayerConfig]? {

@@ -67,7 +67,7 @@ actor PoTokenGenerator: NSObject {
                 streamingDataPoToken: streamingToken
             )
         } catch {
-            print("[PoToken] Token generation failed, re-creating minter...")
+            Log.poToken.error("Token generation failed, re-creating minter...")
             minterReady = false
             try await ensureMinter()
             let playerToken = try await generatePoToken(sessionIdStr)
@@ -83,15 +83,15 @@ actor PoTokenGenerator: NSObject {
         if minterReady { return }
 
         // 1. Create BotGuard challenge
-        print("[PoToken] Creating BotGuard challenge...")
+        Log.poToken.debug("Creating BotGuard challenge...")
         let challenge = try await BotGuardService.shared.createChallenge()
-        print("[PoToken] Challenge: program=\(challenge.program.prefix(50))..."
+        Log.poToken.debug("Challenge: program=\(challenge.program.prefix(50))..."
             + " globalName=\(challenge.globalName ?? "?")"
             + " interpreter=\(challenge.interpreterJavascript != nil)")
 
         // 2. Build challenge JSON and call runBotGuard in WebView
         let challengeJSON = buildChallengeJSON(challenge)
-        print("[PoToken] Running BotGuard in WebView...")
+        Log.poToken.debug("Running BotGuard in WebView...")
 
         let bgResult = try await evalJS("""
             runBotGuard(\(challengeJSON)).then(function(result) {
@@ -99,7 +99,7 @@ actor PoTokenGenerator: NSObject {
                 return JSON.stringify({ response: result.botguardResponse });
             })
         """)
-        print("[PoToken] BotGuard response received")
+        Log.poToken.debug("BotGuard response received")
 
         guard let bgData = bgResult.data(using: .utf8),
               let bgObj = try JSONSerialization.jsonObject(with: bgData) as? [String: Any],
@@ -111,13 +111,13 @@ actor PoTokenGenerator: NSObject {
         let (integrityTokenU8, _) = try await BotGuardService.shared.generateIT(
             botguardResponse: botguardResponse
         )
-        print("[PoToken] Got integrity token")
+        Log.poToken.debug("Got integrity token")
 
         // 4. Create poToken minter
         _ = try await evalJS("""
             createPoTokenMinter(window.__webPoSignalOutput, \(integrityTokenU8))
         """)
-        print("[PoToken] Minter created")
+        Log.poToken.debug("Minter created")
 
         minterReady = true
     }
@@ -214,7 +214,7 @@ actor PoTokenGenerator: NSObject {
             resolveContinuation(id, result: .success(value))
         case "error":
             let error = json["error"] as? String ?? "Unknown error"
-            print("[PoToken] JS error: \(error)")
+            Log.poToken.error("JS error: \(error)")
             resolveContinuation(id, result: .failure(BotGuardError.descrambleFailed))
         default:
             break

@@ -56,7 +56,7 @@ final class PlaylistDetailViewModel {
             let json = try await innerTube.browse(browseId: browseId)
             let parsed = Self.parsePlaylistDetail(from: json, playlistId: playlistId)
             let hasAvatar = parsed.authorAvatarUrl != nil
-            print("[PlaylistDetail] title=\(parsed.title) author=\(parsed.authorName ?? "nil") avatar=\(hasAvatar) cnt=\(parsed.songCount) dur=\(parsed.duration) songs=\(parsed.songs.count)")
+            Log.playlistDetail.debug("title=\(parsed.title) author=\(parsed.authorName ?? "nil") avatar=\(hasAvatar) cnt=\(parsed.songCount) dur=\(parsed.duration) songs=\(parsed.songs.count)")
 
             // Persist songs to the song table so they become searchable in the library
             let pid = playlistId
@@ -153,7 +153,7 @@ final class PlaylistDetailViewModel {
     private func loadAutoPlaylist(route: AutoPlaylistRoute) async {
         isLoading = true
         error = nil
-        print("[PlaylistDetail] Loading auto-playlist route=\(route)")
+        Log.playlistDetail.debug("Loading auto-playlist route=\(route)")
 
         do {
             let entities: [SongEntity]
@@ -161,22 +161,22 @@ final class PlaylistDetailViewModel {
             switch route {
             case .likedSongs:
                 title = "Liked Songs"
-                print("[PlaylistDetail] Fetching liked songs with sort=\(autoSongSort)")
+                Log.playlistDetail.debug("Fetching liked songs with sort=\(autoSongSort)")
                 entities = try await DatabaseService.shared.fetchAllLikedSongs(sort: autoSongSort)
             case .topSongs(let limit):
                 title = "My Top \(limit)"
-                print("[PlaylistDetail] Fetching top songs limit=\(limit) period=\(autoTopPeriod.rawValue)")
+                Log.playlistDetail.debug("Fetching top songs limit=\(limit) period=\(autoTopPeriod.rawValue)")
                 entities = try await DatabaseService.shared.fetchTopSongs(limit: limit, from: autoTopPeriod.dateFrom, to: Date())
             }
-            print("[PlaylistDetail] Fetched \(entities.count) song entities")
+            Log.playlistDetail.debug("Fetched \(entities.count) song entities")
 
             var songs = entities.map { SongItem(entity: $0) }
-            print("[PlaylistDetail] songs count=\(songs.count)")
+            Log.playlistDetail.debug("songs count=\(songs.count)")
 
             // Resolve missing durations in background
             let emptyDurationIds = songs.filter { $0.duration <= 0 }.map { $0.videoId }
             if !emptyDurationIds.isEmpty {
-                print("[PlaylistDetail] Resolving durations for \(emptyDurationIds.count) songs")
+                Log.playlistDetail.debug("Resolving durations for \(emptyDurationIds.count) songs")
                 await withTaskGroup(of: (String, Int).self) { group in
                     for videoId in emptyDurationIds {
                         guard !DurationCache.isPending(videoId) else { continue }
@@ -199,11 +199,11 @@ final class PlaylistDetailViewModel {
                         songs[i].duration = cached
                     }
                 }
-                print("[PlaylistDetail] Durations resolved")
+                Log.playlistDetail.debug("Durations resolved")
             }
 
             let totalDuration = songs.reduce(0) { $0 + $1.duration }
-            print("[PlaylistDetail] totalDuration=\(totalDuration)")
+            Log.playlistDetail.debug("totalDuration=\(totalDuration)")
 
             playlist = PlaylistDetailInfo(
                 title: title,
@@ -304,7 +304,7 @@ extension PlaylistDetailViewModel {
                     .flatMap { $0["innertubeCommand"] as? [String: Any] }
                     .flatMap { $0["browseEndpoint"] as? [String: Any] }
                     .flatMap { $0["browseId"] as? String }
-                print("[Parser] facepile authorName=\(authorName ?? "nil") authorBrowseId=\(authorBrowseId ?? "nil")")
+                Log.parser.debug("facepile authorName=\(authorName ?? "nil") authorBrowseId=\(authorBrowseId ?? "nil")")
                 if let avatars = stack["avatars"] as? [[String: Any]],
                    let firstAvatar = avatars.first,
                    let vm = firstAvatar["avatarViewModel"] as? [String: Any],
@@ -313,12 +313,12 @@ extension PlaylistDetailViewModel {
                    let firstSource = sources.first,
                    let url = firstSource["url"] as? String {
                     authorAvatarUrl = url
-                    print("[Parser] facepile avatar URL: \(url)")
+                    Log.parser.debug("facepile avatar URL: \(url)")
                 } else {
-                    print("[Parser] facepile found but failed to extract avatar URL")
-                    print("[Parser] facepile stack keys: \(stack.keys)")
+                    Log.parser.debug("facepile found but failed to extract avatar URL")
+                    Log.parser.debug("facepile stack keys: \(stack.keys)")
                     if let avatars = stack["avatars"] {
-                        print("[Parser] avatars type: \(type(of: avatars))")
+                        Log.parser.debug("avatars type: \(type(of: avatars))")
                     }
                 }
             }
@@ -352,24 +352,24 @@ extension PlaylistDetailViewModel {
                        trimmed.contains("video") || trimmed.contains("Video") {
                         if let count = trimmed.components(separatedBy: CharacterSet.decimalDigits.inverted).compactMap(Int.init).first {
                             songCount = count
-                            print("[Parser] parsed songCount=\(songCount)")
+                            Log.parser.debug("parsed songCount=\(songCount)")
                         }
                     } else if trimmed.contains(":") {
                         duration = DetailParser.parseDuration(trimmed)
-                        print("[Parser] parsed duration=\(duration) from '\(trimmed)'")
+                        Log.parser.debug("parsed duration=\(duration) from '\(trimmed)'")
                     } else {
                         let lower = trimmed.lowercased()
                         if lower.hasSuffix("min") || lower.hasSuffix("mins") || lower.hasSuffix("minute") || lower.hasSuffix("minutes") {
                             let nums = trimmed.components(separatedBy: CharacterSet.decimalDigits.inverted).compactMap(Int.init)
                             if let minutes = nums.first {
                                 duration = minutes * 60
-                                print("[Parser] parsed duration=\(duration) from '\(trimmed)' (text minutes)")
+                                Log.parser.debug("parsed duration=\(duration) from '\(trimmed)' (text minutes)")
                             }
                         } else if lower.hasSuffix("hour") || lower.hasSuffix("hours") || lower.hasSuffix("hr") || lower.hasSuffix("hrs") {
                             let nums = trimmed.components(separatedBy: CharacterSet.decimalDigits.inverted).compactMap(Int.init)
                             if let hours = nums.first {
                                 duration = hours * 3600
-                                print("[Parser] parsed duration=\(duration) from '\(trimmed)' (text hours)")
+                                Log.parser.debug("parsed duration=\(duration) from '\(trimmed)' (text hours)")
                             }
                         }
                     }
@@ -426,7 +426,7 @@ extension PlaylistDetailViewModel {
         if songCount == 0 { songCount = songs.count }
         let songDuration = songs.reduce(0) { $0 + $1.duration }
         if songDuration > 0 {
-            print("[Parser] computed duration from songs: \(songDuration) (header had: \(duration))")
+            Log.parser.debug("computed duration from songs: \(songDuration) (header had: \(duration))")
             duration = songDuration
         }
 
@@ -923,7 +923,7 @@ struct AddSongToPlaylistView: View {
                 sql: "SELECT * FROM song WHERE title != '' ORDER BY create_date DESC LIMIT 200"
             )
         } catch {
-            print("[AddSong] Failed to load songs: \(error)")
+            Log.addSong.error("Failed to load songs: \(error)")
         }
     }
 
@@ -934,7 +934,7 @@ struct AddSongToPlaylistView: View {
             await onDone()
             dismiss()
         } catch {
-            print("[AddSong] Failed to add song: \(error)")
+            Log.addSong.error("Failed to add song: \(error)")
         }
         addingIds.remove(song.id)
     }

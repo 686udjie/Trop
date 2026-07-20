@@ -114,7 +114,7 @@ actor PlaybackManager {
                 }
 
                 guard await StreamResolver.validateStream(url: result.streamUrl) else {
-                    print("[PlaybackManager] \(result.clientName) HEAD validation failed, trying next")
+                    Log.playbackManager.debug("\(result.clientName) HEAD validation failed, trying next")
                     lastError = StreamError.validationFailed(result.clientName)
                     continue
                 }
@@ -143,7 +143,7 @@ actor PlaybackManager {
 
             } catch {
                 lastError = error
-                print("[PlaybackManager] \(fb.client.clientName) failed: \(error.localizedDescription)")
+                Log.playbackManager.error("\(fb.client.clientName) failed: \(error.localizedDescription)")
             }
         }
 
@@ -188,7 +188,7 @@ actor PlaybackManager {
                     return url
                 }
             } catch {
-                print("[PlaybackManager] Video resolution failed for \(fb.client.clientName): \(error)")
+                Log.playbackManager.error("Video resolution failed for \(fb.client.clientName): \(error)")
             }
         }
 
@@ -275,7 +275,7 @@ actor PlaybackManager {
 
             } catch {
                 lastError = error
-                print("[PlaybackManager] \(fb.client.clientName) failed: \(error.localizedDescription)")
+                Log.playbackManager.error("\(fb.client.clientName) failed: \(error.localizedDescription)")
             }
         }
 

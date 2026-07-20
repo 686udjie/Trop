@@ -109,7 +109,7 @@ final class SearchViewModel {
                 }
             } catch {
                 if !self.isCancellation(error) {
-                    print("[Search] Suggestions failed: \(error)")
+                    Log.search.error("Suggestions failed: \(error)")
                 }
             }
         }
@@ -129,7 +129,7 @@ final class SearchViewModel {
                 }
             } catch {
                 if !self.isCancellation(error) {
-                    print("[Search] Local search failed: \(error)")
+                    Log.search.error("Local search failed: \(error)")
                 }
             }
         }

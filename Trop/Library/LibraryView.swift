@@ -436,7 +436,7 @@ struct LibraryView: View {
 
             isLoading = false
         } catch {
-            print("[LibraryView] Failed to load: \(error)")
+            Log.libraryView.error("Failed to load: \(error)")
             isLoading = false
         }
     }
@@ -446,7 +446,7 @@ struct LibraryView: View {
             try await MutationService.shared.deletePlaylist(playlistId: playlist.id)
             await loadContent()
         } catch {
-            print("[LibraryView] Failed to delete playlist: \(error)")
+            Log.libraryView.error("Failed to delete playlist: \(error)")
         }
     }
 
@@ -466,7 +466,7 @@ struct LibraryView: View {
             let info = try await InnerTube.shared.accountInfo()
             accountImageUrl = info.thumbnailUrl
         } catch {
-            print("[LibraryView] Failed to fetch account info: \(error)")
+            Log.libraryView.error("Failed to fetch account info: \(error)")
         }
     }
 

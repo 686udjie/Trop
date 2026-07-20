@@ -48,37 +48,37 @@ actor CipherWebView: NSObject {
             nClass = config.nFunction.varName
             nJsExpression = config.nJsExpression
             isExpression = true
-            print("[CipherWebView] Config found: sig=\(sigConfig ?? "?"), nClass=\(nClass ?? "?"), hasNtransform=\(nJsExpression != nil)")
+            Log.cipherWebView.debug("Config found: sig=\(sigConfig ?? "?"), nClass=\(nClass ?? "?"), hasNtransform=\(nJsExpression != nil)")
         } else {
-            print("[CipherWebView] No config for hash \(hash), trying heuristic extraction")
+            Log.cipherWebView.debug("No config for hash \(hash), trying heuristic extraction")
             let extracted = try? await FunctionNameExtractor.shared.extract(from: playerJs, playerHash: hash)
             if let js = extracted?.sigJs, !js.isEmpty {
                 // Strip the outer parens to get the raw function declaration
                 let raw = js.hasPrefix("(") && js.hasSuffix(")") ? String(js.dropFirst().dropLast()) : js
                 sigConfig = raw
                 isExpression = false
-                print("[CipherWebView] Heuristic extraction succeeded")
+                Log.cipherWebView.debug("Heuristic extraction succeeded")
             } else {
                 sigConfig = nil
                 isExpression = false
-                print("[CipherWebView] Heuristic extraction failed, using fallback")
+                Log.cipherWebView.notice("Heuristic extraction failed, using fallback")
             }
             if let nClassHeuristic = extracted?.nClass {
                 nClass = nClassHeuristic
                 nJsExpression = PlayerConfig(nClass: nClassHeuristic).nJsExpression
                 rawNFuncBody = nil
-                print("[CipherWebView] Extracted nClass=\(nClassHeuristic) heuristically")
+                Log.cipherWebView.debug("Extracted nClass=\(nClassHeuristic) heuristically")
             } else if let nJs = extracted?.nJs {
                 nClass = nil
                 nJsExpression = nil
                 let raw = nJs.hasPrefix("(") && nJs.hasSuffix(")") ? String(nJs.dropFirst().dropLast()) : nJs
                 rawNFuncBody = raw
-                print("[CipherWebView] Extracted n-transform function heuristically")
+                Log.cipherWebView.debug("Extracted n-transform function heuristically")
             } else {
                 nClass = nil
                 nJsExpression = nil
                 rawNFuncBody = nil
-                print("[CipherWebView] No n-transform found via heuristics")
+                Log.cipherWebView.debug("No n-transform found via heuristics")
             }
         }
 
@@ -96,7 +96,7 @@ actor CipherWebView: NSObject {
         // Save patched player.js to local file
         guard let dir = playerDir else { throw CipherError.cacheUnavailable }
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        print("[CipherWebView] Player directory: \(dir.path)")
+        Log.cipherWebView.debug("Player directory: \(dir.path)")
         let playerFile = dir.appendingPathComponent("base_\(hash).js")
         try patchedJs.write(to: playerFile, atomically: true, encoding: .utf8)
 
@@ -128,7 +128,7 @@ actor CipherWebView: NSObject {
         }
 
         self.isReady = true
-        print("[CipherWebView] Ready (file-based, hash=\(hash))")
+        Log.cipherWebView.debug("Ready (file-based, hash=\(hash))")
     }
 
     private nonisolated func scheduleReadyTimeout() {
@@ -306,7 +306,7 @@ private final class CipherMessageHandler: NSObject, WKScriptMessageHandler {
                 await self?.cipher?.handleReady()
             case "sigError", "nError", "error":
                 let msg = json["error"] as? String ?? "unknown JS error"
-                print("[CipherWebView] JS \(type): \(msg)")
+                Log.cipherWebView.error("JS \(type): \(msg)")
                 await self?.cipher?.handleError(msg)
             default:
                 break

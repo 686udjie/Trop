@@ -15,8 +15,8 @@ actor LibrarySyncService {
 
     func syncAll() async -> LibrarySyncResult {
         var result = LibrarySyncResult()
-        do { result.artistIds = try await syncSubscribedArtists() } catch { print("syncSubscribedArtists error: \(error)") }
-        do { result.playlistIds = try await syncLikedPlaylists() } catch { print("syncLikedPlaylists error: \(error)") }
+        do { result.artistIds = try await syncSubscribedArtists() } catch { Log.sync.error("syncSubscribedArtists error: \(error)") }
+        do { result.playlistIds = try await syncLikedPlaylists() } catch { Log.sync.error("syncLikedPlaylists error: \(error)") }
         return result
     }
 }
