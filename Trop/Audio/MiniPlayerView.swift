@@ -135,6 +135,7 @@ struct MiniPlayerView: View {
         }
         .onChange(of: np.videoId) { _, newId in
             activeItemId = newId ?? ""
+            np.isVideoMode = false
             preloadLyrics()
         }
         .onChange(of: np.queueSongs.count) { _, _ in
@@ -252,26 +253,40 @@ struct MiniPlayerView: View {
         }
     }
 
+    @ViewBuilder
     private var artwork: some View {
-        ZStack {
-            if let uiImage = np.thumbnailUIImage {
-                let cropped = uiImage.centerCroppedSquare()
-                GeometryReader { geo in
-                    Image(uiImage: cropped)
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                        .frame(width: geo.size.width, height: geo.size.height)
+        if np.isVideoMode, np.hasVideo {
+            VideoPlayerView()
+                .aspectRatio(1.0, contentMode: .fit)
+                .onTapGesture {
+                    np.isVideoMode = false
                 }
-            } else {
-                ZStack {
-                    Color.white.opacity(0.1)
-                    Image(systemName: "music.note")
-                        .font(.system(size: 64))
-                        .foregroundStyle(.white.opacity(0.4))
+        } else {
+            ZStack {
+                if let uiImage = np.thumbnailUIImage {
+                    let cropped = uiImage.centerCroppedSquare()
+                    GeometryReader { geo in
+                        Image(uiImage: cropped)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(width: geo.size.width, height: geo.size.height)
+                    }
+                } else {
+                    ZStack {
+                        Color.white.opacity(0.1)
+                        Image(systemName: "music.note")
+                            .font(.system(size: 64))
+                            .foregroundStyle(.white.opacity(0.4))
+                    }
                 }
             }
+            .aspectRatio(1.0, contentMode: .fit)
+            .onTapGesture {
+                guard np.hasVideo else { return }
+                player.setVideoMode(true)
+                np.isVideoMode = true
+            }
         }
-        .aspectRatio(1.0, contentMode: .fit)
     }
 
     private var progressSlider: some View {
