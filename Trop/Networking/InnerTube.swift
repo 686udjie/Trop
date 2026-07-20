@@ -98,6 +98,7 @@ actor InnerTube {
             "videoId": videoId, "contentCheckOk": true, "racyCheckOk": true
         ]
         if let playlistId = playlistId { body["playlistId"] = playlistId }
+        body["startTimeSecs"] = 0
         if let signatureTimestamp = signatureTimestamp {
             body["playbackContext"] = ["contentPlaybackContext": ["signatureTimestamp": signatureTimestamp]]
         }
@@ -121,6 +122,7 @@ actor InnerTube {
             "context": buildContextDict(client: client, locale: locale, visitorData: visitorData),
             "videoId": videoId, "contentCheckOk": true, "racyCheckOk": true
         ]
+        body["startTimeSecs"] = 0
         if let playlistId = playlistId { body["playlistId"] = playlistId }
         if let signatureTimestamp = signatureTimestamp {
             body["playbackContext"] = ["contentPlaybackContext": ["signatureTimestamp": signatureTimestamp]]
@@ -414,17 +416,24 @@ actor InnerTube {
         if let deviceMake = client.deviceMake { clientDict["deviceMake"] = deviceMake }
         if let deviceModel = client.deviceModel { clientDict["deviceModel"] = deviceModel }
         if let androidSdkVersion = client.androidSdkVersion { clientDict["androidSdkVersion"] = androidSdkVersion }
+        if let clientScreen = client.clientScreen { clientDict["clientScreen"] = clientScreen }
+
+        var contextDict: [String: Any] = [
+            "client": clientDict,
+            "request": ["internalExperimentFlags": [] as [String], "useSsl": true]
+        ]
+
+        if let embedUrl = client.embedUrl {
+            contextDict["thirdParty"] = ["embedUrl": embedUrl]
+        }
 
         var user: [String: Any] = ["lockedSafetyMode": false]
         if let dataSyncId = dataSyncId {
             user["onBehalfOfUser"] = dataSyncId
         }
 
-        return [
-            "client": clientDict,
-            "request": ["internalExperimentFlags": [] as [String], "useSsl": true],
-            "user": user
-        ]
+        contextDict["user"] = user
+        return contextDict
     }
 
     // MARK: - Playback Tracking

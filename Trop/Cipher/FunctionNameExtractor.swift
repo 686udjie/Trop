@@ -86,70 +86,101 @@ actor FunctionNameExtractor {
     }
 
     /// Extract the signature deobfuscation function body using heuristics.
-    /// The function is identified by: `a=a.split("")` and `a.join("")` patterns.
+    /// Scans all function definitions for the signature cipher patterns:
+    /// `.split("")` + `.join("")` — the hallmarks of the deobfuscation algorithm.
     private func extractCipherFunctionHeuristic(_ js: String) -> String? {
-        // Find the start of a function that splits a string param
-        // Pattern: function(X){X=X.split("")  (where X is a single lowercase letter)
-        guard let funcStartPattern = try? NSRegularExpression(
-            pattern: #"function\s*\(([a-z])\)\s*\{\1\s*=\s*\1\s*\.\s*split\s*\(\s*['"]{2}\s*\)"#,
-            options: []
-        ) else { return nil }
-
-        let nsJs = js as NSString
-        let matches = funcStartPattern.matches(in: js, range: NSRange(location: 0, length: nsJs.length))
-
-        for match in matches {
-            let start = match.range.location
-            // Find the matching closing brace
-            guard let end = findMatchingBrace(js, from: start) else { continue }
-            let range = NSRange(location: start, length: end - start + 1)
-            let functionBody = nsJs.substring(with: range)
-
-            // Verify it contains join("") and is a reasonable size
-            if functionBody.contains("join("), functionBody.count < 2000 {
-                return functionBody
-            }
-        }
-        return nil
+        scanFunctions(in: js, bodyValidator: hasCipherPatterns, maxBodyLength: 3000)
     }
 
     /// Extract n-transform function body using heuristics.
-    /// Looks for functions containing `charCodeAt` and `fromCharCode`.
+    /// Scans all function definitions for `charCodeAt` + `fromCharCode` usage.
     private func extractNFunctionHeuristic(_ js: String) -> String? {
-        // Look for function that takes a single param and uses charCodeAt
-        guard let pattern = try? NSRegularExpression(
-            pattern: #"function\s*\(([a-z])\)\s*\{(?:[^}]*\1\.charCodeAt[^}]*)"#,
+        scanFunctions(in: js, bodyValidator: hasNTransformPatterns, maxBodyLength: 3000)
+    }
+
+    /// Walk every function definition in `js`, extract its body, and return the
+    /// first one where `bodyValidator` returns true.
+    private func scanFunctions(
+        in js: String,
+        bodyValidator: (String) -> Bool,
+        maxBodyLength: Int
+    ) -> String? {
+        let nsJs = js as NSString
+        let fullRange = NSRange(location: 0, length: nsJs.length)
+
+        guard let funcRegex = try? NSRegularExpression(
+            pattern: #"\bfunction\s*\([^)]*\)\s*\{"#,
             options: []
         ) else { return nil }
 
-        let nsJs = js as NSString
-        let matches = pattern.matches(in: js, range: NSRange(location: 0, length: nsJs.length))
-
+        let matches = funcRegex.matches(in: js, range: fullRange)
         for match in matches {
             let start = match.range.location
             guard let end = findMatchingBrace(js, from: start) else { continue }
-            let range = NSRange(location: start, length: end - start + 1)
-            let functionBody = nsJs.substring(with: range)
+            let bodyRange = NSRange(location: start, length: end - start + 1)
+            guard bodyRange.length < maxBodyLength else { continue }
 
-            if functionBody.contains("fromCharCode"), functionBody.count < 2000 {
-                return functionBody
+            let body = nsJs.substring(with: bodyRange)
+            if bodyValidator(body) {
+                return body
             }
         }
+
+        // Try alternate: method-assignment form (e.g. `x.y = function(...){...}`)
+        guard let methodRegex = try? NSRegularExpression(
+            pattern: #"\w+\s*=\s*function\s*\([^)]*\)\s*\{"#,
+            options: []
+        ) else { return nil }
+
+        let methodMatches = methodRegex.matches(in: js, range: fullRange)
+        for match in methodMatches {
+            let start = match.range.location
+            guard let end = findMatchingBrace(js, from: start) else { continue }
+            let bodyRange = NSRange(location: start, length: end - start + 1)
+            guard bodyRange.length < maxBodyLength else { continue }
+
+            let body = nsJs.substring(with: bodyRange)
+            if bodyValidator(body),
+               let funcRange = body.range(of: "function") {
+                let funcStr = String(body[funcRange.lowerBound...])
+                if bodyValidator(funcStr) {
+                    return funcStr
+                }
+            }
+        }
+
         return nil
+    }
+
+    /// A cipher (signature deobfuscation) function must contain both
+    /// `.split("")` and `.join("")` (with either quote style).
+    private func hasCipherPatterns(_ body: String) -> Bool {
+        let hasSplit = body.contains(#".split(""#) || body.contains(".split('')")
+        let hasJoin = body.contains(#".join(""#) || body.contains(".join('')")
+        return hasSplit && hasJoin
+    }
+
+    /// An n-transform function must invoke `charCodeAt` and `fromCharCode`.
+    private func hasNTransformPatterns(_ body: String) -> Bool {
+        body.contains("charCodeAt") && body.contains("fromCharCode")
     }
 
     /// Extract the URL builder class name (nClass) from player.js heuristically.
     /// Looks for `(new g.<class>(url, true)).get("n")` or similar patterns.
     private func extractNClassHeuristic(_ js: String) -> String? {
-        guard let pattern = try? NSRegularExpression(
-            pattern: #"\(?new\s+g\.(\w+)\([^,]+,\s*(?:!0|true)\)\)?\s*\.[\w$]+\(\s*['""]n['""]\s*\)"#,
-            options: []
-        ) else { return nil }
+        let patterns = [
+            #"\(?new\s+g\.(\w+)\([^,]+,\s*(?:!0|true)\)\)?\s*\.[\w$]+\(\s*['""]n['""]\s*\)"#,
+            #"new\s+g\.(\w+)\([^,]+,\s*!0\)"#,
+        ]
 
         let nsJs = js as NSString
-        let matches = pattern.matches(in: js, range: NSRange(location: 0, length: nsJs.length))
-        guard let match = matches.first else { return nil }
-        return nsJs.substring(with: match.range(at: 1))
+        for pattern in patterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else { continue }
+            let matches = regex.matches(in: js, range: NSRange(location: 0, length: nsJs.length))
+            guard let match = matches.first else { continue }
+            return nsJs.substring(with: match.range(at: 1))
+        }
+        return nil
     }
 
     // MARK: - Brace Matching

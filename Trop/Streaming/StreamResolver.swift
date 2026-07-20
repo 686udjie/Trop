@@ -90,11 +90,15 @@ enum StreamResolver {
         if let preferred = preferredFormat, adaptiveFormats.contains(where: { $0.itag == preferred.itag }) {
             selectedFormat = preferred
             Log.streamResolver.debug("Using preferred format itag=\(preferred.itag ?? 0)")
-        } else if forDownload, let downloadFormat = FormatSelector.bestDownloadFormat(from: adaptiveFormats) {
+        } else if forDownload, let downloadFormat = FormatSelector.bestDownloadFormat(from: allFormats) {
             selectedFormat = downloadFormat
-        } else if let best = FormatSelector.bestAudioFormat(from: adaptiveFormats) {
+        } else if let best = FormatSelector.bestAudioFormat(from: allFormats) {
             selectedFormat = best
         } else {
+            let formatInfos = allFormats.map { f in
+                "itag=\(f.itag ?? 0) mime=\(f.mimeType ?? "?") audio=\(f.audioChannels != nil) url=\(f.url != nil) cipher=\(f.signatureCipher != nil || f.cipher != nil)"
+            }
+            Log.streamResolver.error("No suitable format. Formats: \(formatInfos.joined(separator: ", "))")
             throw StreamError.noSuitableFormat
         }
 

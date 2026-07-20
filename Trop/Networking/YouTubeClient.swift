@@ -21,6 +21,8 @@ struct YouTubeClient: Codable {
     let loginSupported: Bool
     let useSignatureTimestamp: Bool
     let useWebPoTokens: Bool
+    let clientScreen: String?
+    let embedUrl: String?
 
     init(
         clientName: String,
@@ -34,7 +36,9 @@ struct YouTubeClient: Codable {
         androidSdkVersion: String? = nil,
         loginSupported: Bool = false,
         useSignatureTimestamp: Bool = false,
-        useWebPoTokens: Bool = false
+        useWebPoTokens: Bool = false,
+        clientScreen: String? = nil,
+        embedUrl: String? = nil
     ) {
         self.clientName = clientName
         self.clientVersion = clientVersion
@@ -48,6 +52,8 @@ struct YouTubeClient: Codable {
         self.loginSupported = loginSupported
         self.useSignatureTimestamp = useSignatureTimestamp
         self.useWebPoTokens = useWebPoTokens
+        self.clientScreen = clientScreen
+        self.embedUrl = embedUrl
     }
 
     // Primary web client — used for most requests, needs cipher + PoToken
@@ -115,13 +121,23 @@ struct YouTubeClient: Codable {
         useSignatureTimestamp: true
     )
 
-    nonisolated static let web = YouTubeClient(
-        clientName: "WEB",
-        clientVersion: "2.20260213.01.00",
-        clientId: 1,
-        userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0",
+    /// Embedded player that can bypass age-restriction.
+    /// Does not require login for age-restricted content.
+    nonisolated static let tvHtml5SimplyEmbedded = YouTubeClient(
+        clientName: "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
+        clientVersion: "2.0",
+        clientId: 85,
+        userAgent: "Mozilla/5.0 (PlayStation; PlayStation 4/12.02) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.4 Safari/605.1.15",
         loginSupported: true,
         useSignatureTimestamp: true,
-        useWebPoTokens: true
+        clientScreen: "WATCH",
+        embedUrl: "https://music.youtube.com/"
+    )
+
+    nonisolated static let web = YouTubeClient(
+        clientName: "WEB",
+        clientVersion: "2.20260213.00.00",
+        clientId: 1,
+        userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0"
     )
 }

@@ -117,7 +117,6 @@ actor CipherWebView: NSObject {
 
             let w = WKWebView(frame: .zero, configuration: config)
             w.isHidden = true
-            w.loadFileURL(htmlFile, allowingReadAccessTo: dir)
             return w
         }
         self.webView = wv
@@ -125,6 +124,9 @@ actor CipherWebView: NSObject {
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
             self.readyContinuation = cont
             self.scheduleReadyTimeout()
+            Task { @MainActor in
+                wv.loadFileURL(htmlFile, allowingReadAccessTo: dir)
+            }
         }
 
         self.isReady = true
@@ -174,6 +176,8 @@ actor CipherWebView: NSObject {
                     let sep = url.contains("?") ? "&" : "?"
                     let encodedSig = deobfuscated.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? deobfuscated
                     url += "\(sep)\(spParam)=\(encodedSig)"
+                } else {
+                    throw CipherError.deobfuscationFailed("sig deobfuscation returned nil (no cipher function exported)")
                 }
             }
         }

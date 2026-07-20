@@ -49,8 +49,10 @@ enum CipherHTMLBuilder {
         let urlBuilderSig: String
         if let config = sigConfig, sigIsExpression {
             urlBuilderSig = config.replacingOccurrences(of: "INPUT", with: "d")
+        } else if sigConfig != nil {
+            urlBuilderSig = "(window._cipherSigFunc?window._cipherSigFunc(d):d)"
         } else {
-            urlBuilderSig = "fJ(24,1210,d)"
+            urlBuilderSig = "d"
         }
         let urlBuilder = "window._buildSignedUrl=function(url,sp,sig){try{" +
             "var classes=[" + knownClasses.joined(separator: ",") + "];" +

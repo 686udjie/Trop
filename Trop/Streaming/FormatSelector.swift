@@ -17,20 +17,24 @@ enum FormatSelector {
 
     // Picks the optimal audio format for playback
     static func bestAudioFormat(from formats: [Format]) -> Format? {
-        // Filter to audio-only formats (no video dimensions)
         guard !formats.isEmpty else {
             Log.formatSelector.debug("No formats to select from")
             return nil
         }
 
-        let audioFormats = formats.filter { $0.isAudioOnly }
+        var audioFormats = formats.filter { $0.isAudioOnly }
+
+        if audioFormats.isEmpty {
+            Log.formatSelector.debug("No audio-only formats found in \(formats.count) total — trying combined formats with audio track")
+            audioFormats = formats.filter { $0.audioChannels != nil }
+        }
 
         guard !audioFormats.isEmpty else {
-            Log.formatSelector.debug("No audio-only formats found in \(formats.count) total formats")
+            Log.formatSelector.debug("No formats with audio track found in \(formats.count) total formats")
             return nil
         }
 
-        Log.formatSelector.debug("Selecting from \(audioFormats.count) audio-only formats")
+        Log.formatSelector.debug("Selecting from \(audioFormats.count) audio-bearing formats")
 
         let selected = audioFormats.max { a, b in
             formatScore(a) < formatScore(b)
@@ -53,9 +57,15 @@ enum FormatSelector {
             return nil
         }
 
-        let audioFormats = formats.filter { $0.isAudioOnly }
+        var audioFormats = formats.filter { $0.isAudioOnly }
+
+        if audioFormats.isEmpty {
+            Log.formatSelector.debug("No audio-only formats found (download) — trying combined formats with audio")
+            audioFormats = formats.filter { $0.audioChannels != nil }
+        }
+
         guard !audioFormats.isEmpty else {
-            Log.formatSelector.debug("No audio-only formats found (download)")
+            Log.formatSelector.debug("No formats with audio track found (download)")
             return nil
         }
 
