@@ -144,6 +144,7 @@ struct SearchView: View {
             }
         }
         .listStyle(.plain)
+        .miniPlayerCompactsOnScroll()
     }
 
     private var suggestionsAndLocalView: some View {
@@ -250,6 +251,7 @@ struct SearchView: View {
             }
         }
         .listStyle(.plain)
+        .miniPlayerCompactsOnScroll()
     }
 
     private var searchResultsList: some View {
@@ -267,6 +269,7 @@ struct SearchView: View {
             }
         }
         .listStyle(.plain)
+        .miniPlayerCompactsOnScroll()
     }
 
     private var filterChips: some View {

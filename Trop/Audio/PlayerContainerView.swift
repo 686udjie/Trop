@@ -14,6 +14,7 @@ struct PlayerContainerView<Content: View>: View {
 
     @Bindable private var np = NowPlaying.shared
     @State private var isExpanded = false
+    @State private var scrollState = MiniPlayerScrollState()
 
     private let tabBarHeight: CGFloat = 49
 
@@ -38,17 +39,29 @@ struct PlayerContainerView<Content: View>: View {
                 }
 
                 if np.isBarPresented && !isExpanded {
-                    MiniPlayerBarView(onExpand: {
-                        withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
-                            isExpanded = true
-                        }
-                    })
-                    .padding(.horizontal, 21)
-                    .padding(.bottom, tabBarHeight + 8)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                    .zIndex(1)
+                    if scrollState.isCompacted {
+                        MiniPlayerCompactBarView(onExpand: {
+                            withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                                isExpanded = true
+                            }
+                        })
+                        .padding(.bottom, tabBarHeight + 8)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                        .zIndex(1)
+                    } else {
+                        MiniPlayerBarView(onExpand: {
+                            withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                                isExpanded = true
+                            }
+                        })
+                        .padding(.horizontal, 21)
+                        .padding(.bottom, tabBarHeight + 8)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                        .zIndex(1)
+                    }
                 }
             }
         }
+        .environment(scrollState)
     }
 }

@@ -150,6 +150,7 @@ struct HomeScreenView: View {
             await refreshTask()
             await IncrementalSyncService.shared.checkAndSyncIfStale()
         }
+        .miniPlayerCompactsOnScroll()
     }
 
     private var accountSheet: some View {

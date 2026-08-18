@@ -128,7 +128,7 @@ struct MiniPlayerBarView: View {
     private var progressLine: some View {
         GeometryReader { geo in
             Capsule()
-                .fill(.primary)
+                .fill(.tint)
                 .frame(width: geo.size.width * CGFloat(np.progress))
         }
         .frame(height: 1.5)
