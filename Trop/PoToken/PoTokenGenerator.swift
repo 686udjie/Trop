@@ -123,7 +123,10 @@ actor PoTokenGenerator: NSObject {
     }
 
     private func generatePoToken(_ identifier: String) async throws -> String {
-        let idBytes = identifier.data(using: .utf8)!.map { String($0) }.joined(separator: ",")
+        guard let data = identifier.data(using: .utf8) else {
+            throw BotGuardError.descrambleFailed
+        }
+        let idBytes = data.map { String($0) }.joined(separator: ",")
         let u8id = "new Uint8Array([\(idBytes)])"
 
         let result = try await evalJS("""
@@ -137,6 +140,8 @@ actor PoTokenGenerator: NSObject {
 
     /// Evaluates JS that may return a value (sync or Promise).
     /// The JS must ultimately call postMessage with {id, type, value/error}.
+    /// Guards against hangs: a missing WebView and a stalled script both
+    /// resolve the continuation (with an error) instead of blocking forever.
     private func evalJS(_ script: String) async throws -> String {
         let id = UUID().uuidString
         return try await withCheckedThrowingContinuation { (cont: CheckedContinuation<String, Error>) in
@@ -146,6 +151,19 @@ actor PoTokenGenerator: NSObject {
                     return
                 }
                 await self.setContinuation(id, cont)
+
+                let wv = await self.webView
+                guard wv != nil else {
+                    await self.resolveContinuation(id, result: .failure(BotGuardError.descrambleFailed))
+                    return
+                }
+
+                // If the script never posts a message, fail rather than hang.
+                Task { [weak self] in
+                    try? await Task.sleep(nanoseconds: 20_000_000_000)
+                    Log.poToken.error("PoToken JS evaluation timed out")
+                    await self?.resolveContinuation(id, result: .failure(BotGuardError.descrambleFailed))
+                }
 
                 let fullJS = """
                 (function() {
@@ -174,7 +192,6 @@ actor PoTokenGenerator: NSObject {
                 })();
                 """
 
-                let wv = await self.webView
                 await MainActor.run {
                     wv?.evaluateJavaScript(fullJS) { _, error in
                         if error != nil {

@@ -19,7 +19,7 @@ actor PlaybackManager {
     @discardableResult
     func resolveAndPlay(videoId: String) async throws -> PlaybackResult {
         if let localPath = await DownloadManager.shared.localURL(for: videoId) {
-            let song = NowPlaying.shared.queueSongs.first { $0.videoId == videoId }
+            let song = await MainActor.run { NowPlaying.shared.queueSongs.first { $0.videoId == videoId } }
             let artists = song?.artists ?? []
             await PlayerController.shared.play(
                 url: localPath.absoluteString,
@@ -47,10 +47,6 @@ actor PlaybackManager {
             )
         }
 
-        if let existing = inflightResolutions[videoId] {
-            return try await existing.value
-        }
-
         if let cached = await StreamCache.shared.get(videoId: videoId) {
             await PlayerController.shared.play(
                 url: cached.streamUrl,
@@ -58,11 +54,26 @@ actor PlaybackManager {
                 artist: cached.author,
                 videoId: videoId,
                 duration: cached.duration.flatMap { $0 > 0 ? TimeInterval($0) : nil },
-                artists: queueArtists(for: videoId)
+                artists: await queueArtists(for: videoId)
             )
             return cached
         }
 
+        if let existing = inflightResolutions[videoId] {
+            return try await existing.value
+        }
+
+        let task = Task { [self] in
+            try await resolveAndPlayFromNetwork(videoId: videoId)
+        }
+        inflightResolutions[videoId] = task
+        defer { clearInflight(videoId: videoId) }
+        return try await task.value
+    }
+
+    /// Runs the client fallback chain for playback. Only called once per
+    /// videoId by `resolveAndPlay`, which owns the in-flight dedup entry.
+    private func resolveAndPlayFromNetwork(videoId: String) async throws -> PlaybackResult {
         // Pre-generate PoToken in background while direct-URL clients are tried
         let poTokenTask = Task { try? await generatePoToken(videoId: videoId) }
         defer { poTokenTask.cancel() }
@@ -96,7 +107,7 @@ actor PlaybackManager {
                         artist: result.author,
                         videoId: videoId,
                         duration: result.duration.flatMap { $0 > 0 ? TimeInterval($0) : nil },
-                        artists: queueArtists(for: videoId)
+                        artists: await queueArtists(for: videoId)
                     )
                     if let musicVideoType = result.musicVideoType {
                         await MainActor.run {
@@ -125,7 +136,7 @@ actor PlaybackManager {
                     artist: result.author,
                     videoId: videoId,
                     duration: result.duration.flatMap { $0 > 0 ? TimeInterval($0) : nil },
-                    artists: queueArtists(for: videoId)
+                    artists: await queueArtists(for: videoId)
                 )
                 if let musicVideoType = result.musicVideoType {
                     await MainActor.run {
@@ -155,8 +166,10 @@ actor PlaybackManager {
     }
 
     /// Retrieves all artists for the current video to preserve metadata accuracy.
-    private func queueArtists(for videoId: String) -> [YTArtist] {
-        NowPlaying.shared.queueSongs.first { $0.videoId == videoId }?.artists ?? []
+    private func queueArtists(for videoId: String) async -> [YTArtist] {
+        await MainActor.run {
+            NowPlaying.shared.queueSongs.first { $0.videoId == videoId }?.artists ?? []
+        }
     }
 
     /// Resolves the muxed (audio+video) stream URL for video mode.
@@ -195,15 +208,6 @@ actor PlaybackManager {
         throw StreamError.noSuitableFormat
     }
 
-    /// Returns the cached audio-only stream URL, re-resolving if not cached.
-    func resolveAndPlayAudioURL(videoId: String) async throws -> String {
-        if let cached = await StreamCache.shared.get(videoId: videoId) {
-            return cached.streamUrl
-        }
-        let result = try await resolve(videoId: videoId)
-        return result.streamUrl
-    }
-
     /// Returns the muxed stream URL for video mode, preferring the cached one.
     func resolveMuxedURL(videoId: String) async throws -> String {
         if let cached = await StreamCache.shared.get(videoId: videoId),
@@ -228,14 +232,23 @@ actor PlaybackManager {
     }
     /// Resolve a video without playing. Useful for previews / testing.
     func resolve(videoId: String, preferredFormat: Format? = nil, forDownload: Bool = false) async throws -> PlaybackResult {
-        if let existing = inflightResolutions[videoId] {
-            return try await existing.value
-        }
-
         if let cached = await StreamCache.shared.get(videoId: videoId) {
             return cached
         }
 
+        if let existing = inflightResolutions[videoId] {
+            return try await existing.value
+        }
+
+        let task = Task { [self] in
+            try await resolveFromNetwork(videoId: videoId, preferredFormat: preferredFormat, forDownload: forDownload)
+        }
+        inflightResolutions[videoId] = task
+        defer { clearInflight(videoId: videoId) }
+        return try await task.value
+    }
+
+    private func resolveFromNetwork(videoId: String, preferredFormat: Format?, forDownload: Bool) async throws -> PlaybackResult {
         let poTokenTask = Task { try? await generatePoToken(videoId: videoId) }
         defer { poTokenTask.cancel() }
 

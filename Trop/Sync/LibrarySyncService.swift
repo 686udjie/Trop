@@ -61,19 +61,22 @@ extension LibrarySyncService {
                     thumbnailUrl: item.thumbnailUrl ?? existing?.thumbnailUrl,
                     isEditable: existing?.isEditable ?? false,
                     bookmarkedAt: existing?.bookmarkedAt ?? Date(),
-                    remoteSongCount: item.songCount ?? existing?.remoteSongCount
+                    remoteSongCount: item.songCount ?? existing?.remoteSongCount,
+                    isAutoSync: true
                 )
                 try entity.save(db)
             }
-            // Remove playlists unliked remotely — only those that have a browseId (synced), not local-only playlists
+            // Remove playlists unliked remotely — only playlists that were
+            // created by sync (is_auto_sync = 1). Locally-created playlists
+            // also carry a browseId but must never be deleted by a sync sweep.
             if !remoteIds.isEmpty {
                 try db.execute(sql: """
                     DELETE FROM playlist_song_map WHERE playlist_id IN (
-                        SELECT id FROM playlist WHERE browse_id IS NOT NULL AND browse_id NOT IN (\(remoteIds.map { _ in "?" }.joined(separator: ",")))
+                        SELECT id FROM playlist WHERE is_auto_sync = 1 AND browse_id IS NOT NULL AND browse_id NOT IN (\(remoteIds.map { _ in "?" }.joined(separator: ",")))
                     )
                     """, arguments: StatementArguments(Array(remoteIds)))
                 try db.execute(sql: """
-                    DELETE FROM playlist WHERE browse_id IS NOT NULL AND browse_id NOT IN (\(remoteIds.map { _ in "?" }.joined(separator: ",")))
+                    DELETE FROM playlist WHERE is_auto_sync = 1 AND browse_id IS NOT NULL AND browse_id NOT IN (\(remoteIds.map { _ in "?" }.joined(separator: ",")))
                     """, arguments: StatementArguments(Array(remoteIds)))
             }
         }

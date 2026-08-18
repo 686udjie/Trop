@@ -69,7 +69,8 @@ struct PlaybackControlsRow: View {
             .disabled(!hasPrevious)
             .opacity(hasPrevious ? 1 : 0.3)
             .frame(maxWidth: .infinity)
-            
+            .accessibilityLabel("Previous")
+
             Button(action: onPlayPause) {
                 Image(systemName: isPlaying ? "pause.fill" : "play.fill")
                     .font(.system(size: 42))
@@ -78,7 +79,8 @@ struct PlaybackControlsRow: View {
             }
             .frame(width: 80, height: 80)
             .frame(maxWidth: .infinity)
-            
+            .accessibilityLabel(isPlaying ? "Pause" : "Play")
+
             Button(action: onNext) {
                 Image(systemName: "forward.fill")
                     .font(.title)
@@ -87,6 +89,7 @@ struct PlaybackControlsRow: View {
             .disabled(!hasNext)
             .opacity(hasNext ? 1 : 0.3)
             .frame(maxWidth: .infinity)
+            .accessibilityLabel("Next")
         }
         .padding(.horizontal, 24)
     }
@@ -115,7 +118,8 @@ struct SecondaryActionsRow: View {
             .disabled(!lyricsState.isAvailable)
             .opacity(lyricsState.isAvailable ? 1 : 0.3)
             .frame(maxWidth: .infinity)
-            
+            .accessibilityLabel("Lyrics")
+
             Button {
                 // airplay, handled by overlay
             } label: {
@@ -126,7 +130,8 @@ struct SecondaryActionsRow: View {
             }
             .frame(maxWidth: .infinity)
             .overlay(AirPlayButton())
-            
+            .accessibilityLabel("AirPlay")
+
             // Queue + Repeat stacked like Apple Music
             ZStack(alignment: .topTrailing) {
                 Button {
@@ -138,7 +143,8 @@ struct SecondaryActionsRow: View {
                         .padding(10)
                         .background(showQueue ? Circle().fill(.white.opacity(0.15)) : Circle().fill(.clear))
                 }
-                
+                .accessibilityLabel("Queue")
+
                 if !showQueue {
                     Button {
                         isRepeatOn.toggle()
@@ -150,6 +156,7 @@ struct SecondaryActionsRow: View {
                             .padding(4)
                     }
                     .offset(x: 2, y: -2)
+                    .accessibilityLabel(isRepeatOn ? "Repeat one" : "Repeat all")
                 }
             }
             .frame(maxWidth: .infinity)

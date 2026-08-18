@@ -32,8 +32,8 @@ struct ShimmerFill: View {
                         )
                         .frame(width: w * 2, height: h)
                         .offset(x: phase * w)
+                        .animation(.linear(duration: 1.5).repeatForever(autoreverses: false), value: phase)
                     }
-                    .animation(.linear(duration: 1.5).repeatForever(autoreverses: false), value: phases)
                 }
             )
             .clipShape(RoundedRectangle(cornerRadius: radius))

@@ -143,6 +143,15 @@ actor PlayerJsFetcher {
         if let jsPath = cachePath(hash: hash) {
             try js.write(to: jsPath, atomically: true, encoding: .utf8)
         }
+        // Remove stale player JS files from older player hashes so the
+        // cache directory only ever holds the current player.
+        if let dir = cacheDir {
+            let currentName = "player_\(hash).js"
+            let files = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
+            for url in files where url.lastPathComponent.hasPrefix("player_") && url.lastPathComponent != currentName {
+                try? FileManager.default.removeItem(at: url)
+            }
+        }
         // Save hash info
         let info = "\(hash)\n\(Date().timeIntervalSince1970)"
         if let infoPath = hashInfoPath {

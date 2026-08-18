@@ -259,7 +259,10 @@ actor InnerTube {
                 lastError = error
                 guard attempt < maxAttempts - 1,
                       isRetryable(error) else { break }
-                let delay = backoffBase * pow(backoffFactor, Double(attempt))
+                // Add jitter so concurrent clients don't thump the server in lockstep.
+                let base = backoffBase * pow(backoffFactor, Double(attempt))
+                let jitter = Duration.milliseconds(Int.random(in: 0...200))
+                let delay = base + jitter
                 Log.innerTube.debug("Retry \(attempt + 1)/\(maxAttempts - 1) for \(error.localizedDescription)")
                 try? await Task.sleep(for: delay)
             }
@@ -269,9 +272,16 @@ actor InnerTube {
 
     private func isRetryable(_ error: Error) -> Bool {
         if case InnerTubeError.httpError(let code, _) = error {
-            return code >= 500
+            // 5xx and rate-limits are transient; 4xx (bad request, blocked) are not.
+            return code >= 500 || code == 429
         }
-        return true
+        switch error {
+        case InnerTubeError.decodingFailed, InnerTubeError.invalidResponse:
+            // A 200 with an undecodable body will not recover by retrying.
+            return false
+        default:
+            return true
+        }
     }
 
     // Core POST returning raw Data for typed decoding
@@ -315,7 +325,9 @@ actor InnerTube {
         client: YouTubeClient,
         session: Session
     ) async throws -> T {
-        let (data, _) = try await rawPost(endpoint: endpoint, body: body, client: client, session: session)
+        let (data, _) = try await withRetry(maxAttempts: maxRetries) {
+            try await rawPost(endpoint: endpoint, body: body, client: client, session: session)
+        }
         do {
             return try decoder.decode(T.self, from: data)
         } catch {

@@ -367,6 +367,7 @@ struct PodcastDetailView: View {
                         .background(Circle().fill(Color.accentColor))
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Play all")
             }
             .padding(.top, 4)
         }

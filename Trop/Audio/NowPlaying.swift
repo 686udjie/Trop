@@ -13,6 +13,7 @@ import SwiftUI
 import MediaPlayer
 
 @Observable
+@MainActor
 final class NowPlaying {
     static let shared = NowPlaying()
 
@@ -66,6 +67,8 @@ final class NowPlaying {
     private var timer: Timer?
     var lastManualSkipTime: Date?
     private var isResolvingNext = false
+    /// Timestamps of the last mid-play failure per videoId, to bound retries.
+    private var lastFailureAt: [String: Date] = [:]
 
     private init() {}
 
@@ -74,6 +77,20 @@ final class NowPlaying {
         queueIndex = startIndex
         originalQueue = nil
         isShuffleOn = false
+        repairQueueIndex()
+    }
+
+    /// Ensures `queueIndex` points at a valid entry
+    func repairQueueIndex() {
+        if queueSongs.isEmpty {
+            queueIndex = 0
+            return
+        }
+        if let videoId, let idx = queueSongs.firstIndex(where: { $0.videoId == videoId }) {
+            queueIndex = idx
+        } else {
+            queueIndex = min(max(queueIndex, 0), queueSongs.count - 1)
+        }
     }
 
     /// Shuffles upcoming songs, keeping the current one; tapping again re-shuffles.
@@ -96,6 +113,7 @@ final class NowPlaying {
 
     /// Restore the original (unshuffled) queue order.
     func disableShuffle() {
+        guard queueSongs.indices.contains(queueIndex) else { return }
         if let orig = originalQueue {
             let currentVideoId = queueSongs[queueIndex].videoId
             queueSongs = orig
@@ -120,26 +138,6 @@ final class NowPlaying {
             }
             isResolvingNext = false
             isRepeatOn = false
-        }
-    }
-
-    func removeFromQueue(at indexSet: IndexSet) {
-        if queueIndex < queueSongs.count {
-            let currentVideoId = queueSongs[queueIndex].videoId
-            queueSongs.remove(atOffsets: indexSet)
-            if let newIdx = queueSongs.firstIndex(where: { $0.videoId == currentVideoId }) {
-                queueIndex = newIdx
-            }
-        } else {
-            queueSongs.remove(atOffsets: indexSet)
-        }
-    }
-
-    func moveQueue(from source: IndexSet, to destination: Int) {
-        let currentVideoId = queueSongs[queueIndex].videoId
-        queueSongs.move(fromOffsets: source, toOffset: destination)
-        if let newIdx = queueSongs.firstIndex(where: { $0.videoId == currentVideoId }) {
-            queueIndex = newIdx
         }
     }
 
@@ -189,9 +187,7 @@ final class NowPlaying {
             albumTitle = album
         }
         self.videoId = videoId
-        DispatchQueue.main.async { [weak self] in
-            self?.startTimer()
-        }
+        startTimer()
         loadThumbnail(videoId: videoId)
         preloadNextTrack()
     }
@@ -227,7 +223,7 @@ final class NowPlaying {
             return
         }
         guard isEof else {
-            isPlaying = false
+            recoverFromPlaybackFailure(videoId: videoId)
             return
         }
         currentTime = duration
@@ -246,6 +242,34 @@ final class NowPlaying {
             }
             stopTimer()
             MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+        }
+    }
+
+    /// A stream that died mid-play (not EOF, not a manual skip): drop the
+    /// possibly-expired cached URL and re-resolve once. Repeated failures for
+    /// the same video are only retried after a cooldown to avoid a loop.
+    private func recoverFromPlaybackFailure(videoId: String?) {
+        guard let videoId else {
+            isPlaying = false
+            return
+        }
+        if let last = lastFailureAt[videoId], Date().timeIntervalSince(last) < 30 {
+            isPlaying = false
+            return
+        }
+        lastFailureAt[videoId] = Date()
+        isPlaying = false
+        Log.nowPlaying.notice("Stream failed mid-play, re-resolving \(videoId)")
+        Task {
+            await StreamCache.shared.remove(videoId: videoId)
+            do {
+                try await PlaybackManager.shared.resolveAndPlay(videoId: videoId)
+            } catch {
+                Log.nowPlaying.error("Mid-play recovery failed: \(error)")
+                if self.videoId == videoId {
+                    isPlaying = false
+                }
+            }
         }
     }
 
@@ -300,12 +324,22 @@ final class NowPlaying {
 
     private func startTimer() {
         stopTimer()
-        timer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
-            guard let self else { return }
-            currentTime = PlayerController.shared.currentTime
-            duration = PlayerController.shared.duration
-            PlayerController.shared.updateNowPlayingProgress()
+        // Add to `.common` so progress keeps updating while the user scrolls
+        // or drags the slider (the default mode pauses the timer).
+        let timer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.timerTick()
+            }
         }
+        RunLoop.main.add(timer, forMode: .common)
+        self.timer = timer
+    }
+
+    @MainActor
+    private func timerTick() {
+        currentTime = PlayerController.shared.currentTime
+        duration = PlayerController.shared.duration
+        PlayerController.shared.updateNowPlayingProgress()
     }
 
     private func stopTimer() {

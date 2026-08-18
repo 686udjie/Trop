@@ -68,12 +68,7 @@ final class PlayerController {
         cleanup()
     }
 
-    func stop() {
-        guard let mpv = self.mpv else { return }
-        _ = ["stop"].withUnsafeCArg { mpv_command(mpv, $0) }
-        currentVideoId = nil
-    }
-
+    @MainActor
     func play(url: String, title: String? = nil, artist: String? = nil, videoId: String? = nil, duration: TimeInterval? = nil, artists: [YTArtist] = []) async {
         guard let url = URL(string: url) else {
             Log.player.error("Invalid URL: \(url)")
@@ -187,8 +182,9 @@ final class PlayerController {
             case MPV_EVENT_NONE:
                 break
             case MPV_EVENT_LOG_MESSAGE:
-                if let prop = event.pointee.data?.load(as: mpv_event_log_message.self) {
-                    let text = String(cString: prop.text)
+                if let prop = event.pointee.data?.load(as: mpv_event_log_message.self),
+                   let textPtr = prop.text {
+                    let text = String(cString: textPtr)
                     if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         Log.mpv.debug("\(text)")
                     }
@@ -207,7 +203,8 @@ final class PlayerController {
                 }
             case MPV_EVENT_PROPERTY_CHANGE:
                 if let prop = event.pointee.data?.load(as: mpv_event_property.self),
-                   String(cString: prop.name) == "duration",
+                   let namePtr = prop.name,
+                   String(cString: namePtr) == "duration",
                    prop.format == MPV_FORMAT_DOUBLE,
                    let ptr = prop.data?.assumingMemoryBound(to: Double.self) {
                     let newDur = ptr.pointee
@@ -280,7 +277,7 @@ final class PlayerController {
         switch type {
         case .began:
             if playState.value == .playing {
-                togglePlayPause()
+                Task { @MainActor in self.togglePlayPause() }
             }
         case .ended:
             if let optionsValue = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt {
@@ -288,7 +285,7 @@ final class PlayerController {
                 if options.contains(.shouldResume) {
                     assertAudioSession()
                     if playState.value == .paused {
-                        togglePlayPause()
+                        Task { @MainActor in self.togglePlayPause() }
                     }
                 }
             }
@@ -304,13 +301,14 @@ final class PlayerController {
 
         if reason == .oldDeviceUnavailable {
             if playState.value == .playing {
-                togglePlayPause()
+                Task { @MainActor in self.togglePlayPause() }
             }
         }
     }
 
     // MARK: - Now Playing Info
 
+    @MainActor
     func setNowPlayingMetadata() {
         assertAudioSession()
         let np = NowPlaying.shared
@@ -343,6 +341,7 @@ final class PlayerController {
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
     }
 
+    @MainActor
     func updateNowPlayingArtwork() {
         let np = NowPlaying.shared
         if let image = np.thumbnailUIImage {
@@ -353,6 +352,7 @@ final class PlayerController {
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
     }
 
+    @MainActor
     func updateNowPlayingProgress() {
         guard let mpv else { return }
         let np = NowPlaying.shared
@@ -384,25 +384,25 @@ final class PlayerController {
 
         center.playCommand.isEnabled = true
         center.playCommand.addTarget { [weak self] _ in
-            self?.togglePlayPause()
+            Task { @MainActor [weak self] in self?.togglePlayPause() }
             return .success
         }
 
         center.pauseCommand.isEnabled = true
         center.pauseCommand.addTarget { [weak self] _ in
-            self?.togglePlayPause()
+            Task { @MainActor [weak self] in self?.togglePlayPause() }
             return .success
         }
 
         center.nextTrackCommand.isEnabled = true
         center.nextTrackCommand.addTarget { _ in
-            NowPlaying.shared.playNext()
+            Task { @MainActor in NowPlaying.shared.playNext() }
             return .success
         }
 
         center.previousTrackCommand.isEnabled = true
         center.previousTrackCommand.addTarget { _ in
-            NowPlaying.shared.playPrevious()
+            Task { @MainActor in NowPlaying.shared.playPrevious() }
             return .success
         }
 
@@ -411,12 +411,16 @@ final class PlayerController {
             guard let event = event as? MPChangePlaybackPositionCommandEvent else {
                 return .commandFailed
             }
-            self?.seek(to: event.positionTime)
-            self?.updateNowPlayingProgress()
+            let position = event.positionTime
+            Task { @MainActor [weak self] in
+                self?.seek(to: position)
+                self?.updateNowPlayingProgress()
+            }
             return .success
         }
     }
 
+    @MainActor
     func seek(to time: TimeInterval) {
         guard let mpv = self.mpv else { return }
         var val = time
@@ -426,6 +430,7 @@ final class PlayerController {
         }
     }
 
+    @MainActor
     func togglePlayPause() {
         guard let mpv = self.mpv else { return }
         let willBePlaying = playState.value == .paused || playState.value == .stopped
@@ -443,6 +448,7 @@ final class PlayerController {
     private var loadedMuxedURL: String?
     private var muxedActive = false
 
+    @MainActor
     func setVideoMode(_ enabled: Bool) {
         guard let videoId = NowPlaying.shared.videoId else { return }
         // Disabling only hides the layer; the stream stays resident.
@@ -469,9 +475,7 @@ final class PlayerController {
             } catch {
                 Log.player.error("setVideoMode failed: \(error)")
                 if enabled {
-                    DispatchQueue.main.async {
-                        NowPlaying.shared.isVideoMode = false
-                    }
+                    NowPlaying.shared.isVideoMode = false
                 }
             }
         }
@@ -479,6 +483,7 @@ final class PlayerController {
 
     /// Resolves and caches the muxed URL in the background so toggling video
     /// mode is instant. Discarded if the song changes before it finishes.
+    @MainActor
     func preloadVideoURL() {
         guard loadedMuxedURL == nil else { return }
         guard let videoId = NowPlaying.shared.videoId else { return }
@@ -532,6 +537,7 @@ final class PlayerController {
     /// Loads a new URL into mpv, replacing the current file. `startAt` (seconds)
     /// resumes via `seek` after the file loads (mpv's `start=` option is
     /// unreliable in this build).
+    @MainActor
     private func loadFileReplacing(_ url: String, startAt: TimeInterval = 0) {
         guard let mpv else { return }
         pendingResumeAt = startAt
@@ -539,6 +545,7 @@ final class PlayerController {
         _ = args.withUnsafeCArg { mpv_command(mpv, $0) }
     }
 
+    @MainActor
     private func applyPendingResumeIfNeeded() {
         guard pendingResumeAt > 0 else { return }
         let target = pendingResumeAt

@@ -16,37 +16,14 @@ struct HomeScreenView: View {
     var body: some View {
         NavigationStack(path: $navigationPath) {
             VStack(spacing: 0) {
-                HStack(alignment: .center) {
-                    Text("Home")
-                        .font(.largeTitle)
-                        .fontWeight(.bold)
-                    Spacer()
-                    HStack(spacing: 8) {
-                        Button {
-                            navigationPath.append(DetailRoute.history)
-                        } label: {
-                            Image(systemName: "clock.arrow.circlepath")
-                                .font(.title3)
-                                .foregroundColor(.primary)
-                        }
-                        .buttonStyle(.plain)
-                        Button {
-                            navigationPath.append(DetailRoute.settings)
-                        } label: {
-                            Image(systemName: "gearshape")
-                                .font(.title3)
-                                .foregroundColor(.primary)
-                        }
-                        .buttonStyle(.plain)
-                        AccountButtonView(
-                            isLoggedIn: viewModel.isLoggedIn,
-                            accountImageUrl: viewModel.accountImageUrl,
-                            onTap: { viewModel.tapAccount() }
-                        )
-                    }
-                }
-                .padding(.horizontal)
-                .padding(.vertical, 8)
+                TabHeaderView(
+                    title: "Home",
+                    accountIsLoggedIn: viewModel.isLoggedIn,
+                    accountImageUrl: viewModel.accountImageUrl,
+                    onHistory: { navigationPath.append(DetailRoute.history) },
+                    onSettings: { navigationPath.append(DetailRoute.settings) },
+                    onAccount: { viewModel.tapAccount() }
+                )
 
                 if viewModel.isLoading {
                     Spacer()
@@ -176,53 +153,14 @@ struct HomeScreenView: View {
     }
 
     private var accountSheet: some View {
-        NavigationStack {
-            List {
-                Section {
-                    HStack(spacing: 14) {
-                        AccountButtonView(
-                            isLoggedIn: viewModel.isLoggedIn,
-                            accountImageUrl: viewModel.accountImageUrl,
-                            onTap: {}
-                        )
-                        .scaleEffect(1.3)
-
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(viewModel.accountName)
-                                .font(.headline)
-                            if viewModel.isLoggedIn {
-                                Text("Signed in")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            } else {
-                                Text("Not signed in")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-                    }
-                    .padding(.vertical, 4)
-                }
-
-                if viewModel.isLoggedIn {
-                    Section {
-                        Button(role: .destructive) {
-                            viewModel.logout()
-                        } label: {
-                            Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
-                        }
-                    }
-                }
-            }
-            .navigationTitle("Account")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { viewModel.isAccountSheetPresented = false }
-                }
-            }
-        }
-        .presentationDetents([.medium, .large])
+        AccountSheetView(
+            isLoggedIn: viewModel.isLoggedIn,
+            titleText: viewModel.accountName,
+            subtitleText: viewModel.isLoggedIn ? "Signed in" : "Not signed in",
+            accountImageUrl: viewModel.accountImageUrl,
+            onDone: { viewModel.isAccountSheetPresented = false },
+            onSignOut: { viewModel.logout() }
+        )
     }
 
     private func refreshTask() async {

@@ -33,12 +33,12 @@ actor MutationService {
         }
         entity.liked = true
         entity.modifyDate = Date()
-        _ = try await db.update(entity)
+        try await db.save(entity)
         do {
             _ = try await innerTube.like(videoId: videoId)
         } catch {
             entity.liked = false
-            _ = try? await db.update(entity)
+            try? await db.save(entity)
             throw error
         }
     }
@@ -52,12 +52,12 @@ actor MutationService {
         }
         entity.liked = false
         entity.modifyDate = Date()
-        _ = try? await db.update(entity)
+        try? await db.save(entity)
         do {
             _ = try await innerTube.unlike(videoId: videoId)
         } catch {
             entity.liked = true
-            _ = try? await db.update(entity)
+            try? await db.save(entity)
             throw error
         }
     }
@@ -71,26 +71,32 @@ actor MutationService {
         }
         entity.inLibrary = entity.inLibrary ?? Date()
         entity.modifyDate = Date()
-        _ = try? await db.update(entity)
+        try? await db.save(entity)
         do {
             _ = try await innerTube.feedback(tokens: [addToken])
         } catch {
             entity.inLibrary = nil
-            _ = try? await db.update(entity)
+            try? await db.save(entity)
             throw error
         }
     }
 
     func removeFromLibrary(videoId: String, removeToken: String) async throws {
-        guard var entity = try await db.fetchOne(SongEntity.self, key: videoId) else { return }
-        entity.inLibrary = nil
-        entity.modifyDate = Date()
-        _ = try? await db.update(entity)
+        var entity: SongEntity?
+        if var existing = try await db.fetchOne(SongEntity.self, key: videoId) {
+            existing.inLibrary = nil
+            existing.modifyDate = Date()
+            entity = existing
+            try? await db.save(existing)
+        }
         do {
             _ = try await innerTube.feedback(tokens: [removeToken])
         } catch {
-            entity.inLibrary = Date()
-            _ = try? await db.update(entity)
+            if var existing = entity {
+                existing.inLibrary = Date()
+                existing.modifyDate = Date()
+                try? await db.save(existing)
+            }
             throw error
         }
     }
@@ -167,29 +173,39 @@ actor MutationService {
     }
 
     func subscribeArtist(channelId: String, artistId: String) async throws {
-        guard var entity = try await db.fetchOne(ArtistEntity.self, key: artistId) else { return }
-        entity.bookmarkedAt = Date()
-        entity.channelId = channelId
-        _ = try? await db.update(entity)
+        var entity: ArtistEntity?
+        if var existing = try await db.fetchOne(ArtistEntity.self, key: artistId) {
+            existing.bookmarkedAt = Date()
+            existing.channelId = channelId
+            entity = existing
+            try? await db.save(existing)
+        }
         do {
             _ = try await innerTube.subscribe(channelId: channelId)
         } catch {
-            entity.bookmarkedAt = nil
-            entity.channelId = nil
-            _ = try? await db.update(entity)
+            if var existing = entity {
+                existing.bookmarkedAt = nil
+                existing.channelId = nil
+                try? await db.save(existing)
+            }
             throw error
         }
     }
 
     func unsubscribeArtist(channelId: String, artistId: String) async throws {
-        guard var entity = try await db.fetchOne(ArtistEntity.self, key: artistId) else { return }
-        entity.bookmarkedAt = nil
-        _ = try? await db.update(entity)
+        var entity: ArtistEntity?
+        if var existing = try await db.fetchOne(ArtistEntity.self, key: artistId) {
+            existing.bookmarkedAt = nil
+            entity = existing
+            try? await db.save(existing)
+        }
         do {
             _ = try await innerTube.unsubscribe(channelId: channelId)
         } catch {
-            entity.bookmarkedAt = entity.bookmarkedAt ?? Date()
-            _ = try? await db.update(entity)
+            if var existing = entity {
+                existing.bookmarkedAt = existing.bookmarkedAt ?? Date()
+                try? await db.save(existing)
+            }
             throw error
         }
     }

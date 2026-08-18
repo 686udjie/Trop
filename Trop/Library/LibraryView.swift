@@ -44,37 +44,14 @@ struct LibraryView: View {
     var body: some View {
         NavigationStack(path: $navigationPath) {
             VStack(spacing: 0) {
-                HStack(alignment: .center) {
-                    Text("Library")
-                        .font(.largeTitle)
-                        .fontWeight(.bold)
-                    Spacer()
-                    HStack(spacing: 8) {
-                        Button {
-                            navigationPath.append(DetailRoute.history)
-                        } label: {
-                            Image(systemName: "clock.arrow.circlepath")
-                                .font(.title3)
-                                .foregroundColor(.primary)
-                        }
-                        .buttonStyle(.plain)
-                        Button {
-                            navigationPath.append(DetailRoute.settings)
-                        } label: {
-                            Image(systemName: "gearshape")
-                                .font(.title3)
-                                .foregroundColor(.primary)
-                        }
-                        .buttonStyle(.plain)
-                        AccountButtonView(
-                            isLoggedIn: loginModel.isLoggedIn,
-                            accountImageUrl: accountImageUrl,
-                            onTap: { tapAccount() }
-                        )
-                    }
-                }
-                .padding(.horizontal)
-                .padding(.vertical, 8)
+                TabHeaderView(
+                    title: "Library",
+                    accountIsLoggedIn: loginModel.isLoggedIn,
+                    accountImageUrl: accountImageUrl,
+                    onHistory: { navigationPath.append(DetailRoute.history) },
+                    onSettings: { navigationPath.append(DetailRoute.settings) },
+                    onAccount: { tapAccount() }
+                )
 
                 Group {
                     if isLoading {
@@ -115,6 +92,7 @@ struct LibraryView: View {
                         .background(Circle().fill(Color.accentColor))
                         .shadow(color: .black.opacity(0.3), radius: 6, y: 3)
                 }
+                .accessibilityLabel("Create playlist")
                 .padding(.trailing, 20)
                 .padding(.bottom, 20)
             }
@@ -129,7 +107,7 @@ struct LibraryView: View {
             }
             .animation(.spring(response: 0.4, dampingFraction: 0.8), value: showCreateDialog)
             .sheet(isPresented: $isLoginSheetPresented) {
-        NavigationStack(path: $navigationPath) {
+                NavigationStack {
                     LoginWebView(model: loginModel)
                         .ignoresSafeArea()
                         .toolbar {
@@ -187,33 +165,15 @@ struct LibraryView: View {
     // MARK: - Filter Bar
 
     private var filterBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(LibraryFilter.allCases, id: \.self) { filter in
-                    Button(action: {
-                        selectedFilter = selectedFilter == filter ? nil : filter
-                    }) {
-                        Text(filter.rawValue)
-                            .font(.subheadline)
-                            .fontWeight(.medium)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 8)
-                            .background(
-                                Capsule()
-                                    .fill(selectedFilter == filter
-                                        ? Color.accentColor
-                                        : Color(.systemGray5))
-                            )
-                            .foregroundColor(selectedFilter == filter
-                                ? .white
-                                : .primary)
-                    }
-                    .buttonStyle(.plain)
-                }
+        FilterChipBar(
+            items: LibraryFilter.allCases,
+            id: \.self,
+            title: \.rawValue,
+            isSelected: { selectedFilter == $0 },
+            onTap: { filter in
+                selectedFilter = selectedFilter == filter ? nil : filter
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-        }
+        )
     }
 
     // MARK: - Feed Content
@@ -471,51 +431,18 @@ struct LibraryView: View {
     }
 
     private var accountSheet: some View {
-        NavigationStack(path: $navigationPath) {
-            List {
-                Section {
-                    HStack(spacing: 14) {
-                        AccountButtonView(
-                            isLoggedIn: loginModel.isLoggedIn,
-                            accountImageUrl: accountImageUrl,
-                            onTap: {}
-                        )
-                        .scaleEffect(1.3)
-
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(loginModel.isLoggedIn ? "Signed in" : "Not signed in")
-                                .font(.headline)
-                            if loginModel.isLoggedIn {
-                                Text("Your account")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-                    }
-                    .padding(.vertical, 4)
-                }
-
-                if loginModel.isLoggedIn {
-                    Section {
-                        Button(role: .destructive) {
-                            loginModel.logout()
-                            accountImageUrl = nil
-                            isAccountSheetPresented = false
-                        } label: {
-                            Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
-                        }
-                    }
-                }
+        AccountSheetView(
+            isLoggedIn: loginModel.isLoggedIn,
+            titleText: loginModel.isLoggedIn ? "Signed in" : "Not signed in",
+            subtitleText: loginModel.isLoggedIn ? "Your account" : "",
+            accountImageUrl: accountImageUrl,
+            onDone: { isAccountSheetPresented = false },
+            onSignOut: {
+                loginModel.logout()
+                accountImageUrl = nil
+                isAccountSheetPresented = false
             }
-            .navigationTitle("Account")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { isAccountSheetPresented = false }
-                }
-            }
-        }
-        .presentationDetents([.medium, .large])
+        )
     }
 }
 

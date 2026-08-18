@@ -11,23 +11,23 @@ struct AppLogger {
     let logger: Logger
 
     func debug(_ message: String) {
-        logger.debug("\(message, privacy: .public)")
+        logger.debug("\(message, privacy: .private)")
     }
 
     func info(_ message: String) {
-        logger.info("\(message, privacy: .public)")
+        logger.info("\(message, privacy: .private)")
     }
 
     func notice(_ message: String) {
-        logger.notice("\(message, privacy: .public)")
+        logger.notice("\(message, privacy: .private)")
     }
 
     func error(_ message: String) {
-        logger.error("\(message, privacy: .public)")
+        logger.error("\(message, privacy: .private)")
     }
 
     func fault(_ message: String) {
-        logger.fault("\(message, privacy: .public)")
+        logger.fault("\(message, privacy: .private)")
     }
 }
 

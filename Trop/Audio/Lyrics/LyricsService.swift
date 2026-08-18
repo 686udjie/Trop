@@ -37,7 +37,7 @@ actor LyricsService {
             await updateAvailability(videoId: videoId, available: !cached.isEmpty)
             return cached
         }
-        guard let query = resolveQuery(videoId: videoId) else {
+        guard let query = await resolveQuery(videoId: videoId) else {
             await updateAvailability(videoId: videoId, available: false)
             throw LyricsError.notFound
         }
@@ -55,24 +55,37 @@ actor LyricsService {
     }
 
     private func updateAvailability(videoId: String, available: Bool) async {
-        guard NowPlaying.shared.videoId == videoId else { return }
+        let currentId = await MainActor.run { NowPlaying.shared.videoId }
+        guard currentId == videoId else { return }
         await MainActor.run { LyricsState.shared.isAvailable = available }
     }
 
-    private func resolveQuery(videoId: String) -> LyricsQuery? {
-        let np = NowPlaying.shared
+    private func resolveQuery(videoId: String) async -> LyricsQuery? {
+        let info = await MainActor.run {
+            let np = NowPlaying.shared
+            return (
+                title: np.title,
+                artist: np.displayArtist,
+                album: np.albumTitle.isEmpty ? nil : np.albumTitle,
+                duration: np.duration,
+                currentId: np.videoId,
+                queue: np.queueSongs
+            )
+        }
+
+        let (npTitle, npArtist, npAlbum, npDuration, currentId, queue) = info
 
         let title: String
         let artist: String
         let album: String?
         let duration: TimeInterval
 
-        if np.videoId == videoId, !np.title.isEmpty, !np.displayArtist.isEmpty {
-            title = np.title
-            artist = np.displayArtist
-            album = np.albumTitle.isEmpty ? nil : np.albumTitle
-            duration = np.duration
-        } else if let song = np.queueSongs.first(where: { $0.videoId == videoId }) {
+        if currentId == videoId, !npTitle.isEmpty, !npArtist.isEmpty {
+            title = npTitle
+            artist = npArtist
+            album = npAlbum
+            duration = npDuration
+        } else if let song = queue.first(where: { $0.videoId == videoId }) {
             title = song.title
             artist = song.artists.map(\.name).joined(separator: ", ")
             album = song.album?.isEmpty == false ? song.album : nil

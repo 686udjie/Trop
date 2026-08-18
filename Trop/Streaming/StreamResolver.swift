@@ -123,7 +123,7 @@ enum StreamResolver {
         // Append &pot= for web client PoToken
         var finalStreamUrl = streamUrl
         if let pot = streamingDataPoToken, client.useWebPoTokens {
-            finalStreamUrl += "&pot=" + pot.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)!
+            finalStreamUrl += "&pot=" + Self.encodeQueryValue(pot)
             Log.streamResolver.debug("Appended &pot= to stream URL")
         }
 
@@ -139,7 +139,7 @@ enum StreamResolver {
             }
             var muxed = url
             if let pot = streamingDataPoToken, client.useWebPoTokens {
-                muxed += "&pot=" + pot.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)!
+                muxed += "&pot=" + Self.encodeQueryValue(pot)
             }
             return muxed
         }()
@@ -186,6 +186,13 @@ enum StreamResolver {
         _ = try? await DatabaseService.shared.insertOrReplace(formatEntity)
 
         return result
+    }
+
+    /// Percent-encodes a value destined for a query string. Unlike
+    /// `CharacterSet.urlQueryAllowed`, this also encodes `+`, `=`, `&` and `/`,
+    /// which would otherwise corrupt the token (base64 contains all of them).
+    private static func encodeQueryValue(_ value: String) -> String {
+        value.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? value
     }
 
     // Validates a stream URL by sending a HEAD request

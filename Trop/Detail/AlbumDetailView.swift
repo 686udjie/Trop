@@ -409,6 +409,7 @@ struct AlbumDetailView: View {
                         .background(Circle().fill(Color(.systemGray6)))
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Shuffle")
 
                 Button(action: { playAll(album) }) {
                     Image(systemName: "play.fill")
@@ -418,6 +419,7 @@ struct AlbumDetailView: View {
                         .background(Circle().fill(Color.accentColor))
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Play all")
             }
             .padding(.top, 4)
         }

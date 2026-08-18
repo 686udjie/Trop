@@ -27,8 +27,9 @@ class DownloadManager: ObservableObject {
 
     private let fileManager = FileManager.default
     private var downloadsDir: URL {
-        let docs = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first!
-        return docs.appendingPathComponent("Trop/Downloads")
+        let base = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first
+            ?? fileManager.temporaryDirectory
+        return base.appendingPathComponent("Trop/Downloads")
     }
 
     private init() {}
@@ -60,7 +61,10 @@ class DownloadManager: ObservableObject {
 
             // Stream the response in chunks (avoids per-byte copies and
             // per-byte @Published notifications, which were the main slowdown).
-            let (bytes, response) = try await URLSession.shared.bytes(from: URL(string: streamURL)!)
+            guard let url = URL(string: streamURL) else {
+                throw DownloadError.invalidStreamURL
+            }
+            let (bytes, response) = try await URLSession.shared.bytes(from: url)
             let expected = (response as? HTTPURLResponse)?.expectedContentLength ?? -1
             var data = Data()
             if expected > 0 { data.reserveCapacity(Int(expected)) }
@@ -357,4 +361,9 @@ class DownloadManager: ObservableObject {
         return s.components(separatedBy: invalid).joined(separator: " ")
             .trimmingCharacters(in: .whitespaces)
     }
+}
+
+enum DownloadError: Error, LocalizedError {
+    case invalidStreamURL
+    var errorDescription: String? { "The stream URL returned by the server was invalid" }
 }

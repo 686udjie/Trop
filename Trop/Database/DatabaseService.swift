@@ -15,13 +15,49 @@ actor DatabaseService {
     let dbPool: DatabasePool
 
     init() {
-        // swiftlint:disable:next force_try
-        let url = try! FileManager.default
-            .url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
-            .appendingPathComponent("trop.sqlite")
-        // swiftlint:disable:next force_try
-        dbPool = try! DatabasePool(path: url.path)
+        var pool: DatabasePool?
+        do {
+            let url = try FileManager.default
+                .url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+                .appendingPathComponent("trop.sqlite")
+            let diskPool = try DatabasePool(path: url.path)
+            var migrator = DatabaseMigrator()
+            Self.registerMigrations(&migrator)
+            try migrator.migrate(diskPool)
+            pool = diskPool
+        } catch {
+            Log.db.error("Database setup failed: \(error). Falling back to a temporary database.")
+        }
+
+        if let pool {
+            dbPool = pool
+        } else {
+            dbPool = Self.makeFallbackPool()
+        }
+    }
+
+    /// Creates a temporary database so the app keeps running when the on-disk
+    /// database is corrupt or unavailable. Data will not persist across launches.
+    private static func makeFallbackPool() -> DatabasePool {
+        let fallbackURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("trop-fallback.sqlite")
+        try? FileManager.default.removeItem(at: fallbackURL)
+        if let tempPool = try? DatabasePool(path: fallbackURL.path) {
+            var migrator = DatabaseMigrator()
+            registerMigrations(&migrator)
+            try? migrator.migrate(tempPool)
+            return tempPool
+        }
         var migrator = DatabaseMigrator()
+        registerMigrations(&migrator)
+        guard let memoryPool = try? DatabasePool(path: ":memory:") else {
+            fatalError("Unable to create any database pool")
+        }
+        try? migrator.migrate(memoryPool)
+        return memoryPool
+    }
+
+    private static func registerMigrations(_ migrator: inout DatabaseMigrator) {
         migrator.registerMigration("v1", migrate: DatabaseMigrations.v1)
         migrator.registerMigration("v2", migrate: DatabaseMigrations.v2)
         migrator.registerMigration("v3", migrate: DatabaseMigrations.v3)
@@ -29,8 +65,6 @@ actor DatabaseService {
         migrator.registerMigration("v5", migrate: DatabaseMigrations.v5)
         migrator.registerMigration("v6", migrate: DatabaseMigrations.v6)
         migrator.registerMigration("v7", migrate: DatabaseMigrations.v7)
-        // swiftlint:disable:next force_try
-        try! migrator.migrate(dbPool)
     }
 }
 

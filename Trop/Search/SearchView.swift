@@ -11,6 +11,7 @@ struct SearchView: View {
     @State private var viewModel = SearchViewModel()
     @State private var navigationPath = NavigationPath()
     @State private var pendingRoute: DetailRoute?
+    @State private var hasFocusedOnce = false
     var onExitSearch: (() -> Void)?
 
     var body: some View {
@@ -27,6 +28,8 @@ struct SearchView: View {
                         filterChips
                     }
                     searchResultsList
+                } else if viewModel.hasSearched {
+                    noResultsView
                 } else if !viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     suggestionsAndLocalView
                 } else if !viewModel.searchHistory.isEmpty {
@@ -83,8 +86,9 @@ struct SearchView: View {
                 }
             }
             .onAppear {
-                if navigationPath.isEmpty {
+                if navigationPath.isEmpty && !hasFocusedOnce {
                     viewModel.isFocused = true
+                    hasFocusedOnce = true
                 }
                 viewModel.loadSearchHistory()
             }
@@ -266,43 +270,34 @@ struct SearchView: View {
     }
 
     private var filterChips: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(viewModel.availableFilters, id: \.self) { filter in
-                    Button {
-                        if filter == "Library" {
-                            let willShow = !viewModel.isShowingLibrary
-                            viewModel.isShowingLibrary = willShow
-                            viewModel.selectedSectionFilter = nil
-                        } else {
-                            viewModel.selectedSectionFilter = filter
-                            viewModel.isShowingLibrary = false
-                        }
-                    } label: {
-                        let isSelected = filter == "Library"
-                            ? viewModel.isShowingLibrary
-                            : viewModel.selectedSectionFilter == filter
-                        Text(filter)
-                            .font(.subheadline)
-                            .fontWeight(.medium)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 8)
-                            .background(
-                                Capsule()
-                                    .fill(isSelected
-                                        ? Color.accentColor
-                                        : Color(.systemGray5))
-                            )
-                            .foregroundColor(isSelected
-                                ? .white
-                                : .primary)
-                    }
-                    .buttonStyle(.plain)
+        FilterChipBar(
+            items: viewModel.availableFilters,
+            id: \.self,
+            title: { $0 },
+            isSelected: { filter in
+                filter == "Library"
+                    ? viewModel.isShowingLibrary
+                    : viewModel.selectedSectionFilter == filter
+            },
+            onTap: { filter in
+                if filter == "Library" {
+                    let willShow = !viewModel.isShowingLibrary
+                    viewModel.isShowingLibrary = willShow
+                    viewModel.selectedSectionFilter = nil
+                } else {
+                    viewModel.selectedSectionFilter = filter
+                    viewModel.isShowingLibrary = false
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-        }
+        )
+    }
+
+    private var noResultsView: some View {
+        ContentUnavailableView(
+            "No Results",
+            systemImage: "magnifyingglass",
+            description: Text("No results found for \"\(viewModel.searchText)\"")
+        )
     }
 
     private var noRecentSearchesView: some View {

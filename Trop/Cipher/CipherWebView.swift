@@ -14,6 +14,7 @@ actor CipherWebView: NSObject {
     private var isReady = false
     private var playerHash: String?
     private var readyContinuation: CheckedContinuation<Void, Error>?
+    private var loadTask: Task<Void, Error>?
 
     private var webView: WKWebView?
 
@@ -34,6 +35,23 @@ actor CipherWebView: NSObject {
         if isReady, self.playerHash == hash {
             return
         }
+
+        // Deduplicate concurrent loads: actor reentrancy otherwise lets a
+        // second caller overwrite `readyContinuation`, orphaning the first.
+        if let existing = loadTask {
+            try await existing.value
+            return
+        }
+
+        let task = Task { [self] in
+            try await self.performLoad(hash: hash)
+        }
+        loadTask = task
+        defer { loadTask = nil }
+        try await task.value
+    }
+
+    private func performLoad(hash: String) async throws {
         self.playerHash = hash
 
         let playerJs = try await PlayerJsFetcher.shared.getPlayerJs()
@@ -211,28 +229,43 @@ actor CipherWebView: NSObject {
 
     private func evaluateJS(_ script: String) async throws -> String? {
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<String?, Error>) in
+            let lock = NSLock()
+            var finished = false
+            func finish(_ result: Result<String?, Error>) {
+                lock.lock()
+                guard !finished else { lock.unlock(); return }
+                finished = true
+                lock.unlock()
+                cont.resume(with: result)
+            }
+
             Task { [weak self] in
                 guard let self = self else {
-                    cont.resume(throwing: CipherError.jsExecutionFailed("deallocated"))
+                    finish(.failure(CipherError.jsExecutionFailed("deallocated")))
                     return
                 }
                 let wv = await self.webView
+                guard let wv = wv else {
+                    finish(.failure(CipherError.jsExecutionFailed("webView is nil")))
+                    return
+                }
+
+                // Fail instead of hanging if the script never reports back.
+                Task {
+                    try? await Task.sleep(nanoseconds: 20_000_000_000)
+                    finish(.failure(CipherError.jsExecutionFailed("JS evaluation timed out")))
+                }
+
                 await MainActor.run {
-                    guard let wv = wv else {
-                        cont.resume(throwing: CipherError.jsExecutionFailed("webView is nil"))
-                        return
-                    }
                     wv.evaluateJavaScript(script) { result, error in
                         if let error = error {
-                            cont.resume(throwing: CipherError.jsExecutionFailed(error.localizedDescription))
+                            finish(.failure(CipherError.jsExecutionFailed(error.localizedDescription)))
                             return
                         }
                         if let result = result as? String {
-                            cont.resume(returning: result)
-                        } else if result is NSNull {
-                            cont.resume(returning: nil)
+                            finish(.success(result))
                         } else {
-                            cont.resume(returning: nil)
+                            finish(.success(nil))
                         }
                     }
                 }

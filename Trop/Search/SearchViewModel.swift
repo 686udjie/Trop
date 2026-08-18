@@ -24,6 +24,10 @@ final class SearchViewModel {
     var selectedSectionFilter: String?
     var isShowingLibrary = false
 
+    /// True once a submitted search has completed, so the UI can show a
+    /// dedicated "no results" state instead of pre-search suggestions.
+    var hasSearched = false
+
     var libraryFilterSections: [SearchSection] {
         var sections: [SearchSection] = []
         if !localSongs.isEmpty {
@@ -94,9 +98,11 @@ final class SearchViewModel {
 
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else {
+            hasSearched = false
             clearSuggestions()
             return
         }
+        hasSearched = false
 
         suggestionsTask = Task { [weak self] in
             guard let self = self else { return }
@@ -168,6 +174,7 @@ final class SearchViewModel {
                     self.searchSections = sections
                     self.selectedSectionFilter = nil
                     self.isShowingLibrary = false
+                    self.hasSearched = true
                     self.isLoading = false
                 }
             } catch {
@@ -186,6 +193,7 @@ final class SearchViewModel {
         searchSections = []
         selectedSectionFilter = nil
         isShowingLibrary = false
+        hasSearched = false
         clearSuggestions()
     }
 

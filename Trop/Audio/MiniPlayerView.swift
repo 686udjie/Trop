@@ -172,7 +172,16 @@ struct MiniPlayerView: View {
         np.queueIndex = idx
         let song = np.queueSongs[idx]
         np.update(title: song.title, artist: song.artists.map(\.name).joined(separator: ", "), videoId: song.videoId, artists: song.artists)
-        Task { try? await PlaybackManager.shared.resolveAndPlay(videoId: song.videoId) }
+        Task {
+            do {
+                try await PlaybackManager.shared.resolveAndPlay(videoId: song.videoId)
+            } catch {
+                Log.nowPlaying.error("resolveAndPlay failed: \(error)")
+                if np.videoId == song.videoId {
+                    np.isPlaying = false
+                }
+            }
+        }
     }
 
     private func preloadLyrics() {
@@ -367,6 +376,7 @@ private struct MiniPlayerPopupItems: View, Equatable {
                                 Image(systemName: isPlaying ? "pause.fill" : "play.fill")
                                     .contentTransition(.symbolEffect(.replace))
                             }
+                            .accessibilityLabel(isPlaying ? "Pause" : "Play")
                         }
                     }
                 }

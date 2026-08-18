@@ -144,18 +144,22 @@ actor PlaylistDetailService {
     }
 
     private func extractAlbumPlaylistId(from json: [String: Any]) -> String? {
-        guard let microformat = json["microformat"] as? [String: Any] ?? (json["header"] as? [String: Any]).flatMap({ $0 }) else { return nil }
+        guard let microformat = json["microformat"] as? [String: Any] ?? (json["header"] as? [String: Any]) else { return nil }
         // Try various paths to find the playlistId in the album microformat
-        if let renderer = microformat["musicMicroformatRenderer"] as? [String: Any],
-           let url = renderer["urlCanonical"] as? String,
-           url.contains("playlist") {
-            return URL(string: url)?.pathComponents.last
-        }
-        // Fallback: check microformatDataRenderer
-        if let dataRenderer = microformat["microformatDataRenderer"] as? [String: Any],
-           let url = dataRenderer["urlCanonical"] as? String,
-           url.contains("playlist") {
-            return URL(string: url)?.pathComponents.last
+        let renderers = [microformat["musicMicroformatRenderer"], microformat["microformatDataRenderer"]]
+            .compactMap { ($0 as? [String: Any])?["urlCanonical"] as? String }
+        for urlString in renderers {
+            guard let url = URL(string: urlString),
+                  let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { continue }
+            // Canonical album URLs look like https://music.youtube.com/playlist?list=OLAK5uy_...
+            if let list = components.queryItems?.first(where: { $0.name == "list" })?.value,
+               !list.isEmpty, list != "playlist" {
+                return list
+            }
+            // Fallback: a path like /playlist/OLAK5uy_... — but never the bare "playlist" segment
+            if let last = url.pathComponents.last, last != "playlist", !last.isEmpty {
+                return last
+            }
         }
         return nil
     }

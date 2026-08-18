@@ -414,7 +414,7 @@ struct ArtistDetailView: View {
                 Button(action: { playSong(song) }) {
                     HStack(spacing: 12) {
                         AsyncImageView(url: song.thumbnailUrl)
-                            .frame(width: 44, height: 44)
+                            .frame(width: 40, height: 40)
                             .clipShape(RoundedRectangle(cornerRadius: 4))
 
                         VStack(alignment: .leading, spacing: 2) {
@@ -437,7 +437,7 @@ struct ArtistDetailView: View {
                             .foregroundStyle(.tertiary)
                     }
                     .padding(.horizontal, 16)
-                    .padding(.vertical, 7)
+                    .padding(.vertical, 6)
                 }
                 .buttonStyle(.plain)
 
