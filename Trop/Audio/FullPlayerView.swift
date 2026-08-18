@@ -1,29 +1,26 @@
 //
-//  MiniPlayerView.swift
+//  FullPlayerView.swift
 //  Trop
 //
-//  Created by 686udjie on 2/07/2026.
+//  Created by 686udjie on 18/07/2026.
 //
 
 import SwiftUI
-import LNPopupUI
 
-struct MiniPlayerView: View {
+struct FullPlayerView: View {
+    let onCollapse: () -> Void
+
     private let player = PlayerController.shared
     @Bindable private var np = NowPlaying.shared
 
     @State private var editingProgress: Float = 0
     @State private var isEditingSlider = false
-    @State private var activeItemId = ""
+    @State private var collapseOffset: CGFloat = 0
 
     @State private var isLiked = false
     @State private var showLyrics = false
     @State private var showQueue = false
     @State private var pendingRoute: DetailRoute?
-
-    private var upcomingSongs: [SongItem] {
-        Array(np.queueSongs.suffix(from: np.queueIndex + 1))
-    }
 
     var body: some View {
         ZStack {
@@ -52,6 +49,21 @@ struct MiniPlayerView: View {
                     .frame(width: 36, height: 5)
                     .padding(.top, 16)
                     .padding(.bottom, 16)
+                    .contentShape(Rectangle().size(width: 60, height: 30))
+                    .gesture(
+                        DragGesture(minimumDistance: 8)
+                            .onChanged { value in
+                                guard value.translation.height > 0 else { return }
+                                collapseOffset = value.translation.height
+                            }
+                            .onEnded { value in
+                                if value.translation.height > 140 {
+                                    onCollapse()
+                                }
+                                collapseOffset = 0
+                            }
+                    )
+                    .accessibilityLabel("Collapse player")
 
                 if showLyrics {
                     LyricsView(
@@ -115,41 +127,23 @@ struct MiniPlayerView: View {
                 }
             }
         }
-        .overlay(MiniPlayerPopupItems(
-            queueSongs: np.queueSongs,
-            videoId: np.videoId,
-            isPlaying: np.isPlaying,
-            progress: np.progress,
-            thumbnailImage: np.thumbnailImage,
-            thumbnailVersion: np.thumbnailVersion,
-            activeItemId: $activeItemId
-        ).equatable())
-        .popupBarCustomizer { bar in
-            bar.imageView.contentMode = .scaleAspectFill
-            bar.imageView.layer.masksToBounds = true
-            bar.imageView.cornerRadius = 6
-        }
-        .popupProgress(np.progress)
-        .onChange(of: activeItemId) { _, newId in
-            handleActiveItemChange(newId: newId)
-        }
+        .offset(y: collapseOffset)
+        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: collapseOffset)
         .onChange(of: np.videoId) { _, newId in
-            activeItemId = newId ?? ""
             np.isVideoMode = false
             preloadLyrics()
         }
         .onChange(of: np.queueSongs.count) { _, _ in
-            activeItemId = np.videoId ?? ""
-            preloadUpcomingThumbnails()
+            np.preloadNeighborArtwork()
             preloadLyrics()
         }
         .onChange(of: np.queueIndex) { _, _ in
-            preloadUpcomingThumbnails()
+            np.preloadNeighborArtwork()
         }
         .onChange(of: showQueue) { _, newValue in
-            if newValue { preloadUpcomingThumbnails() }
+            if newValue { np.preloadNeighborArtwork() }
         }
-        .task { preloadUpcomingThumbnails() }
+        .task { np.preloadNeighborArtwork() }
         .navigationDestination(item: $pendingRoute) { route in
             switch route {
             case .album(let browseId): AlbumDetailView(browseId: browseId)
@@ -165,35 +159,10 @@ struct MiniPlayerView: View {
 
     // MARK: - Player Content
 
-    private func handleActiveItemChange(newId: String) {
-        guard newId != np.videoId else { return }
-        guard let idx = np.queueSongs.firstIndex(where: { $0.videoId == newId }) else { return }
-        np.lastManualSkipTime = Date()
-        np.queueIndex = idx
-        let song = np.queueSongs[idx]
-        np.update(title: song.title, artist: song.artists.map(\.name).joined(separator: ", "), videoId: song.videoId, artists: song.artists)
-        Task {
-            do {
-                try await PlaybackManager.shared.resolveAndPlay(videoId: song.videoId)
-            } catch {
-                Log.nowPlaying.error("resolveAndPlay failed: \(error)")
-                if np.videoId == song.videoId {
-                    np.isPlaying = false
-                }
-            }
-        }
-    }
-
     private func preloadLyrics() {
         guard let id = np.videoId else { return }
         let upcoming = Array(np.queueSongs.suffix(from: np.queueIndex + 1).prefix(3).map(\.videoId))
         Task { await LyricsService.shared.preload(videoId: id, upcoming: upcoming) }
-    }
-
-    private func preloadUpcomingThumbnails() {
-        let urls = upcomingSongs.compactMap(\.thumbnailUrl).compactMap { URL(string: $0) }
-        guard !urls.isEmpty else { return }
-        Task { await ImagePreloader.shared.preload(urls) }
     }
 
     private var titleAndActionsRow: some View {
@@ -340,46 +309,5 @@ struct MiniPlayerView: View {
     private func timeString(_ t: TimeInterval) -> String {
         guard t.isFinite else { return "0:00" }
         return "\(Int(t) / 60):\(String(format: "%02d", Int(t) % 60))"
-    }
-}
-
-private struct MiniPlayerPopupItems: View, Equatable {
-    let queueSongs: [SongItem]
-    let videoId: String?
-    let isPlaying: Bool
-    let progress: Float
-    let thumbnailImage: Image?
-    let thumbnailVersion: Int
-    @Binding var activeItemId: String
-
-    static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.videoId == rhs.videoId &&
-        lhs.isPlaying == rhs.isPlaying &&
-        lhs.progress == rhs.progress &&
-        lhs.queueSongs.map(\.videoId) == rhs.queueSongs.map(\.videoId) &&
-        lhs.thumbnailVersion == rhs.thumbnailVersion
-    }
-
-    var body: some View {
-        Color.clear
-            .popupItems(selection: $activeItemId) {
-                for song in queueSongs {
-                    PopupItem(
-                        id: song.videoId,
-                        verbatimTitle: song.title,
-                        verbatimSubtitle: song.artists.map { cleanArtistDisplay($0.name) }.filter { !$0.isEmpty }.joined(separator: ", "),
-                        image: thumbnailImage,
-                        progress: progress
-                    ) {
-                        ToolbarItemGroup(placement: .popupBar) {
-                            Button(action: { PlayerController.shared.togglePlayPause() }) {
-                                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                                    .contentTransition(.symbolEffect(.replace))
-                            }
-                            .accessibilityLabel(isPlaying ? "Pause" : "Play")
-                        }
-                    }
-                }
-            }
     }
 }

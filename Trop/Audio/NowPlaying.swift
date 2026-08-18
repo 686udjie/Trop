@@ -28,7 +28,6 @@ final class NowPlaying {
     var progress: Float {
         duration > 0 ? Float(currentTime / duration) : 0
     }
-    var isPopupOpen = false
     var thumbnailImage: Image?
     var thumbnailUIImage: UIImage?
     var thumbnailVersion = 0
@@ -207,6 +206,21 @@ final class NowPlaying {
         }
     }
 
+    /// Pre-warms artwork for the previous and upcoming songs so swiping the
+    /// mini player bar shows their art instantly.
+    func preloadNeighborArtwork() {
+        var urls = Array(queueSongs.suffix(from: queueIndex + 1).prefix(3))
+            .compactMap(\.thumbnailUrl)
+            .compactMap { URL(string: $0) }
+        let neighborIds = queueSongs.indices.compactMap { index -> String? in
+            guard index == queueIndex - 1 || (index > queueIndex && index <= queueIndex + 3) else { return nil }
+            return queueSongs[index].videoId
+        }
+        urls.append(contentsOf: neighborIds.compactMap { URL(string: Self.artworkURL(for: $0)) })
+        guard !urls.isEmpty else { return }
+        Task { await ImagePreloader.shared.preload(urls) }
+    }
+
     /// Artist string from `artists`, falling back to `artist`.
     var displayArtist: String {
         let fromArray = artists
@@ -273,21 +287,38 @@ final class NowPlaying {
         }
     }
 
+    static func artworkURL(for videoId: String) -> String {
+        "https://i.ytimg.com/vi/\(videoId)/hqdefault.jpg"
+    }
+
     private var lastLoadedVideoId: String?
 
     private func loadThumbnail(videoId: String) {
         guard videoId != lastLoadedVideoId else { return }
         lastLoadedVideoId = videoId
-        thumbnailUIImage = nil
-        thumbnailImage = nil
-        let urlString = "https://i.ytimg.com/vi/\(videoId)/hqdefault.jpg"
+        let urlString = Self.artworkURL(for: videoId)
         guard let url = URL(string: urlString) else {
+            thumbnailUIImage = nil
             thumbnailImage = Image(systemName: "music.note")
-            Task { @MainActor in
-                self.updateDominantColors(from: nil)
-            }
+            thumbnailVersion &+= 1
+            updateDominantColors(from: nil)
             return
         }
+
+        // Fast path: if the artwork was pre-warmed, swap it in synchronously so
+        // swiping to the next/previous song shows the image with no placeholder.
+        if let cached = ImagePipeline.shared.cache.cachedImage(for: ImageRequest(url: url), caches: .all)?.image {
+            let cropped = cached.centerCroppedSquare()
+            thumbnailUIImage = cropped
+            thumbnailImage = Image(uiImage: cropped)
+            thumbnailVersion &+= 1
+            updateDominantColors(from: cropped)
+            PlayerController.shared.updateNowPlayingArtwork()
+            return
+        }
+
+        thumbnailUIImage = nil
+        thumbnailImage = nil
         Task {
             do {
                 let platformImage = try await ImagePipeline.shared.image(for: url)

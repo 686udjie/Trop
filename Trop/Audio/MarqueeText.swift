@@ -49,7 +49,7 @@ struct MarqueeText: View {
                     .offset(x: offset)
                     .foregroundStyle(.white)
             }
-            .frame(width: width, alignment: .leading)
+            .frame(width: width, height: geo.size.height, alignment: .leading)
             .clipped()
             .mask(fadeMask(width: width))
             .onAppear {

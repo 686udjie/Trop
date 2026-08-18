@@ -6,7 +6,6 @@
 //
 
 import SwiftUI
-import LNPopupUI
 
 struct ContentView: View {
     @State private var nowPlaying = NowPlaying.shared
@@ -21,31 +20,22 @@ struct ContentView: View {
                     .animation(.easeInOut(duration: 0.8), value: nowPlaying.accentColor)
             }
 
-            TabView(selection: $selectedTab) {
-                Tab("Home", systemImage: "music.note.house.fill", value: 0) {
-                    HomeScreenView()
-                }
+            PlayerContainerView {
+                TabView(selection: $selectedTab) {
+                    Tab("Home", systemImage: "music.note.house.fill", value: 0) {
+                        HomeScreenView()
+                    }
 
-                Tab("Library", systemImage: "music.note.square.stack", value: 1) {
-                    LibraryView()
-                }
+                    Tab("Library", systemImage: "music.note.square.stack", value: 1) {
+                        LibraryView()
+                    }
 
-                Tab("Search", systemImage: "magnifyingglass", value: 2, role: .search) {
-                    SearchView(onExitSearch: { selectedTab = 0 })
+                    Tab("Search", systemImage: "magnifyingglass", value: 2, role: .search) {
+                        SearchView(onExitSearch: { selectedTab = 0 })
+                    }
                 }
+                .tabBarMinimizeBehavior(.onScrollDown)
             }
-            .tabBarMinimizeBehavior(.onScrollDown)
-            .popup(isBarPresented: .init(
-                get: { nowPlaying.isBarPresented },
-                set: { _ in }
-            ), isPopupOpen: $nowPlaying.isPopupOpen) {
-                MiniPlayerView()
-            }
-            .popupBarStyle(.floatingCompact)
-            .popupBarProgressViewStyle(.bottom)
-            .popupCloseButtonStyle(.none)
-            .popupBarMarqueeScrollEnabled(true, scrollRate: 25, delay: 2.0, coordinateAnimations: true)
-            .popupInteractionStyle(.drag)
         }
     }
 }
