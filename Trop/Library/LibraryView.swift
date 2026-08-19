@@ -202,7 +202,7 @@ struct LibraryView: View {
             }
         }
         .scrollIndicators(.automatic)
-        .miniPlayerCompactsOnScroll()
+        .miniPlayerTracksScroll()
     }
 
     // MARK: - Playlists (Auto + User)

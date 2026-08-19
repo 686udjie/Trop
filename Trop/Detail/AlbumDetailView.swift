@@ -301,6 +301,7 @@ struct AlbumDetailView: View {
             }
         }
         .scrollDisabled(viewModel.isLoading || viewModel.error != nil || viewModel.album == nil)
+        .miniPlayerTracksScroll()
         .navigationTitle(viewModel.album?.title ?? "")
         .navigationBarTitleDisplayMode(.inline)
         .task {

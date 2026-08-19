@@ -144,7 +144,7 @@ struct SearchView: View {
             }
         }
         .listStyle(.plain)
-        .miniPlayerCompactsOnScroll()
+        .miniPlayerTracksScroll()
     }
 
     private var suggestionsAndLocalView: some View {
@@ -251,7 +251,7 @@ struct SearchView: View {
             }
         }
         .listStyle(.plain)
-        .miniPlayerCompactsOnScroll()
+        .miniPlayerTracksScroll()
     }
 
     private var searchResultsList: some View {
@@ -269,7 +269,7 @@ struct SearchView: View {
             }
         }
         .listStyle(.plain)
-        .miniPlayerCompactsOnScroll()
+        .miniPlayerTracksScroll()
     }
 
     private var filterChips: some View {

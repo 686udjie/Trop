@@ -223,10 +223,7 @@ final class NowPlaying {
 
     /// Artist string from `artists`, falling back to `artist`.
     var displayArtist: String {
-        let fromArray = artists
-            .map { cleanArtistDisplay($0.name) }
-            .filter { !$0.isEmpty }
-            .joined(separator: ", ")
+        let fromArray = artistDisplayString(from: artists)
         if !fromArray.isEmpty { return fromArray }
         return artist
     }
@@ -393,6 +390,16 @@ final class NowPlaying {
 }
 
 // MARK: - Module-level artist name cleaner
+
+/// Builds a clean, comma-separated artist string from an artist array, dropping
+/// names that clean down to empty (junk/blank entries) so no dangling separator
+/// is left behind.
+func artistDisplayString(from artists: [YTArtist]) -> String {
+    artists
+        .map { cleanArtistDisplay($0.name) }
+        .filter { !$0.isEmpty }
+        .joined(separator: ", ")
+}
 
 func cleanArtistDisplay(_ name: String) -> String {
     var tempName = name

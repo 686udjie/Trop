@@ -8,12 +8,17 @@
 import SwiftUI
 import Nuke
 
-/// The collapsed mini player bar. Swiping left/right pages through the queue
-/// with the artwork and text sliding together, exactly tracking the drag state.
-/// Styled to match the original LNPopup floating-compact bar: 48pt glass capsule,
-/// 30pt artwork at 16pt leading, 13/12pt label text, bottom progress line.
+/// The mini player bar, hosted as the TabView's native bottom accessory.
+/// Swiping left/right pages through the queue with the artwork and text sliding
+/// together, exactly tracking the drag state. When the tab bar minimizes on
+/// scroll the bar collapses into a compact inline form that merges with the
+/// tab bar, matching the Apple Music behavior; otherwise it renders as the
+/// 48pt floating glass capsule with a bottom progress line.
 struct MiniPlayerBarView: View {
     let onExpand: () -> Void
+
+    @Environment(MiniPlayerScrollState.self) private var scrollState
+    @Environment(\.colorScheme) private var colorScheme
 
     private let player = PlayerController.shared
     @Bindable private var np = NowPlaying.shared
@@ -27,19 +32,35 @@ struct MiniPlayerBarView: View {
         case vertical
     }
 
-    private let barHeight: CGFloat = 48
-    private let artworkSize: CGFloat = 30
+    private var isInline: Bool {
+        scrollState.isInline
+    }
+
+    private var barHeight: CGFloat {
+        isInline ? 44 : 48
+    }
+
+    private var artworkSize: CGFloat {
+        isInline ? 26 : 30
+    }
+
+    private var titleColor: Color {
+        colorScheme == .dark ? .white : .black
+    }
+
+    private var artistColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.75) : Color.black.opacity(0.65)
+    }
 
     var body: some View {
         HStack(spacing: 0) {
             pagingArea
             playPauseButton
-                .padding(.trailing, 20)
+                .padding(.trailing, isInline ? 14 : 20)
         }
         .frame(height: barHeight)
-        .glassEffect(.regular, in: .capsule)
         .overlay(alignment: .bottom) { progressLine }
-        .clipShape(Capsule())
+        .padding(.horizontal, isInline ? 40 : 0)
         .onChange(of: np.videoId) { _, _ in
             dragOffset = 0
         }
@@ -83,21 +104,34 @@ struct MiniPlayerBarView: View {
     }
 
     private func page(for song: SongItem, width: CGFloat) -> some View {
-        HStack(spacing: 8) {
+        HStack(spacing: isInline ? 6 : 8) {
             barArtwork(for: song.videoId)
 
             VStack(alignment: .leading, spacing: 0) {
-                MarqueeText(text: song.title, font: .system(size: 13, weight: .semibold), frameHeight: 16)
+                if isInline {
+                    Text(song.title)
+                        .font(.system(size: 13, weight: .semibold))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .foregroundStyle(titleColor)
+                } else {
+                    MarqueeText(
+                        text: song.title,
+                        font: .system(size: 13, weight: .semibold),
+                        frameHeight: 16,
+                        textColor: titleColor
+                    )
+                }
 
-                let artist = song.artists.map(\.name).joined(separator: ", ")
-                Text(artist)
+                Text(artistDisplayString(from: song.artists))
                     .font(.system(size: 12, weight: .regular))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(artistColor)
                     .lineLimit(1)
+                    .truncationMode(.tail)
             }
         }
         .frame(width: width, alignment: .leading)
-        .padding(.leading, 16)
+        .padding(.leading, isInline ? 14 : 16)
         .contentShape(Rectangle())
     }
 
@@ -114,13 +148,14 @@ struct MiniPlayerBarView: View {
             }
         }
         .frame(width: artworkSize, height: artworkSize)
-        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: isInline ? 5 : 6, style: .continuous))
     }
 
     private var playPauseButton: some View {
         Button(action: { player.togglePlayPause() }) {
             Image(systemName: np.isPlaying ? "pause.fill" : "play.fill")
                 .contentTransition(.symbolEffect(.replace))
+                .font(.system(size: isInline ? 16 : 17))
         }
         .accessibilityLabel(np.isPlaying ? "Pause" : "Play")
     }

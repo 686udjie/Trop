@@ -35,6 +35,7 @@ struct SettingsView: View {
         }
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
+        .miniPlayerTracksScroll()
         .onAppear {
             var merged = settings.providerOrder
             for provider in LyricsProviderRegistry.all where !merged.contains(provider.id) {

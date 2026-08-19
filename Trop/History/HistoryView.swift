@@ -133,6 +133,7 @@ struct HistoryScreenView: View {
             }
         }
         .listStyle(.plain)
+        .miniPlayerTracksScroll()
     }
 
     @ViewBuilder
@@ -246,6 +247,7 @@ struct HistoryScreenView: View {
             }
         }
         .listStyle(.plain)
+        .miniPlayerTracksScroll()
     }
 
     private var loadingView: some View {

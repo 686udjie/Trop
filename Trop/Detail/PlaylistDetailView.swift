@@ -496,6 +496,7 @@ struct PlaylistDetailView: View {
             }
         }
         .scrollDisabled(viewModel.isLoading || viewModel.error != nil || viewModel.playlist == nil)
+        .miniPlayerTracksScroll()
         .navigationTitle(viewModel.playlist?.title ?? "")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

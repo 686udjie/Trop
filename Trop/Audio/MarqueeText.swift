@@ -12,6 +12,7 @@ struct MarqueeText: View {
     let text: String
     var font: Font = .body
     var frameHeight: CGFloat = 24
+    var textColor: Color = .white
 
     // MARK: - State
     @State private var offset: CGFloat = 0
@@ -47,7 +48,7 @@ struct MarqueeText: View {
                     .fixedSize()
                     .background(TextWidthReader())
                     .offset(x: offset)
-                    .foregroundStyle(.white)
+                    .foregroundStyle(textColor)
             }
             .frame(width: width, height: geo.size.height, alignment: .leading)
             .clipped()

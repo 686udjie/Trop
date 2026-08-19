@@ -258,6 +258,7 @@ struct ArtistDetailView: View {
             }
         }
         .scrollDisabled(viewModel.isLoading || viewModel.error != nil || viewModel.artist == nil)
+        .miniPlayerTracksScroll()
         .ignoresSafeArea(edges: .top)
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)

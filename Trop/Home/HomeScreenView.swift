@@ -145,12 +145,12 @@ struct HomeScreenView: View {
             }
         }
         .scrollIndicators(.automatic)
+        .miniPlayerTracksScroll()
         .refreshable {
             viewModel.refresh()
             await refreshTask()
             await IncrementalSyncService.shared.checkAndSyncIfStale()
         }
-        .miniPlayerCompactsOnScroll()
     }
 
     private var accountSheet: some View {

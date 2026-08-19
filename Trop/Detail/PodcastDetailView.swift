@@ -273,6 +273,7 @@ struct PodcastDetailView: View {
             }
         }
         .scrollDisabled(viewModel.isLoading || viewModel.error != nil || viewModel.podcast == nil)
+        .miniPlayerTracksScroll()
         .navigationTitle(viewModel.podcast?.title ?? "")
         .navigationBarTitleDisplayMode(.inline)
         .task {
