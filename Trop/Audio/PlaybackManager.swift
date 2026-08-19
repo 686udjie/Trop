@@ -29,6 +29,9 @@ actor PlaybackManager {
                 duration: song.map { TimeInterval($0.duration) },
                 artists: artists
             )
+            await MainActor.run {
+                NowPlaying.shared.updateVideoAvailability(hasVideoContent: false)
+            }
             return PlaybackResult(
                 streamUrl: localPath.absoluteString,
                 itag: 0,
@@ -56,6 +59,18 @@ actor PlaybackManager {
                 duration: cached.duration.flatMap { $0 > 0 ? TimeInterval($0) : nil },
                 artists: await queueArtists(for: videoId)
             )
+            if let musicVideoType = cached.musicVideoType {
+                await MainActor.run {
+                    NowPlaying.shared.updateVideoAvailability(
+                        musicVideoType: musicVideoType,
+                        hasVideoContent: cached.hasVideoContent
+                    )
+                }
+            } else {
+                await MainActor.run {
+                    NowPlaying.shared.updateVideoAvailability(hasVideoContent: cached.hasVideoContent)
+                }
+            }
             return cached
         }
 
@@ -172,7 +187,9 @@ actor PlaybackManager {
         }
     }
 
-    /// Resolves the muxed (audio+video) stream URL for video mode.
+    /// Resolves a playable video stream URL for video mode. Prefers a muxed
+    /// (audio+video) stream; when the video offers none, falls back to an EDL
+    /// that combines a DASH video-only stream with a separate audio stream.
     func resolveVideoStream(videoId: String) async throws -> String {
         for fb in ClientFallbackChain.preferred {
             do {
@@ -196,9 +213,17 @@ actor PlaybackManager {
 
                 let allFormats = (streamingData.formats ?? []) + (streamingData.adaptiveFormats ?? [])
 
-                if let videoFormat = FormatSelector.bestVideoFormat(from: allFormats),
-                   let url = videoFormat.url {
+                if let muxed = FormatSelector.bestVideoFormat(from: allFormats),
+                   let url = muxed.url {
                     return url
+                }
+
+                if let video = FormatSelector.bestVideoOnlyFormat(from: allFormats),
+                   let videoURL = video.url,
+                   let audio = FormatSelector.bestAudioFormat(from: allFormats),
+                   let audioURL = try? await Self.resolveStreamURL(audio) {
+                    let duration = response.videoDetails?.lengthSeconds.flatMap(Int.init)
+                    return Self.combineVideoAndAudio(videoURL: videoURL, audioURL: audioURL, duration: duration)
                 }
             } catch {
                 Log.playbackManager.error("Video resolution failed for \(fb.client.clientName): \(error)")
@@ -208,13 +233,40 @@ actor PlaybackManager {
         throw StreamError.noSuitableFormat
     }
 
-    /// Returns the muxed stream URL for video mode, preferring the cached one.
+    /// Returns the muxed/video stream URL for video mode, preferring the cached one.
     func resolveMuxedURL(videoId: String) async throws -> String {
         if let cached = await StreamCache.shared.get(videoId: videoId),
            let muxed = cached.muxedStreamUrl {
             return muxed
         }
         return try await resolveVideoStream(videoId: videoId)
+    }
+
+    /// Resolves a format's stream URL, going through the cipher if needed.
+    private static func resolveStreamURL(_ format: Format) async throws -> String {
+        if let url = format.url, !url.isEmpty { return url }
+        if let cipherText = format.signatureCipher ?? format.cipher {
+            let playerJs = try await PlayerJsFetcher.shared.getPlayerJs()
+            return try await CipherExecutor.shared.resolveCipherURL(
+                cipherText: cipherText,
+                playerJs: playerJs,
+                playerHash: nil
+            )
+        }
+        throw StreamError.noStreamUrl
+    }
+
+    /// Builds an EDL that sources the video and audio tracks from two separate
+    /// DASH streams, mirroring how mpv's ytdl hook plays split YouTube streams.
+    /// URLs are embedded with mpv's `%<len>%<url>` escape so any characters
+    /// (semicolons, commas, etc.) survive EDL parsing verbatim. `duration`
+    /// (when known) pins each part's timeline length so mpv does not end
+    /// playback early when a stream's duration cannot be probed.
+    private static func combineVideoAndAudio(videoURL: String, audioURL: String, duration: Int?) -> String {
+        let lengthParam = duration.map { ",length=\($0)" } ?? ""
+        let video = "%\(videoURL.utf8.count)%\(videoURL)\(lengthParam)"
+        let audio = "%\(audioURL.utf8.count)%\(audioURL)\(lengthParam)"
+        return "edl://!new_stream;!no_clip;!no_chapters;\(video);!new_stream;!no_clip;!no_chapters;\(audio)"
     }
 
     /// Generate PoToken for the given video. Returns playerRequestPoToken and streamingDataPoToken.

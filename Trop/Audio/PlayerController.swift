@@ -86,6 +86,7 @@ final class PlayerController {
             await PlaybackStateService.shared.stopTracking()
             loadedMuxedURL = nil
             muxedActive = false
+            muxedVideoId = nil
             pendingResumeAt = 0
             videoModeSwitchInFlight = false
         }
@@ -106,6 +107,7 @@ final class PlayerController {
         }
 
         pendingVideoId = videoId
+        Log.player.debug("TRANSITION play videoId=\(videoId ?? "nil") isNewSong=\(isNewSong) muxedActive=\(muxedActive) url=\(url.absoluteString.prefix(80))")
         _ = ["loadfile", url.absoluteString, "replace"].withUnsafeCArg { mpv_command(mpv, $0) }
         NowPlaying.shared.isPlaying = true
         NowPlaying.shared.currentTime = 0
@@ -142,6 +144,13 @@ final class PlayerController {
             mpv_set_option_string(mpv, "vo", "gpu-next")
             mpv_set_option_string(mpv, "gpu-api", "vulkan")
             mpv_set_option_string(mpv, "gpu-context", "moltenvk")
+            // Keep the Vulkan VO/device resident for the whole process. Without
+            // this, mpv lazily tears down the renderer (VkDevice+VkInstance)
+            // when a video-mode file is replaced by an audio-only one, and
+            // recreates it on the next video load. That create/destroy churn
+            // races MoltenVK/CAMetalLayer and is the source of the
+            // notifyExternalReferencesNonZeroOnDealloc crash.
+            mpv_set_option_string(mpv, "force-window", "yes")
             var wid = unsafeBitCast(self.videoLayer, to: Int64.self)
             mpv_set_option(mpv, "wid", MPV_FORMAT_INT64, &wid)
             // Start with video track disabled; enabled when entering video mode.
@@ -169,6 +178,10 @@ final class PlayerController {
             }
 
             mpv_observe_property(mpv, 0, "duration", MPV_FORMAT_DOUBLE)
+            // First decoded frame size; > 0 means the video is actually
+            // decoding/rendering. Used to reveal the video only once it can
+            // show a real frame instead of a blank square.
+            mpv_observe_property(mpv, 1, "video-params/w", MPV_FORMAT_INT64)
 
             self.isRunning = true
             self.eventLoop(mpv)
@@ -193,6 +206,7 @@ final class PlayerController {
                 var pauseFlag = Int32(1)
                 mpv_get_property(mpv, "pause", MPV_FORMAT_FLAG, &pauseFlag)
                 let actuallyPlaying = pauseFlag == 0
+                Log.player.debug("TRANSITION FILE_LOADED videoId=\(self.pendingVideoId ?? "nil") playing=\(actuallyPlaying)")
                 DispatchQueue.main.async {
                     self.playState.send(actuallyPlaying ? .playing : .paused)
                     NowPlaying.shared.isPlaying = actuallyPlaying
@@ -203,31 +217,62 @@ final class PlayerController {
                 }
             case MPV_EVENT_PROPERTY_CHANGE:
                 if let prop = event.pointee.data?.load(as: mpv_event_property.self),
-                   let namePtr = prop.name,
-                   String(cString: namePtr) == "duration",
-                   prop.format == MPV_FORMAT_DOUBLE,
-                   let ptr = prop.data?.assumingMemoryBound(to: Double.self) {
-                    let newDur = ptr.pointee
-                    if newDur > 0 {
+                   let namePtr = prop.name {
+                    let name = String(cString: namePtr)
+                    if name == "duration",
+                       prop.format == MPV_FORMAT_DOUBLE,
+                       let ptr = prop.data?.assumingMemoryBound(to: Double.self) {
+                        let newDur = ptr.pointee
+                        if newDur > 0 {
+                            DispatchQueue.main.async {
+                                NowPlaying.shared.duration = newDur
+                                self.setNowPlayingMetadata()
+                            }
+                        }
+                    } else if name == "video-params/w",
+                              prop.format == MPV_FORMAT_INT64,
+                              let ptr = prop.data?.assumingMemoryBound(to: Int64.self),
+                              ptr.pointee > 0 {
+                        // First frame decoded in video mode: now reveal it so
+                        // the artwork (not a blank square) shows until then.
+                        // `muxedActive`/`videoId` are main-actor state, so the
+                        // staleness check happens INSIDE the main dispatch — a
+                        // late event from a replaced song must not reveal the
+                        // video layer for the current (possibly audio-only) song.
+                        Log.player.debug("TRANSITION video-params/w=\(ptr.pointee) videoId=\(self.currentVideoId ?? "nil")")
                         DispatchQueue.main.async {
-                            NowPlaying.shared.duration = newDur
-                            self.setNowPlayingMetadata()
+                            guard self.muxedActive,
+                                  NowPlaying.shared.videoId == self.muxedVideoId else { return }
+                            NowPlaying.shared.isVideoMode = true
                         }
                     }
                 }
             case MPV_EVENT_START_FILE:
+                Log.player.debug("TRANSITION START_FILE")
                 break
             case MPV_EVENT_END_FILE:
                 let stoppedVideoId = self.currentVideoId
-                if stoppedVideoId != nil {
+                let endFile = event.pointee.data?.load(as: mpv_event_end_file.self)
+                let reason = endFile?.reason ?? MPV_END_FILE_REASON_EOF
+                let isEof = reason == MPV_END_FILE_REASON_EOF
+                // reason==STOP fires whenever we intentionally replace the current
+                // file (entering video mode, next/prev, mid-play re-resolve).
+                // Treating it as a failure would spuriously re-resolve and bounce
+                // out of video mode. Only genuine errors run failure recovery.
+                let isFailure = reason == MPV_END_FILE_REASON_ERROR
+                Log.player.debug("TRANSITION END_FILE reason=\(reason) isEof=\(isEof) isFailure=\(isFailure) stoppedVideoId=\(stoppedVideoId ?? "nil")")
+                // Only a genuine end-of-file or error stops tracking; an
+                // intentional replace (STOP) must not kill the NEW song's
+                // tracking session, which play() has already started.
+                if (isEof || isFailure), let stoppedVideoId {
                     Task { await PlaybackStateService.shared.stopTracking() }
                 }
                 self.currentVideoId = nil
-                let endFile = event.pointee.data?.load(as: mpv_event_end_file.self)
-                let isEof = endFile?.reason == MPV_END_FILE_REASON_EOF
-                DispatchQueue.main.async {
-                    self.playState.send(.stopped)
-                    NowPlaying.shared.stopped(videoId: stoppedVideoId, isEof: isEof)
+                if isEof || isFailure {
+                    DispatchQueue.main.async {
+                        self.playState.send(.stopped)
+                        NowPlaying.shared.stopped(videoId: stoppedVideoId, isEof: isEof)
+                    }
                 }
             default:
                 break
@@ -447,13 +492,19 @@ final class PlayerController {
     private var videoModeSwitchInFlight = false
     private var loadedMuxedURL: String?
     private var muxedActive = false
+    /// videoId the currently-loaded muxed/EDL stream belongs to, so late mpv
+    /// events (video-params/w from a replaced file) can't reveal video mode
+    /// for a different song. All access on the main actor.
+    private var muxedVideoId: String?
 
     @MainActor
-    func setVideoMode(_ enabled: Bool) {
+    func setVideoMode() {
         guard let videoId = NowPlaying.shared.videoId else { return }
-        // Disabling only hides the layer; the stream stays resident.
-        if !enabled { return }
-        if muxedActive { return }
+        // Stream already loaded and rendering: pure UI flip, nothing to load.
+        if muxedActive {
+            NowPlaying.shared.isVideoMode = true
+            return
+        }
         guard !videoModeSwitchInFlight else { return }
         videoModeSwitchInFlight = true
         Task {
@@ -461,27 +512,27 @@ final class PlayerController {
             do {
                 let resumeAt = self.currentTime
                 let url: String
-                if let muxed = self.loadedMuxedURL {
-                    url = muxed
+                if let loaded = self.loadedMuxedURL {
+                    url = loaded
                 } else {
                     url = try await PlaybackManager.shared.resolveMuxedURL(videoId: videoId)
                     guard NowPlaying.shared.videoId == videoId else { return }
                     self.loadedMuxedURL = url
                 }
                 guard NowPlaying.shared.videoId == videoId else { return }
-                self.setVideoTrack(enabled: true)
+                self.setVideoTrack()
+                Log.player.debug("TRANSITION entering video mode videoId=\(videoId) url=\(url.prefix(80))")
+                self.muxedVideoId = videoId
                 self.loadFileReplacing(url, startAt: resumeAt)
                 self.muxedActive = true
             } catch {
                 Log.player.error("setVideoMode failed: \(error)")
-                if enabled {
-                    NowPlaying.shared.isVideoMode = false
-                }
+                NowPlaying.shared.isVideoMode = false
             }
         }
     }
 
-    /// Resolves and caches the muxed URL in the background so toggling video
+    /// Resolves and caches the video source in the background so toggling video
     /// mode is instant. Discarded if the song changes before it finishes.
     @MainActor
     func preloadVideoURL() {
@@ -498,11 +549,24 @@ final class PlayerController {
         }
     }
 
+    /// Resets the cached video-mode state after a split-stream died mid-play,
+    /// so re-entering video mode re-resolves fresh URLs instead of reusing
+    /// stale (possibly expired) ones. Called before audio-only recovery.
+    @MainActor
+    func handleVideoStreamFailure() {
+        guard muxedActive || videoModeSwitchInFlight else { return }
+        loadedMuxedURL = nil
+        muxedActive = false
+        muxedVideoId = nil
+        videoModeSwitchInFlight = false
+        NowPlaying.shared.isVideoMode = false
+    }
+
     /// Selects the video track (`vid=auto` always) and applies the square crop.
-    private func setVideoTrack(enabled: Bool) {
+    private func setVideoTrack() {
         guard let mpv else { return }
         mpv_set_property_string(mpv, "vid", "auto")
-        setVideoCrop(enabled ? .square : .none)
+        setVideoCrop(.square)
     }
 
     /// Center-crops the video to a square to match the artwork presentation.
@@ -541,6 +605,7 @@ final class PlayerController {
     private func loadFileReplacing(_ url: String, startAt: TimeInterval = 0) {
         guard let mpv else { return }
         pendingResumeAt = startAt
+        Log.player.debug("TRANSITION loadFileReplacing startAt=\(startAt) url=\(url.prefix(80))")
         let args = ["loadfile", url, "replace"]
         _ = args.withUnsafeCArg { mpv_command(mpv, $0) }
     }

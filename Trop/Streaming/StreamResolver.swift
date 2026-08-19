@@ -238,7 +238,7 @@ enum StreamError: Error, LocalizedError {
         case .noStreams:
             return "No streaming data in response"
         case .noSuitableFormat:
-            return "No suitable audio format found"
+            return "No suitable format found"
         case .noStreamUrl:
             return "Format has no direct stream URL and no cipher data"
         case .validationFailed(let client):

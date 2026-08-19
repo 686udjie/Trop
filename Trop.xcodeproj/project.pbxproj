@@ -412,7 +412,7 @@
 			repositoryURL = "https://github.com/mpvkit/MPVKit.git";
 			requirement = {
 				kind = upToNextMajorVersion;
-				minimumVersion = 0.41.0;
+				minimumVersion = 1.0.0;
 			};
 		};
 		14B578DA2FF20000006B3990 /* XCRemoteSwiftPackageReference "GRDB.swift" */ = {

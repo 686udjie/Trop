@@ -186,6 +186,8 @@ final class NowPlaying {
             albumTitle = album
         }
         self.videoId = videoId
+        self.hasVideo = false
+        self.isVideoMode = false
         startTimer()
         loadThumbnail(videoId: videoId)
         preloadNextTrack()
@@ -264,6 +266,7 @@ final class NowPlaying {
             isPlaying = false
             return
         }
+        PlayerController.shared.handleVideoStreamFailure()
         if let last = lastFailureAt[videoId], Date().timeIntervalSince(last) < 30 {
             isPlaying = false
             return

@@ -10,14 +10,9 @@ import Libmpv
 
 /// Hosts mpv's video output via the PlayerController-owned CAMetalLayer
 struct VideoPlayerView: View {
-    let player = PlayerController.shared
-
     var body: some View {
         MpvVideoView()
             .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-            .onDisappear {
-                player.setVideoMode(false)
-            }
     }
 }
 

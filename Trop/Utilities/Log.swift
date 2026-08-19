@@ -9,33 +9,54 @@ import OSLog
 
 struct AppLogger {
     let logger: Logger
+    var redact: Bool = true
 
     func debug(_ message: String) {
-        logger.debug("\(message, privacy: .private)")
+        if redact {
+            logger.debug("\(message, privacy: .private)")
+        } else {
+            logger.debug("\(message)")
+        }
     }
 
     func info(_ message: String) {
-        logger.info("\(message, privacy: .private)")
+        if redact {
+            logger.info("\(message, privacy: .private)")
+        } else {
+            logger.info("\(message)")
+        }
     }
 
     func notice(_ message: String) {
-        logger.notice("\(message, privacy: .private)")
+        if redact {
+            logger.notice("\(message, privacy: .private)")
+        } else {
+            logger.notice("\(message)")
+        }
     }
 
     func error(_ message: String) {
-        logger.error("\(message, privacy: .private)")
+        if redact {
+            logger.error("\(message, privacy: .private)")
+        } else {
+            logger.error("\(message)")
+        }
     }
 
     func fault(_ message: String) {
-        logger.fault("\(message, privacy: .private)")
+        if redact {
+            logger.fault("\(message, privacy: .private)")
+        } else {
+            logger.fault("\(message)")
+        }
     }
 }
 
 enum Log {
     private static let subsystem = Bundle.main.bundleIdentifier ?? "com.686udjie.Trop"
 
-    static let player = AppLogger(logger: Logger(subsystem: subsystem, category: "Player"))
-    static let mpv = AppLogger(logger: Logger(subsystem: subsystem, category: "mpv"))
+    static let player = AppLogger(logger: Logger(subsystem: subsystem, category: "Player"), redact: false)
+    static let mpv = AppLogger(logger: Logger(subsystem: subsystem, category: "mpv"), redact: false)
     static let playbackManager = AppLogger(logger: Logger(subsystem: subsystem, category: "PlaybackManager"))
     static let nowPlaying = AppLogger(logger: Logger(subsystem: subsystem, category: "NowPlaying"))
     static let streamResolver = AppLogger(logger: Logger(subsystem: subsystem, category: "StreamResolver"))

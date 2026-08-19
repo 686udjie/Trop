@@ -172,6 +172,56 @@ enum FormatSelector {
         return selected
     }
 
+    /// Picks the best DASH video-only format (video track, no audio)
+    static func bestVideoOnlyFormat(from formats: [Format]) -> Format? {
+        guard !formats.isEmpty else {
+            Log.formatSelector.debug("No formats to select from (video-only)")
+            return nil
+        }
+
+        let videoOnlyFormats = formats.filter {
+            !$0.isAudioOnly
+            && $0.width != nil && $0.height != nil
+            && $0.audioChannels == nil
+            && $0.url != nil
+        }
+
+        guard !videoOnlyFormats.isEmpty else {
+            Log.formatSelector.debug("No video-only formats found in \(formats.count) total formats")
+            return nil
+        }
+
+        let h264 = videoOnlyFormats.filter { $0.codec.lowercased().contains("avc") || $0.mimeType?.lowercased().contains("mp4") == true }
+        let poolBase = h264.isEmpty ? videoOnlyFormats : h264
+        if h264.isEmpty {
+            Log.formatSelector.debug("No H.264 video-only format; falling back to any video-only format")
+        } else {
+            Log.formatSelector.debug("Using \(h264.count) H.264 video-only format(s)")
+        }
+
+        let capped = poolBase.filter { ($0.height ?? 0) <= 720 }
+        let pool = capped.isEmpty ? poolBase : capped
+        if capped.isEmpty {
+            Log.formatSelector.debug("No video-only format ≤720p; using higher-resolution pool")
+        } else {
+            Log.formatSelector.debug("Using \(capped.count) video-only format(s) ≤720p")
+        }
+
+        let selected = pool.max { a, b in
+            videoFormatScore(a) < videoFormatScore(b)
+        }
+
+        if let selected {
+            Log.formatSelector.debug(
+                "Selected video-only: itag=\(selected.itag ?? 0)"
+                + " resolution=\(selected.width ?? 0)x\(selected.height ?? 0)"
+                + " codec=\(selected.codec) bitrate=\(selected.bitrate ?? 0)"
+            )
+        }
+
+        return selected
+    }
+
     private static func videoFormatScore(_ format: Format) -> Int {
         let widthScore = (format.width ?? 0) * 10
         let heightScore = (format.height ?? 0) * 10

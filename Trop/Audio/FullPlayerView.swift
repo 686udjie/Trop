@@ -261,8 +261,7 @@ struct FullPlayerView: View {
             .aspectRatio(1.0, contentMode: .fit)
             .onTapGesture {
                 guard np.hasVideo else { return }
-                player.setVideoMode(true)
-                np.isVideoMode = true
+                player.setVideoMode()
             }
         }
     }
