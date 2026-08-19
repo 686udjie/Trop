@@ -65,7 +65,7 @@ struct FullPlayerView: View {
                     )
                     .accessibilityLabel("Collapse player")
 
-                if showLyrics {
+                    if showLyrics {
                     LyricsView(
                         showLyrics: $showLyrics,
                         showQueue: $showQueue,
@@ -76,7 +76,7 @@ struct FullPlayerView: View {
                         pendingRoute: $pendingRoute,
                         progressSlider: { progressSlider }
                     )
-                } else if showQueue {
+                    } else if showQueue {
                     QueueView(
                         showLyrics: $showLyrics,
                         showQueue: $showQueue,
@@ -88,15 +88,25 @@ struct FullPlayerView: View {
                         pendingRoute: $pendingRoute,
                         progressSlider: { progressSlider }
                     )
-                } else {
+                    } else {
                     Spacer(minLength: 8)
 
                     artwork
-                        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-                        .shadow(color: .black.opacity(0.4), radius: 20, x: 0, y: 12)
+                        .clipShape(
+                            RoundedRectangle(
+                                cornerRadius: np.isVideoMode ? 10 : 24,
+                                style: .continuous
+                            )
+                        )
+                        .shadow(
+                            color: .black.opacity(0.4),
+                            radius: 20,
+                            x: 0,
+                            y: 12
+                        )
                         .padding(.horizontal, 32)
 
-                    Spacer(minLength: 16)
+                        Spacer(minLength: np.isVideoMode ? 12 : 16)
 
                     titleAndActionsRow
                         .padding(.horizontal, 32)
@@ -124,12 +134,12 @@ struct FullPlayerView: View {
                     )
 
                     Spacer(minLength: 8)
-                }
+                    }
             }
         }
         .offset(y: collapseOffset)
         .animation(.spring(response: 0.35, dampingFraction: 0.85), value: collapseOffset)
-        .onChange(of: np.videoId) { _, newId in
+        .onChange(of: np.videoId) { _, _ in
             np.isVideoMode = false
             preloadLyrics()
         }
@@ -235,7 +245,7 @@ struct FullPlayerView: View {
     private var artwork: some View {
         if np.isVideoMode, np.hasVideo {
             VideoPlayerView()
-                .aspectRatio(1.0, contentMode: .fit)
+                .aspectRatio(16.0 / 9.0, contentMode: .fit)
                 .onTapGesture {
                     np.isVideoMode = false
                 }

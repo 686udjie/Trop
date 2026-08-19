@@ -11,6 +11,7 @@ import MediaPlayer
 import Combine
 import AVFoundation
 import UIKit
+import Metal
 
 final class PlayerController {
     static let shared = PlayerController()
@@ -20,6 +21,8 @@ final class PlayerController {
     private var isRunning = false
     private var currentVideoId: String?
     private var pendingVideoId: String?
+    private var lastDetectedCrop: String?
+    private var detectedCropRepeatCount = 0
 
     /// Metal layer mpv renders into; created up-front so `wid` is valid at init.
     /// `contentsScale` is set from the window's screen when hosted (MpvVideoUIView).
@@ -28,9 +31,34 @@ final class PlayerController {
         layer.framebufferOnly = true
         layer.isOpaque = false
         layer.contentsScale = 1.0
+        layer.contentsGravity = .resizeAspect
         layer.backgroundColor = UIColor.clear.cgColor
+        let bounds = CGRect(
+            x: 0,
+            y: 0,
+            width: 320,
+            height: 180
+        )
+        layer.frame = bounds
+        layer.drawableSize = CGSize(width: bounds.width * layer.contentsScale, height: bounds.height * layer.contentsScale)
         return layer
     }()
+
+    private func clearVideoLayer() {
+        guard let device = videoLayer.device,
+              let queue = device.makeCommandQueue(),
+              let commandBuffer = queue.makeCommandBuffer(),
+              let drawable = videoLayer.nextDrawable() else { return }
+        let descriptor = MTLRenderPassDescriptor()
+        descriptor.colorAttachments[0].texture = drawable.texture
+        descriptor.colorAttachments[0].loadAction = .clear
+        descriptor.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 0)
+        if let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: descriptor) {
+            encoder.endEncoding()
+        }
+        commandBuffer.present(drawable)
+        commandBuffer.commit()
+    }
 
     let playState = CurrentValueSubject<State, Never>(.stopped)
 
@@ -82,13 +110,19 @@ final class PlayerController {
         let prevVideoId = currentVideoId
         let isNewSong = prevVideoId != nil && videoId != prevVideoId
         currentVideoId = videoId
+
         if isNewSong {
             await PlaybackStateService.shared.stopTracking()
-            loadedMuxedURL = nil
-            muxedActive = false
-            muxedVideoId = nil
-            pendingResumeAt = 0
-            videoModeSwitchInFlight = false
+        }
+        loadedMuxedURL = nil
+        muxedActive = false
+        muxedVideoId = nil
+        pendingResumeAt = 0
+        videoModeSwitchInFlight = false
+        NowPlaying.shared.isVideoMode = false
+        // Discard any frame still held in the shared video layer
+        if hasPresentedVideo {
+            clearVideoLayer()
         }
         if let videoId {
             await PlaybackStateService.shared.startTracking(videoId: videoId)
@@ -102,9 +136,7 @@ final class PlayerController {
         // Never set `vid=no` here — it tears down gpu-next's device mid-flight
         // and crashes MoltenVK. The audio-only stream has no video track, so
         // just clear any stale crop from the previous song.
-        if isNewSong {
-            setVideoCrop(.none)
-        }
+        setVideoCrop(.none)
 
         pendingVideoId = videoId
         Log.player.debug("TRANSITION play videoId=\(videoId ?? "nil") isNewSong=\(isNewSong) muxedActive=\(muxedActive) url=\(url.absoluteString.prefix(80))")
@@ -166,8 +198,11 @@ final class PlayerController {
             mpv_set_option_string(mpv, "cache-secs", "120")
             mpv_set_option_string(mpv, "demuxer-max-bytes", "200M")
             mpv_set_option_string(mpv, "gapless-audio", "yes")
-            // Transparent letterbox/pillarbox bars.
+            // Scale the decoded frame across the full drawable. Black padding
+            // inside a source video must not shrink the player viewport.
             mpv_set_option_string(mpv, "background", "0x00000000")
+            mpv_set_option_string(mpv, "video-unscaled", "no")
+            mpv_set_option_string(mpv, "keepaspect", "no")
             mpv_request_log_messages(mpv, "info")
 
             if mpv_initialize(mpv) < 0 {
@@ -200,6 +235,11 @@ final class PlayerController {
                     let text = String(cString: textPtr)
                     if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         Log.mpv.debug("\(text)")
+                        if let crop = self.detectedCrop(from: text) {
+                            DispatchQueue.main.async {
+                                self.applyDetectedCrop(crop)
+                            }
+                        }
                     }
                 }
             case MPV_EVENT_FILE_LOADED:
@@ -230,20 +270,25 @@ final class PlayerController {
                             }
                         }
                     } else if name == "video-params/w",
-                              prop.format == MPV_FORMAT_INT64,
-                              let ptr = prop.data?.assumingMemoryBound(to: Int64.self),
-                              ptr.pointee > 0 {
-                        // First frame decoded in video mode: now reveal it so
-                        // the artwork (not a blank square) shows until then.
-                        // `muxedActive`/`videoId` are main-actor state, so the
-                        // staleness check happens INSIDE the main dispatch — a
-                        // late event from a replaced song must not reveal the
-                        // video layer for the current (possibly audio-only) song.
+                              prop.format == MPV_FORMAT_INT64 {
+                        let width = prop.data?.assumingMemoryBound(to: Int64.self)
+                        if let width, width.pointee > 0 {
+                            // First frame decoded in video mode: now reveal it so
+                            // the artwork (not a blank square) shows until then.
+                            // `muxedActive`/`videoId` are main-actor state, so the
+                            // staleness check happens INSIDE the main dispatch — a
+                            // late event from a replaced song must not reveal the
+                            // video layer for the current (possibly audio-only) song.
                         Log.player.debug("TRANSITION video-params/w=\(ptr.pointee) videoId=\(self.currentVideoId ?? "nil")")
-                        DispatchQueue.main.async {
-                            guard self.muxedActive,
-                                  NowPlaying.shared.videoId == self.muxedVideoId else { return }
-                            NowPlaying.shared.isVideoMode = true
+                            DispatchQueue.main.async {
+                                let ok = self.muxedActive && NowPlaying.shared.videoId == self.muxedVideoId
+                                guard ok else { return }
+                                if self.hasPresentedVideo {
+                                    self.clearVideoLayer()
+                                }
+                                NowPlaying.shared.isVideoMode = true
+                                self.hasPresentedVideo = true
+                            }
                         }
                     }
                 }
@@ -264,7 +309,7 @@ final class PlayerController {
                 // Only a genuine end-of-file or error stops tracking; an
                 // intentional replace (STOP) must not kill the NEW song's
                 // tracking session, which play() has already started.
-                if (isEof || isFailure), let stoppedVideoId {
+                if isEof || isFailure, stoppedVideoId != nil {
                     Task { await PlaybackStateService.shared.stopTracking() }
                 }
                 self.currentVideoId = nil
@@ -496,6 +541,12 @@ final class PlayerController {
     /// events (video-params/w from a replaced file) can't reveal video mode
     /// for a different song. All access on the main actor.
     private var muxedVideoId: String?
+    /// True once any video frame has been presented to the shared layer. Until
+    /// then the layer can't hold a stale frame, so clearing it is unnecessary
+    /// AND dangerous: on the first video the layer's device is only being set
+    /// up by MoltenVK, and presenting our own drawable mid-init leaves the
+    /// video permanently blank. All access on the main actor.
+    private var hasPresentedVideo = false
 
     @MainActor
     func setVideoMode() {
@@ -562,11 +613,37 @@ final class PlayerController {
         NowPlaying.shared.isVideoMode = false
     }
 
-    /// Selects the video track (`vid=auto` always) and applies the square crop.
+    /// Selects the video track (`vid=auto` always) without cropping the source.
     private func setVideoTrack() {
         guard let mpv else { return }
+        lastDetectedCrop = nil
+        detectedCropRepeatCount = 0
         mpv_set_property_string(mpv, "vid", "auto")
-        setVideoCrop(.square)
+        setVideoCrop(.none)
+    }
+
+    private func detectedCrop(from log: String) -> (width: Int, height: Int, x: Int, y: Int)? {
+        guard let marker = log.range(of: "crop=") else { return nil }
+        let values = log[marker.upperBound...]
+            .split(whereSeparator: { $0 == Character(":") || $0 == Character(" ") || $0 == Character("\n") })
+            .prefix(4)
+            .compactMap { Int($0) }
+        guard values.count == 4 else { return nil }
+        return (values[0], values[1], values[2], values[3])
+    }
+
+    @MainActor
+    private func applyDetectedCrop(_ crop: (width: Int, height: Int, x: Int, y: Int)) {
+        guard crop.width > 0, crop.height > 0 else { return }
+        let signature = "\(crop.width)x\(crop.height)+\(crop.x)+\(crop.y)"
+        if lastDetectedCrop == signature {
+            detectedCropRepeatCount += 1
+        } else {
+            lastDetectedCrop = signature
+            detectedCropRepeatCount = 1
+        }
+        guard detectedCropRepeatCount >= 2 else { return }
+        mpv_set_property_string(mpv, "video-crop", signature)
     }
 
     /// Center-crops the video to a square to match the artwork presentation.

@@ -12,7 +12,7 @@ import Libmpv
 struct VideoPlayerView: View {
     var body: some View {
         MpvVideoView()
-            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .background(Color.black)
     }
 }
 
@@ -31,10 +31,8 @@ final class MpvVideoUIView: UIView {
         super.init(frame: frame)
         isOpaque = false
         backgroundColor = .clear
-        let mpvLayer = PlayerController.shared.videoLayer
-        mpvLayer.frame = bounds
-        mpvLayer.contentsScale = window?.windowScene?.screen.nativeScale ?? 1.0
-        layer.addSublayer(mpvLayer)
+        layer.addSublayer(PlayerController.shared.videoLayer)
+        syncLayer()
     }
 
     required init?(coder: NSCoder) {
@@ -42,12 +40,24 @@ final class MpvVideoUIView: UIView {
         isOpaque = false
         backgroundColor = .clear
         layer.addSublayer(PlayerController.shared.videoLayer)
+        syncLayer()
     }
 
     func syncLayer() {
         let mpvLayer = PlayerController.shared.videoLayer
-        mpvLayer.frame = bounds
-        mpvLayer.contentsScale = window?.windowScene?.screen.nativeScale ?? 1.0
+        guard mpvLayer.superlayer === layer else { return }
+        guard bounds.width > 0, bounds.height > 0 else { return }
+        let scale = window?.windowScene?.screen.nativeScale ?? traitCollection.displayScale
+        let drawableWidth = max(1, Int((bounds.width * scale).rounded(.down)) - 1)
+        let drawableHeight = max(1, Int((bounds.height * scale).rounded(.down)) - 1)
+        let logicalSize = CGSize(
+            width: CGFloat(drawableWidth) / scale,
+            height: CGFloat(drawableHeight) / scale
+        )
+        mpvLayer.bounds = CGRect(origin: .zero, size: logicalSize)
+        mpvLayer.position = CGPoint(x: bounds.midX, y: bounds.midY)
+        mpvLayer.contentsScale = scale
+        mpvLayer.drawableSize = CGSize(width: drawableWidth, height: drawableHeight)
     }
 
     override func layoutSubviews() {
