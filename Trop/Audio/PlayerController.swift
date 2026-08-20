@@ -23,6 +23,7 @@ final class PlayerController {
     private var pendingVideoId: String?
     private var lastDetectedCrop: String?
     private var detectedCropRepeatCount = 0
+    private var currentLoudnessDb: Double?
 
     /// Metal layer mpv renders into; created up-front so `wid` is valid at init.
     /// `contentsScale` is set from the window's screen when hosted (MpvVideoUIView).
@@ -97,7 +98,8 @@ final class PlayerController {
     }
 
     @MainActor
-    func play(url: String, title: String? = nil, artist: String? = nil, videoId: String? = nil, duration: TimeInterval? = nil, artists: [YTArtist] = []) async {
+    func play(url: String, title: String? = nil, artist: String? = nil, videoId: String? = nil, duration: TimeInterval? = nil, artists: [YTArtist] = [], loudnessDb: Double? = nil) async {
+        currentLoudnessDb = loudnessDb
         guard let url = URL(string: url) else {
             Log.player.error("Invalid URL: \(url)")
             return
@@ -132,6 +134,10 @@ final class PlayerController {
             Log.player.error("mpv not ready")
             return
         }
+
+        // Apply per-track loudness normalization now that currentLoudnessDb
+        // reflects the incoming track (play() sets it above).
+        applyPlaybackSettings()
 
         // Never set `vid=no` here — it tears down gpu-next's device mid-flight
         // and crashes MoltenVK. The audio-only stream has no video track, so
@@ -218,6 +224,8 @@ final class PlayerController {
             // show a real frame instead of a blank square.
             mpv_observe_property(mpv, 1, "video-params/w", MPV_FORMAT_INT64)
 
+            self.applyPlaybackSettings()
+
             self.isRunning = true
             self.eventLoop(mpv)
         }
@@ -279,7 +287,7 @@ final class PlayerController {
                             // staleness check happens INSIDE the main dispatch — a
                             // late event from a replaced song must not reveal the
                             // video layer for the current (possibly audio-only) song.
-                        Log.player.debug("TRANSITION video-params/w=\(ptr.pointee) videoId=\(self.currentVideoId ?? "nil")")
+                            Log.player.debug("TRANSITION video-params/w=\(width.pointee) videoId=\(self.currentVideoId ?? "nil")")
                             DispatchQueue.main.async {
                                 let ok = self.muxedActive && NowPlaying.shared.videoId == self.muxedVideoId
                                 guard ok else { return }
@@ -327,6 +335,47 @@ final class PlayerController {
             self.mpv = nil
             mpv_destroy(mpv)
         }
+    }
+
+    // MARK: - Playback Settings (equalizer / filters)
+
+    /// Applies the equalizer, gapless, and normalization settings to the
+    /// running mpv instance. Safe to call repeatedly; the UI calls it whenever
+    /// the user changes any playback setting.
+    ///
+    /// The equalizer uses mpv's `firequalizer` filter with one gain entry per
+    /// band frequency, matching the on-screen line graph.
+    func applyPlaybackSettings() {
+        guard let mpv else { return }
+        let settings = SettingsStore.shared
+
+        mpv_set_property_string(mpv, "gapless-audio", settings.gaplessPlayback ? "yes" : "no")
+
+        var filters: [String] = []
+
+        if settings.equalizerEnabled {
+            let entries = zip(equalizerFrequencies, settings.equalizerGains)
+                .map { "entry(\(Self.fmt($0.0)),\(Self.fmt($0.1)))" }
+                .joined(separator: ";")
+            if !entries.isEmpty {
+                filters.append("firequalizer=gain_entry=\"\(entries)\"")
+            }
+        }
+
+        if settings.audioNormalization, let loudness = currentLoudnessDb, loudness.isFinite {
+            let gain = max(-12.0, min(12.0, -14.0 - loudness))
+            filters.append("volume=\(Self.fmt(gain))dB")
+        }
+
+        let chain = filters.joined(separator: ",")
+        let result = mpv_set_property_string(mpv, "af", chain.isEmpty ? "" : chain)
+        if result < 0 {
+            Log.player.error("Failed to set af chain '\(chain)': mpv error \(result)")
+        }
+    }
+
+    private static func fmt(_ value: Double) -> String {
+        String(format: "%.4f", value)
     }
 
     // MARK: - Audio Session
@@ -622,18 +671,25 @@ final class PlayerController {
         setVideoCrop(.none)
     }
 
-    private func detectedCrop(from log: String) -> (width: Int, height: Int, x: Int, y: Int)? {
+    private struct DetectedCrop {
+        let width: Int
+        let height: Int
+        let x: Int
+        let y: Int
+    }
+
+    private func detectedCrop(from log: String) -> DetectedCrop? {
         guard let marker = log.range(of: "crop=") else { return nil }
         let values = log[marker.upperBound...]
             .split(whereSeparator: { $0 == Character(":") || $0 == Character(" ") || $0 == Character("\n") })
             .prefix(4)
             .compactMap { Int($0) }
         guard values.count == 4 else { return nil }
-        return (values[0], values[1], values[2], values[3])
+        return DetectedCrop(width: values[0], height: values[1], x: values[2], y: values[3])
     }
 
     @MainActor
-    private func applyDetectedCrop(_ crop: (width: Int, height: Int, x: Int, y: Int)) {
+    private func applyDetectedCrop(_ crop: DetectedCrop) {
         guard crop.width > 0, crop.height > 0 else { return }
         let signature = "\(crop.width)x\(crop.height)+\(crop.x)+\(crop.y)"
         if lastDetectedCrop == signature {

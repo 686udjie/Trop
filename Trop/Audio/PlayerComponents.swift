@@ -101,7 +101,6 @@ struct SecondaryActionsRow: View {
     @Binding var showQueue: Bool
     @Binding var isRepeatOn: Bool
     let onRepeat: () -> Void
-    @State private var lyricsState = LyricsState.shared
 
     var body: some View {
         HStack(spacing: 0) {
@@ -115,8 +114,6 @@ struct SecondaryActionsRow: View {
                     .padding(10)
                     .background(showLyrics ? Circle().fill(.white.opacity(0.15)) : Circle().fill(.clear))
             }
-            .disabled(!lyricsState.isAvailable)
-            .opacity(lyricsState.isAvailable ? 1 : 0.3)
             .frame(maxWidth: .infinity)
             .accessibilityLabel("Lyrics")
 

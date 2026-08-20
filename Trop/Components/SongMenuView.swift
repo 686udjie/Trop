@@ -8,6 +8,7 @@
 import SwiftUI
 
 struct SongMenuView: View {
+    @Environment(SettingsStore.self) private var settings
     let songItem: SongItem
     let webUrl: String
     let artistBrowseId: String?
@@ -45,7 +46,7 @@ struct SongMenuView: View {
         } label: {
             Text("\u{22EE}")
                 .font(.body.weight(.black))
-                .foregroundStyle(.blue)
+                .foregroundStyle(settings.accentColor)
         }
         .menuOrder(.fixed)
     }

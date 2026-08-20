@@ -14,11 +14,11 @@ actor PersonalizationService {
 
     // MARK: - Phase 1: Local sections (fast, load immediately)
 
-    func buildQuickPicks() async -> HomeSection {
+    func buildQuickPicks(limit: Int = 12) async -> HomeSection {
         guard let songs = try? await db.fetchLikedSongs(), !songs.isEmpty else {
             return .quickPicks(items: [])
         }
-        let items = songs.shuffled().prefix(12).map { YTItem.song(SongItem(entity: $0)) }
+        let items = songs.shuffled().prefix(max(limit, 1)).map { YTItem.song(SongItem(entity: $0)) }
         return .quickPicks(items: Array(items))
     }
 

@@ -9,6 +9,7 @@ import AVFoundation
 import Combine
 import Foundation
 import GRDB
+import Network
 import Nuke
 import UIKit
 
@@ -26,19 +27,47 @@ class DownloadManager: ObservableObject {
     }
 
     private let fileManager = FileManager.default
+    private let pathMonitor = NWPathMonitor()
+    private var currentPath: NWPath?
     private var downloadsDir: URL {
         let base = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first
             ?? fileManager.temporaryDirectory
         return base.appendingPathComponent("Trop/Downloads")
     }
 
-    private init() {}
+    private init() {
+        pathMonitor.pathUpdateHandler = { [weak self] path in
+            Task { @MainActor [weak self] in
+                self?.currentPath = path
+            }
+        }
+        pathMonitor.start(queue: DispatchQueue(label: "com.trop.network"))
+    }
+
+    private var isOnWiFi: Bool {
+        currentPath?.usesInterfaceType(.wifi) == true
+            || currentPath?.usesInterfaceType(.wiredEthernet) == true
+    }
+
+    /// AAC transcode bitrate for the download quality preference.
+    static func transcodeBitrate(for quality: DownloadQuality) -> Int {
+        switch quality {
+        case .auto, .high: return 192_000
+        case .standard: return 96_000
+        }
+    }
 
     func download(song: SongItem) async {
         let videoId = song.videoId
         let artist = song.artists.map(\.name).joined(separator: ", ")
         Log.downloadManager.debug("Starting download: \(artist) - \(song.title) (\(videoId))")
         downloads[videoId] = .downloading(0)
+
+        if SettingsStore.shared.wifiOnlyDownloads, !isOnWiFi {
+            downloads[videoId] = .failed("Wi-Fi Only is enabled and you are not on Wi-Fi.")
+            objectWillChange.send()
+            return
+        }
 
         do {
             let fileURL = downloadsDir.appendingPathComponent(
@@ -272,11 +301,12 @@ class DownloadManager: ObservableObject {
         // Passthrough when the source is already AAC (no re-encode needed);
         // otherwise transcode Opus/other → AAC.
         let isAAC = (sourceFormat?.mediaSubType.rawValue == kAudioFormatMPEG4AAC)
+        let bitrate = Self.transcodeBitrate(for: SettingsStore.shared.downloadQuality)
         let audioSettings: [String: Any]? = isAAC ? nil : [
             AVFormatIDKey: kAudioFormatMPEG4AAC,
             AVSampleRateKey: sampleRate,
             AVNumberOfChannelsKey: channels,
-            AVEncoderBitRateKey: 192000
+            AVEncoderBitRateKey: bitrate
         ]
         let writerInput = AVAssetWriterInput(mediaType: .audio, outputSettings: audioSettings)
         writer.add(writerInput)

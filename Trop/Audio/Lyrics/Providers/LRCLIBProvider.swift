@@ -15,12 +15,15 @@ struct LRCLIBProvider: LyricsProvider {
 
     func fetch(query: LyricsQuery) async throws -> [LyricLine] {
         var components = URLComponents(string: baseURL)!
-        components.queryItems = [
+        var items = [
             URLQueryItem(name: "track_name", value: query.title),
             URLQueryItem(name: "artist_name", value: query.artist),
-            URLQueryItem(name: "album_name", value: query.album ?? ""),
-            URLQueryItem(name: "duration", value: String(query.durationSeconds))
+            URLQueryItem(name: "album_name", value: query.album ?? "")
         ]
+        if query.durationSeconds > 0 {
+            items.append(URLQueryItem(name: "duration", value: String(query.durationSeconds)))
+        }
+        components.queryItems = items
 
         guard let url = components.url else { throw LyricsError.invalidURL }
         let (data, response) = try await URLSession.shared.data(for: URLRequest(url: url))
@@ -42,7 +45,11 @@ struct LRCLIBProvider: LyricsProvider {
         }
 
         if let plain = json["plainLyrics"] as? String, !plain.isEmpty {
-            let lines = LyricsParsing.parseLrc(plain)
+            let lines = plain
+                .split(whereSeparator: { $0 == "\n" || $0 == "\r" })
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+                .map { LyricLine(text: $0, startTime: nil) }
             if !lines.isEmpty { return lines }
         }
 

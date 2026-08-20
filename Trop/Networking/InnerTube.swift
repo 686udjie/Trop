@@ -414,11 +414,15 @@ actor InnerTube {
         locale: YouTubeLocale,
         visitorData: String? = nil
     ) -> [String: Any] {
+        let settings = SettingsStore.shared
+        let effectiveLocale = locale.gl == YouTubeLocale.default.gl && locale.hl == YouTubeLocale.default.hl
+            ? YouTubeLocale(gl: settings.contentCountry, hl: "en")
+            : locale
         var clientDict: [String: Any] = [
             "clientName": client.clientName,
             "clientVersion": client.clientVersion,
-            "gl": locale.gl,
-            "hl": locale.hl
+            "gl": effectiveLocale.gl,
+            "hl": effectiveLocale.hl
         ]
         if let visitorData = visitorData {
             clientDict["visitorData"] = visitorData

@@ -7,14 +7,13 @@
 
 import SwiftUI
 
-/// Shared large-title header with history / settings / account buttons,
+/// Shared large-title header with history and account buttons,
 /// used by the Home and Library tabs.
 struct TabHeaderView: View {
     let title: String
     var accountIsLoggedIn: Bool = false
     var accountImageUrl: String?
     var onHistory: () -> Void
-    var onSettings: () -> Void
     var onAccount: () -> Void
 
     var body: some View {
@@ -23,21 +22,15 @@ struct TabHeaderView: View {
                 .font(.largeTitle)
                 .fontWeight(.bold)
             Spacer()
-            HStack(spacing: 8) {
+            HStack(spacing: 10) {
                 Button(action: onHistory) {
                     Image(systemName: "clock.arrow.circlepath")
                         .font(.title3)
-                        .foregroundColor(.primary)
+                        .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("History")
-                Button(action: onSettings) {
-                    Image(systemName: "gearshape")
-                        .font(.title3)
-                        .foregroundColor(.primary)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Settings")
+
                 AccountButtonView(
                     isLoggedIn: accountIsLoggedIn,
                     accountImageUrl: accountImageUrl,

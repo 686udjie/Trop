@@ -10,6 +10,7 @@ import SwiftUI
 struct FullPlayerView: View {
     let onCollapse: () -> Void
 
+    @Environment(SettingsStore.self) private var settings
     private let player = PlayerController.shared
     @Bindable private var np = NowPlaying.shared
 
@@ -24,24 +25,29 @@ struct FullPlayerView: View {
 
     var body: some View {
         ZStack {
-            LinearGradient(
-                colors: [
-                    np.dominantColors.first ?? Color(red: 0.15, green: 0.15, blue: 0.2),
-                    np.dominantColors.last ?? Color(red: 0.05, green: 0.05, blue: 0.08)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea()
-            .animation(.easeInOut(duration: 0.8), value: np.dominantColors)
-
-            Circle()
-                .fill(np.dominantColors.first ?? .blue)
-                .frame(width: 400, height: 400)
-                .blur(radius: 120)
-                .opacity(0.45)
-                .offset(y: -150)
+            if settings.playerBackgroundStyle == .solid {
+                Color.black
+                    .ignoresSafeArea()
+            } else {
+                LinearGradient(
+                    colors: [
+                        np.dominantColors.first ?? Color(red: 0.15, green: 0.15, blue: 0.2),
+                        np.dominantColors.last ?? Color(red: 0.05, green: 0.05, blue: 0.08)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
                 .ignoresSafeArea()
+                .animation(.easeInOut(duration: 0.8), value: np.dominantColors)
+
+                Circle()
+                    .fill(np.dominantColors.first ?? .blue)
+                    .frame(width: 400, height: 400)
+                    .blur(radius: 120)
+                    .opacity(0.45)
+                    .offset(y: -150)
+                    .ignoresSafeArea()
+            }
 
             VStack(spacing: 0) {
                 Capsule()
@@ -199,6 +205,10 @@ struct FullPlayerView: View {
             HStack(spacing: 12) {
                 Button {
                     isLiked.toggle()
+                    if isLiked, SettingsStore.shared.autoDownloadOnLike,
+                       let song = np.queueSongs.indices.contains(np.queueIndex) ? np.queueSongs[np.queueIndex] : nil {
+                        Task { await DownloadManager.shared.download(song: song) }
+                    }
                 } label: {
                     Image(systemName: isLiked ? "heart.fill" : "heart")
                         .font(.system(size: 17, weight: .regular))

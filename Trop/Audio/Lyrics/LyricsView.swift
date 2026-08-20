@@ -11,6 +11,7 @@ import UIKit
 struct LyricsView<ProgressSlider: View>: View {
     private let np = NowPlaying.shared
     private let player = PlayerController.shared
+    @Environment(SettingsStore.self) private var settings
 
     @Binding var showLyrics: Bool
     @Binding var showQueue: Bool
@@ -80,7 +81,7 @@ struct LyricsView<ProgressSlider: View>: View {
 
                             ForEach(Array(lines.enumerated()), id: \.element.id) { index, line in
                                 Text(line.text.isEmpty ? "♪" : line.text)
-                                    .font(.title3.weight(.semibold))
+                                    .font(.system(size: settings.lyricsFontSize, weight: .semibold))
                                     .foregroundStyle(index == activeIndex ? .white : .white.opacity(0.4))
                                     .animation(.easeInOut(duration: 0.25), value: activeIndex)
                                     .frame(maxWidth: .infinity, alignment: .leading)

@@ -25,6 +25,8 @@ struct PlaybackResult {
     let hasVideoContent: Bool
     /// Provides a combined audio-video stream URL to enable instant toggling by swapping the `vid` track, avoiding reloads and network fetches
     let muxedStreamUrl: String?
+    /// Loudness of the selected stream (LUFS) for normalization, from the /player response
+    let loudnessDb: Double?
 }
 
 // Resolves an audio stream URL for a given client.
@@ -92,7 +94,7 @@ enum StreamResolver {
             Log.streamResolver.debug("Using preferred format itag=\(preferred.itag ?? 0)")
         } else if forDownload, let downloadFormat = FormatSelector.bestDownloadFormat(from: allFormats) {
             selectedFormat = downloadFormat
-        } else if let best = FormatSelector.bestAudioFormat(from: allFormats) {
+        } else if let best = FormatSelector.bestAudioFormat(from: allFormats, preference: SettingsStore.shared.audioQuality) {
             selectedFormat = best
         } else {
             let formatInfos = allFormats.map { f in
@@ -158,7 +160,8 @@ enum StreamResolver {
             clientName: client.clientName,
             musicVideoType: musicVideoType,
             hasVideoContent: hasVideoContent,
-            muxedStreamUrl: muxedStreamUrl
+            muxedStreamUrl: muxedStreamUrl,
+            loudnessDb: selectedFormat.loudnessDb
         )
         Log.streamResolver.debug("musicVideoType=\(musicVideoType ?? "nil")")
 

@@ -9,11 +9,14 @@ import SwiftUI
 
 /// Shared account sheet used by the Home and Library tabs.
 struct AccountSheetView: View {
+    @Environment(SettingsStore.self) private var settings
+
     var isLoggedIn: Bool
     var titleText: String
-    var subtitleText: String
     var accountImageUrl: String?
     var onDone: () -> Void
+    var onLogin: () -> Void
+    var onSettings: () -> Void
     var onSignOut: () -> Void
 
     var body: some View {
@@ -26,31 +29,47 @@ struct AccountSheetView: View {
                             accountImageUrl: accountImageUrl,
                             onTap: {}
                         )
-                        .scaleEffect(1.3)
+                        .scaleEffect(1.7)
+                        .frame(width: 48, height: 48)
 
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(titleText)
-                                .font(.headline)
-                            if !subtitleText.isEmpty {
-                                Text(subtitleText)
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
+                        Text(titleText)
+                            .font(.title3.weight(.semibold))
+                            .lineLimit(1)
+
+                        Spacer(minLength: 8)
+
+                        if isLoggedIn {
+                            Button(action: onSignOut) {
+                                centeredActionLabel(title: "Logout")
                             }
+                            .buttonStyle(.bordered)
+                            .tint(settings.accentColor)
+                        } else {
+                            Button(action: onLogin) {
+                                centeredActionLabel(title: "Login")
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(settings.accentColor)
                         }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 4)
                 }
 
-                if isLoggedIn {
-                    Section {
-                        Button(role: .destructive) {
-                            onSignOut()
-                        } label: {
-                            Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
+                Section {
+                    Button(action: onSettings) {
+                        HStack {
+                            Label("Settings", systemImage: "gearshape")
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.tertiary)
                         }
                     }
+                    .foregroundStyle(.primary)
                 }
             }
+            .listStyle(.insetGrouped)
             .navigationTitle("Account")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -59,6 +78,11 @@ struct AccountSheetView: View {
                 }
             }
         }
-        .presentationDetents([.medium, .large])
+        .presentationDetents([.medium])
+    }
+
+    private func centeredActionLabel(title: String) -> some View {
+        Text(title)
+            .frame(width: 78)
     }
 }

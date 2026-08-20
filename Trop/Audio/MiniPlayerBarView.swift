@@ -63,6 +63,7 @@ struct MiniPlayerBarView: View {
         .padding(.horizontal, isInline ? 40 : 0)
         .onChange(of: np.videoId) { _, _ in
             dragOffset = 0
+            preloadLyrics()
         }
         .onChange(of: np.queueSongs.count) { _, _ in
             dragOffset = 0
@@ -73,6 +74,12 @@ struct MiniPlayerBarView: View {
             np.preloadNeighborArtwork()
         }
         .task { np.preloadNeighborArtwork() }
+    }
+
+    private func preloadLyrics() {
+        guard let id = np.videoId else { return }
+        let upcoming = Array(np.queueSongs.suffix(from: np.queueIndex + 1).prefix(3).map(\.videoId))
+        Task { await LyricsService.shared.preload(videoId: id, upcoming: upcoming) }
     }
 
     // MARK: - Paging area

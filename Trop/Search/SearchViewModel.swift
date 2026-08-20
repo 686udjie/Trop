@@ -209,6 +209,7 @@ final class SearchViewModel {
 
     private func updateHistory(query: String) {
         guard !query.isEmpty else { return }
+        guard SettingsStore.shared.trackSearchHistory else { return }
 
         var newHistory = searchHistory.map(\.query)
         if let index = newHistory.firstIndex(of: query) {

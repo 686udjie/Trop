@@ -10,6 +10,7 @@ import SwiftUI
 /// Horizontal scrollable row of capsule filter chips.
 /// Replaces the duplicated chip rows in Home, Library and Search.
 struct FilterChipBar<Item, ID: Hashable>: View {
+    @Environment(SettingsStore.self) private var settings
     let items: [Item]
     let id: KeyPath<Item, ID>
     let title: (Item) -> String
@@ -31,7 +32,7 @@ struct FilterChipBar<Item, ID: Hashable>: View {
                             .background(
                                 Capsule()
                                     .fill(isSelected(item)
-                                        ? Color.accentColor
+                                        ? settings.accentColor
                                         : Color(.systemGray5))
                             )
                             .foregroundColor(isSelected(item)

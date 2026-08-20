@@ -10,14 +10,38 @@ import SwiftUI
 
 @main
 struct TropApp: App {
+    @State private var settings = SettingsStore.shared
+
     init() {
         configureNuke()
         ensureDirectories()
+        observePlaybackSettings()
+    }
+
+    /// Re-applies mpv playback settings whenever the user changes the
+    /// equalizer or the audio filters from any screen.
+    private func observePlaybackSettings() {
+        func register() {
+            withObservationTracking {
+                let settings = SettingsStore.shared
+                _ = settings.equalizerEnabled
+                _ = settings.equalizerGains
+                _ = settings.audioNormalization
+                _ = settings.gaplessPlayback
+            } onChange: {
+                PlayerController.shared.applyPlaybackSettings()
+                DispatchQueue.main.async { register() }
+            }
+        }
+        register()
     }
 
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .preferredColorScheme(settings.preferredColorScheme)
+                .tint(settings.accentColor)
+                .environment(settings)
         }
     }
 

@@ -69,7 +69,40 @@ final class NowPlaying {
     /// Timestamps of the last mid-play failure per videoId, to bound retries.
     private var lastFailureAt: [String: Date] = [:]
 
-    private init() {}
+    private static let queueKey = "nowPlaying.queue"
+    private static let queueIndexKey = "nowPlaying.queueIndex"
+    private static let shuffleKey = "nowPlaying.shuffle"
+    private static let repeatKey = "nowPlaying.repeat"
+
+    private init() {
+        restoreQueueIfNeeded()
+    }
+
+    // MARK: - Persistent queue
+
+    private func restoreQueueIfNeeded() {
+        guard SettingsStore.shared.persistQueue,
+              let data = UserDefaults.standard.data(forKey: Self.queueKey),
+              let songs = try? JSONDecoder().decode([SongItem].self, from: data),
+              !songs.isEmpty else { return }
+        queueSongs = songs
+        queueIndex = min(UserDefaults.standard.integer(forKey: Self.queueIndexKey), songs.count - 1)
+        isShuffleOn = UserDefaults.standard.bool(forKey: Self.shuffleKey)
+        isRepeatOn = UserDefaults.standard.bool(forKey: Self.repeatKey)
+        if !queueSongs.isEmpty {
+            queueIndex = max(0, queueIndex)
+        }
+    }
+
+    private func persistQueueState() {
+        guard SettingsStore.shared.persistQueue, !queueSongs.isEmpty else { return }
+        if let data = try? JSONEncoder().encode(queueSongs) {
+            UserDefaults.standard.set(data, forKey: Self.queueKey)
+        }
+        UserDefaults.standard.set(queueIndex, forKey: Self.queueIndexKey)
+        UserDefaults.standard.set(isShuffleOn, forKey: Self.shuffleKey)
+        UserDefaults.standard.set(isRepeatOn, forKey: Self.repeatKey)
+    }
 
     func setQueue(_ songs: [SongItem], startIndex: Int) {
         queueSongs = songs
@@ -77,6 +110,7 @@ final class NowPlaying {
         originalQueue = nil
         isShuffleOn = false
         repairQueueIndex()
+        persistQueueState()
     }
 
     /// Ensures `queueIndex` points at a valid entry
@@ -108,6 +142,7 @@ final class NowPlaying {
         queueSongs = [current] + rest
         queueIndex = 0
         isShuffleOn = true
+        persistQueueState()
     }
 
     /// Restore the original (unshuffled) queue order.
@@ -120,6 +155,7 @@ final class NowPlaying {
         }
         originalQueue = nil
         isShuffleOn = false
+        persistQueueState()
     }
 
     func repeatCurrent() {
@@ -138,6 +174,7 @@ final class NowPlaying {
             isResolvingNext = false
             isRepeatOn = false
         }
+        persistQueueState()
     }
 
     func playNext(automatic: Bool = false) {
@@ -148,6 +185,7 @@ final class NowPlaying {
         let song = queueSongs[queueIndex]
         let displayArtist = song.artists.map(\.name).joined(separator: ", ")
         update(title: song.title, artist: displayArtist, videoId: song.videoId, album: song.album, artists: song.artists)
+        persistQueueState()
         Task {
             do {
                 try await PlaybackManager.shared.resolveAndPlay(videoId: song.videoId)
@@ -168,6 +206,7 @@ final class NowPlaying {
         let song = queueSongs[queueIndex]
         let displayArtist = song.artists.map(\.name).joined(separator: ", ")
         update(title: song.title, artist: displayArtist, videoId: song.videoId, album: song.album, artists: song.artists)
+        persistQueueState()
         Task {
             do {
                 try await PlaybackManager.shared.resolveAndPlay(videoId: song.videoId)
@@ -246,6 +285,8 @@ final class NowPlaying {
         }
         if hasNext {
             playNext(automatic: true)
+        } else if SettingsStore.shared.autoplaySimilar, let endedVideoId = videoId {
+            autoplaySimilar(from: endedVideoId)
         } else {
             isPlaying = false
             thumbnailImage = nil
@@ -255,6 +296,32 @@ final class NowPlaying {
             }
             stopTimer()
             MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+        }
+    }
+
+    /// Continues playback with a radio queue built from the last song when the
+    /// queue runs out and "Autoplay Similar" is enabled.
+    private func autoplaySimilar(from videoId: String) {
+        let lastSong = queueSongs.indices.contains(queueIndex) ? queueSongs[queueIndex] : nil
+        Task {
+            do {
+                let radio = try await PersonalizationService.shared.fetchRadio(videoId: videoId)
+                var songs = radio.songs
+                if let lastSong, songs.first?.videoId != lastSong.videoId {
+                    songs = [lastSong] + songs
+                }
+                guard !songs.isEmpty else {
+                    isPlaying = false
+                    return
+                }
+                self.queueSongs = songs
+                self.queueIndex = 0
+                self.isShuffleOn = false
+                self.playNext(automatic: true)
+            } catch {
+                Log.nowPlaying.error("Autoplay similar failed: \(error)")
+                isPlaying = false
+            }
         }
     }
 

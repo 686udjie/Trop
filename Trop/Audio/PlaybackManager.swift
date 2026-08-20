@@ -46,7 +46,8 @@ actor PlaybackManager {
                 clientName: "local",
                 musicVideoType: nil,
                 hasVideoContent: false,
-                muxedStreamUrl: nil
+                muxedStreamUrl: nil,
+                loudnessDb: nil
             )
         }
 
@@ -57,7 +58,8 @@ actor PlaybackManager {
                 artist: cached.author,
                 videoId: videoId,
                 duration: cached.duration.flatMap { $0 > 0 ? TimeInterval($0) : nil },
-                artists: await queueArtists(for: videoId)
+                artists: await queueArtists(for: videoId),
+                loudnessDb: cached.loudnessDb
             )
             if let musicVideoType = cached.musicVideoType {
                 await MainActor.run {
@@ -122,7 +124,8 @@ actor PlaybackManager {
                         artist: result.author,
                         videoId: videoId,
                         duration: result.duration.flatMap { $0 > 0 ? TimeInterval($0) : nil },
-                        artists: await queueArtists(for: videoId)
+                        artists: await queueArtists(for: videoId),
+                        loudnessDb: result.loudnessDb
                     )
                     if let musicVideoType = result.musicVideoType {
                         await MainActor.run {
@@ -151,7 +154,8 @@ actor PlaybackManager {
                     artist: result.author,
                     videoId: videoId,
                     duration: result.duration.flatMap { $0 > 0 ? TimeInterval($0) : nil },
-                    artists: await queueArtists(for: videoId)
+                    artists: await queueArtists(for: videoId),
+                    loudnessDb: result.loudnessDb
                 )
                 if let musicVideoType = result.musicVideoType {
                     await MainActor.run {
@@ -220,7 +224,7 @@ actor PlaybackManager {
 
                 if let video = FormatSelector.bestVideoOnlyFormat(from: allFormats),
                    let videoURL = video.url,
-                   let audio = FormatSelector.bestAudioFormat(from: allFormats),
+                   let audio = FormatSelector.bestAudioFormat(from: allFormats, preference: SettingsStore.shared.audioQuality),
                    let audioURL = try? await Self.resolveStreamURL(audio) {
                     let duration = response.videoDetails?.lengthSeconds.flatMap(Int.init)
                     return Self.combineVideoAndAudio(videoURL: videoURL, audioURL: audioURL, duration: duration)

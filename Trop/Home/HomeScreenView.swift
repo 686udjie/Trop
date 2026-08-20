@@ -8,6 +8,7 @@
 import SwiftUI
 
 struct HomeScreenView: View {
+    @Environment(SettingsStore.self) private var settings
     @State private var viewModel = HomeViewModel()
     @StateObject private var loginModel = LoginViewModel()
     @State private var navigationPath = NavigationPath()
@@ -21,7 +22,6 @@ struct HomeScreenView: View {
                     accountIsLoggedIn: viewModel.isLoggedIn,
                     accountImageUrl: viewModel.accountImageUrl,
                     onHistory: { navigationPath.append(DetailRoute.history) },
-                    onSettings: { navigationPath.append(DetailRoute.settings) },
                     onAccount: { viewModel.tapAccount() }
                 )
 
@@ -151,15 +151,37 @@ struct HomeScreenView: View {
             await refreshTask()
             await IncrementalSyncService.shared.checkAndSyncIfStale()
         }
+        .onChange(of: settings.hideExplicit) { _, _ in
+            viewModel.syncSettings()
+        }
+        .onChange(of: settings.showQuickPicks) { _, _ in
+            viewModel.syncSettings()
+            viewModel.refresh()
+        }
+        .onChange(of: settings.topListsLength) { _, _ in
+            viewModel.refresh()
+        }
+        .onChange(of: settings.contentCountry) { _, _ in
+            viewModel.refresh()
+        }
     }
 
     private var accountSheet: some View {
         AccountSheetView(
             isLoggedIn: viewModel.isLoggedIn,
             titleText: viewModel.accountName,
-            subtitleText: viewModel.isLoggedIn ? "Signed in" : "Not signed in",
             accountImageUrl: viewModel.accountImageUrl,
             onDone: { viewModel.isAccountSheetPresented = false },
+            onLogin: {
+                viewModel.isAccountSheetPresented = false
+                DispatchQueue.main.async {
+                    viewModel.isLoginSheetPresented = true
+                }
+            },
+            onSettings: {
+                viewModel.isAccountSheetPresented = false
+                navigationPath.append(DetailRoute.settings)
+            },
             onSignOut: { viewModel.logout() }
         )
     }

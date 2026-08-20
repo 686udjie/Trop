@@ -8,14 +8,17 @@
 import SwiftUI
 
 struct ContentView: View {
+    @Environment(SettingsStore.self) private var settings
     @State private var nowPlaying = NowPlaying.shared
-    @State private var selectedTab = 0
+    @State private var selectedTab = SettingsStore.shared.defaultTab
     @State private var isExpanded = false
     @State private var scrollState = MiniPlayerScrollState()
 
     var body: some View {
         ZStack {
-            if let accent = nowPlaying.accentColor {
+            if settings.playerBackgroundStyle == .solid {
+                Color.black.ignoresSafeArea()
+            } else if let accent = nowPlaying.accentColor {
                 accent
                     .opacity(0.06)
                     .ignoresSafeArea()

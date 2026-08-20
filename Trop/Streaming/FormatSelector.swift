@@ -15,8 +15,10 @@ import Foundation
 //   4. bitrate       (higher = better)
 enum FormatSelector {
 
-    // Picks the optimal audio format for playback
-    static func bestAudioFormat(from formats: [Format]) -> Format? {
+    /// The user's streaming-quality preference from settings. When non-`.auto`,
+    /// formats at the preferred tier are selected first, falling back to the
+    /// best available format when the preferred tier has no matches.
+    static func bestAudioFormat(from formats: [Format], preference: AudioQuality = .auto) -> Format? {
         guard !formats.isEmpty else {
             Log.formatSelector.debug("No formats to select from")
             return nil
@@ -34,6 +36,17 @@ enum FormatSelector {
             return nil
         }
 
+        if preference != .auto {
+            let tier = Self.qualityTier(for: preference)
+            let tierFormats = audioFormats.filter { Self.qualityRank($0.audioQuality) == tier }
+            if !tierFormats.isEmpty {
+                Log.formatSelector.debug("Preferring \(preference.rawValue) tier: \(tierFormats.count) format(s)")
+                audioFormats = tierFormats
+            } else {
+                Log.formatSelector.debug("No \(preference.rawValue)-tier format, using best available")
+            }
+        }
+
         Log.formatSelector.debug("Selecting from \(audioFormats.count) audio-bearing formats")
 
         let selected = audioFormats.max { a, b in
@@ -48,6 +61,26 @@ enum FormatSelector {
         }
 
         return selected
+    }
+
+    /// Maps the user-facing quality preference to the format quality tier.
+    private static func qualityTier(for preference: AudioQuality) -> Int {
+        switch preference {
+        case .high: return 3
+        case .medium: return 2
+        case .low: return 1
+        case .auto: return 0
+        }
+    }
+
+    /// Maps a format's `AUDIO_QUALITY_*` string to a comparable tier.
+    private static func qualityRank(_ quality: String?) -> Int {
+        switch quality {
+        case "AUDIO_QUALITY_HIGH": return 3
+        case "AUDIO_QUALITY_MEDIUM": return 2
+        case "AUDIO_QUALITY_LOW": return 1
+        default: return 0
+        }
     }
 
     // Picks the optimal audio format for downloads
@@ -90,14 +123,7 @@ enum FormatSelector {
 
     // Computes a sortable score for a format based on quality, channels, codec, bitrate
     private static func formatScore(_ format: Format) -> Int {
-        let qualityScore: Int = {
-            switch format.audioQuality {
-            case "AUDIO_QUALITY_HIGH":   30_000
-            case "AUDIO_QUALITY_MEDIUM": 20_000
-            case "AUDIO_QUALITY_LOW":    10_000
-            default:                          0
-            }
-        }()
+        let qualityScore = qualityRank(format.audioQuality) * 10_000
 
         let channelsScore = (format.audioChannels ?? 2) * 1_000
         let codecScore = scoreCodec(format.codec) * 100

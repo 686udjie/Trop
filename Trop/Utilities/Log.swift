@@ -87,4 +87,5 @@ enum Log {
     static let downloadManager = AppLogger(logger: Logger(subsystem: subsystem, category: "DownloadManager"))
     static let sync = AppLogger(logger: Logger(subsystem: subsystem, category: "Sync"))
     static let addSong = AppLogger(logger: Logger(subsystem: subsystem, category: "AddSong"))
+    static let settings = AppLogger(logger: Logger(subsystem: subsystem, category: "Settings"))
 }

@@ -8,45 +8,32 @@
 import SwiftUI
 
 struct SettingsView: View {
-    @State private var settings = LyricsSettings.shared
-    @State private var order: [String] = LyricsSettings.shared.providerOrder
-
-    private var providers: [LyricsProvider] {
-        order.compactMap { LyricsProviderRegistry.provider(for: $0) }
-    }
-
     var body: some View {
         List {
             Section {
-                ForEach(providers, id: \.id) { provider in
-                    HStack {
-                        Image(systemName: "line.3.horizontal")
-                            .foregroundStyle(.secondary)
-                        Text(provider.name)
-                        Spacer()
-                    }
+                SettingsNavigationRow("Appearance", icon: "paintpalette") {
+                    AppearanceSettingsView()
                 }
-                .onMove(perform: move)
+                SettingsNavigationRow("Player", icon: "play.circle") {
+                    PlayerSettingsView()
+                }
             } header: {
-                Text("Lyrics Provider Fallback Order")
-            } footer: {
-                Text("Lyrics are fetched from the first provider in the list that returns results. Drag to reorder.")
+                Text("User Interface")
+            }
+
+            Section {
+                SettingsNavigationRow("Content", icon: "globe") {
+                    ContentSettingsView()
+                }
+                SettingsNavigationRow("Lyrics", icon: "text.quote") {
+                    LyricsSettingsView()
+                }
+            } header: {
+                Text("Player & Content")
             }
         }
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
         .miniPlayerTracksScroll()
-        .onAppear {
-            var merged = settings.providerOrder
-            for provider in LyricsProviderRegistry.all where !merged.contains(provider.id) {
-                merged.append(provider.id)
-            }
-            order = merged
-        }
-        .onDisappear { settings.providerOrder = order }
-    }
-
-    private func move(from source: IndexSet, to destination: Int) {
-        order.move(fromOffsets: source, toOffset: destination)
     }
 }

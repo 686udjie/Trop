@@ -9,6 +9,7 @@ import SwiftUI
 import GRDB
 
 struct LibraryView: View {
+    @Environment(SettingsStore.self) private var settings
     @State private var artists: [ArtistEntity] = []
     @State private var playlists: [PlaylistEntity] = []
     @State private var albums: [AlbumEntity] = []
@@ -22,6 +23,7 @@ struct LibraryView: View {
 
     @StateObject private var loginModel = LoginViewModel()
     @State private var navigationPath = NavigationPath()
+    @State private var accountName = "Guest"
     @State private var accountImageUrl: String?
     @State private var isLoginSheetPresented = false
     @State private var isAccountSheetPresented = false
@@ -49,7 +51,6 @@ struct LibraryView: View {
                     accountIsLoggedIn: loginModel.isLoggedIn,
                     accountImageUrl: accountImageUrl,
                     onHistory: { navigationPath.append(DetailRoute.history) },
-                    onSettings: { navigationPath.append(DetailRoute.settings) },
                     onAccount: { tapAccount() }
                 )
 
@@ -89,7 +90,7 @@ struct LibraryView: View {
                         .font(.title2.weight(.semibold))
                         .foregroundColor(.white)
                         .frame(width: 56, height: 56)
-                        .background(Circle().fill(Color.accentColor))
+                        .background(Circle().fill(settings.accentColor))
                         .shadow(color: .black.opacity(0.3), radius: 6, y: 3)
                 }
                 .accessibilityLabel("Create playlist")
@@ -414,17 +415,14 @@ struct LibraryView: View {
     // MARK: - Account
 
     private func tapAccount() {
-        if loginModel.isLoggedIn {
-            isAccountSheetPresented = true
-        } else {
-            isLoginSheetPresented = true
-        }
+        isAccountSheetPresented = true
     }
 
     private func fetchAccountInfo() async {
         guard loginModel.isLoggedIn else { return }
         do {
             let info = try await InnerTube.shared.accountInfo()
+            accountName = info.name
             accountImageUrl = info.thumbnailUrl
         } catch {
             Log.libraryView.error("Failed to fetch account info: \(error)")
@@ -434,12 +432,22 @@ struct LibraryView: View {
     private var accountSheet: some View {
         AccountSheetView(
             isLoggedIn: loginModel.isLoggedIn,
-            titleText: loginModel.isLoggedIn ? "Signed in" : "Not signed in",
-            subtitleText: loginModel.isLoggedIn ? "Your account" : "",
+            titleText: accountName,
             accountImageUrl: accountImageUrl,
             onDone: { isAccountSheetPresented = false },
+            onLogin: {
+                isAccountSheetPresented = false
+                DispatchQueue.main.async {
+                    isLoginSheetPresented = true
+                }
+            },
+            onSettings: {
+                isAccountSheetPresented = false
+                navigationPath.append(DetailRoute.settings)
+            },
             onSignOut: {
                 loginModel.logout()
+                accountName = "Guest"
                 accountImageUrl = nil
                 isAccountSheetPresented = false
             }
@@ -450,6 +458,7 @@ struct LibraryView: View {
 // MARK: - Create Playlist Dialog
 
 struct CreatePlaylistDialog: View {
+    @Environment(SettingsStore.self) private var settings
     @Binding var isPresented: Bool
     let onCreated: () async -> Void
 
@@ -478,7 +487,7 @@ struct CreatePlaylistDialog: View {
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .stroke(isFocused ? Color.accentColor : Color(.systemGray4), lineWidth: 1)
+                        .stroke(isFocused ? settings.accentColor : Color(.systemGray4), lineWidth: 1)
                 )
                 .autocorrectionDisabled()
                 .padding(.horizontal, 24)
@@ -501,7 +510,7 @@ struct CreatePlaylistDialog: View {
 
                 Toggle("", isOn: $syncWithYouTube)
                     .labelsHidden()
-                    .tint(.accentColor)
+                    .tint(settings.accentColor)
             }
             .padding(.horizontal, 24)
             .padding(.bottom, 20)
@@ -563,7 +572,7 @@ struct CreatePlaylistDialog: View {
                     .padding(.vertical, 12)
                     .background(
                         RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(name.trimmingCharacters(in: .whitespaces).isEmpty ? Color.accentColor.opacity(0.4) : Color.accentColor)
+                            .fill(name.trimmingCharacters(in: .whitespaces).isEmpty ? settings.accentColor.opacity(0.4) : settings.accentColor)
                     )
                 }
                 .buttonStyle(.plain)

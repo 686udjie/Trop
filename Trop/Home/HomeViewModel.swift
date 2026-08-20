@@ -38,6 +38,16 @@ final class HomeViewModel {
     private var cachedLocalSections: [HomeSection] = []
     private var cachedPhase2Sections: [HomeSection] = []
 
+    init() {
+        hideExplicit = SettingsStore.shared.hideExplicit
+    }
+
+    /// Re-reads settings that affect the feed (explicit filter, quick picks).
+    func syncSettings() {
+        let settings = SettingsStore.shared
+        hideExplicit = settings.hideExplicit
+    }
+
     func loadHomeData() {
         guard !isHomeDataLoaded else { return }
         isHomeDataLoaded = true
@@ -89,11 +99,7 @@ final class HomeViewModel {
     }
 
     func tapAccount() {
-        if isLoggedIn {
-            isAccountSheetPresented = true
-        } else {
-            isLoginSheetPresented = true
-        }
+        isAccountSheetPresented = true
     }
 
     private func fetchAccountInfo() async {
@@ -140,7 +146,10 @@ final class HomeViewModel {
     }
 
     private func loadLocalSections() async {
-        async let qp: HomeSection = personalization.buildQuickPicks()
+        let settings = SettingsStore.shared
+        async let qp: HomeSection = settings.showQuickPicks
+            ? personalization.buildQuickPicks(limit: settings.topListsLength)
+            : .quickPicks(items: [])
         async let kl: HomeSection = personalization.buildKeepListening()
         async let ff: HomeSection = personalization.buildForgottenFavorites()
 
@@ -240,6 +249,9 @@ final class HomeViewModel {
     private func mapServerSection(_ section: HomePage.Section, index: Int) -> HomeSection {
         let title = section.title.lowercased()
         if title == "quick picks" || title.contains("quick pick") {
+            if !SettingsStore.shared.showQuickPicks {
+                return .quickPicks(items: [])
+            }
             return .quickPicks(items: section.items)
         }
         if title.contains("listen again") || title.contains("keep listening") {

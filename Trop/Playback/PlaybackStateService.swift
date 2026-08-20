@@ -68,6 +68,10 @@ actor PlaybackStateService {
     }
 
     private func recordPlayback(videoId: String, playTimeMs: Int64) async {
+        guard SettingsStore.shared.trackPlayHistory else {
+            Log.playbackState.debug("Play history tracking disabled — skipping recording")
+            return
+        }
         Log.playbackState.debug("Recording playback videoId=\(videoId) playTimeMs=\(playTimeMs)")
         do {
             var event = Event(id: nil, songId: videoId, timestamp: Date(), playTime: playTimeMs)

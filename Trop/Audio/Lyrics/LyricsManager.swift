@@ -66,9 +66,11 @@ actor LyricsManager {
 
     func fetchLyrics(query: LyricsQuery) async throws -> [LyricLine] {
         let order = LyricsSettings.shared.providerOrder
+        let disabled = SettingsStore.shared.disabledLyricsProviders
         var lastError: Error?
 
         for id in order {
+            guard !disabled.contains(id) else { continue }
             guard let provider = LyricsProviderRegistry.provider(for: id) else { continue }
             do {
                 let lines = try await provider.fetch(query: query)

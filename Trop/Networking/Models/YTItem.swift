@@ -7,7 +7,7 @@
 
 import Foundation
 
-struct YTArtist {
+struct YTArtist: Codable, Hashable {
     var name: String
     var id: String?
 }
@@ -358,7 +358,7 @@ enum YTItem {
     }
 }
 
-struct SongItem {
+struct SongItem: Codable, Hashable {
     var videoId: String
     var title: String
     var artists: [YTArtist]

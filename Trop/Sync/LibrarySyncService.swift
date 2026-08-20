@@ -15,8 +15,13 @@ actor LibrarySyncService {
 
     func syncAll() async -> LibrarySyncResult {
         var result = LibrarySyncResult()
-        do { result.artistIds = try await syncSubscribedArtists() } catch { Log.sync.error("syncSubscribedArtists error: \(error)") }
-        do { result.playlistIds = try await syncLikedPlaylists() } catch { Log.sync.error("syncLikedPlaylists error: \(error)") }
+        let settings = SettingsStore.shared
+        if settings.syncArtists {
+            do { result.artistIds = try await syncSubscribedArtists() } catch { Log.sync.error("syncSubscribedArtists error: \(error)") }
+        }
+        if settings.syncPlaylists {
+            do { result.playlistIds = try await syncLikedPlaylists() } catch { Log.sync.error("syncLikedPlaylists error: \(error)") }
+        }
         return result
     }
 }
