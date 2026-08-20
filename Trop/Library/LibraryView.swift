@@ -66,24 +66,7 @@ struct LibraryView: View {
             }
             .frame(maxHeight: .infinity, alignment: .top)
             .toolbar(.hidden, for: .navigationBar)
-            .navigationDestination(for: DetailRoute.self) { route in
-                switch route {
-                case .artist(let browseId):
-                    ArtistDetailView(browseId: browseId)
-                case .playlist(let playlistId):
-                    PlaylistDetailView(playlistId: playlistId)
-                case .album(let browseId):
-                    AlbumDetailView(browseId: browseId)
-                case .podcast(let browseId):
-                    PodcastDetailView(browseId: browseId)
-                case .autoPlaylist(let autoRoute):
-                    PlaylistDetailView(autoPlaylistRoute: autoRoute)
-                case .history:
-                    HistoryScreenView()
-                case .settings:
-                    SettingsView()
-                }
-            }
+            .detailRouteDestinations()
             .overlay(alignment: .bottomTrailing) {
                 Button(action: { showCreateDialog = true }) {
                     Image(systemName: "plus")

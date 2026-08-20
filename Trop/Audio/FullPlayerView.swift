@@ -160,17 +160,7 @@ struct FullPlayerView: View {
             if newValue { np.preloadNeighborArtwork() }
         }
         .task { np.preloadNeighborArtwork() }
-        .navigationDestination(item: $pendingRoute) { route in
-            switch route {
-            case .album(let browseId): AlbumDetailView(browseId: browseId)
-            case .artist(let browseId): ArtistDetailView(browseId: browseId)
-            case .playlist(let playlistId): PlaylistDetailView(playlistId: playlistId)
-            case .podcast(let browseId): PodcastDetailView(browseId: browseId)
-            case .autoPlaylist(let autoRoute): PlaylistDetailView(autoPlaylistRoute: autoRoute)
-            case .history: HistoryScreenView()
-            case .settings: SettingsView()
-            }
-        }
+        .detailRouteSheet(item: $pendingRoute)
     }
 
     // MARK: - Player Content

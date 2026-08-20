@@ -55,34 +55,11 @@ struct SearchView: View {
             .onChange(of: viewModel.searchText) { _, _ in
                 viewModel.onSearchTextChange()
             }
-            .navigationDestination(for: DetailRoute.self) { route in
-                switch route {
-                case .album(let browseId):
-                    AlbumDetailView(browseId: browseId)
-                case .artist(let browseId):
-                    ArtistDetailView(browseId: browseId)
-                case .playlist(let playlistId):
-                    PlaylistDetailView(playlistId: playlistId)
-                case .podcast(let browseId):
-                    PodcastDetailView(browseId: browseId)
-                case .autoPlaylist(let autoRoute):
-                    PlaylistDetailView(autoPlaylistRoute: autoRoute)
-                case .history:
-                    HistoryScreenView()
-                case .settings:
-                    SettingsView()
-                }
-            }
-            .navigationDestination(item: $pendingRoute) { route in
-                switch route {
-                case .album(let browseId): AlbumDetailView(browseId: browseId)
-                case .artist(let browseId): ArtistDetailView(browseId: browseId)
-                case .playlist(let playlistId): PlaylistDetailView(playlistId: playlistId)
-                case .podcast(let browseId): PodcastDetailView(browseId: browseId)
-                case .autoPlaylist(let autoRoute): PlaylistDetailView(autoPlaylistRoute: autoRoute)
-                case .history: HistoryScreenView()
-                case .settings:
-                    SettingsView()
+            .detailRouteDestinations()
+            .onChange(of: pendingRoute) { _, route in
+                if let route {
+                    navigationPath.append(route)
+                    pendingRoute = nil
                 }
             }
             .onAppear {

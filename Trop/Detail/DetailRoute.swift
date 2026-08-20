@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import SwiftUI
 
 /// Route destinations for detail view navigation.
 /// Used with NavigationStack + NavigationPath to push detail screens.
@@ -29,6 +30,48 @@ enum DetailRoute: Hashable, Identifiable {
     case autoPlaylist(AutoPlaylistRoute)
     case history
     case settings
+}
+
+/// Shared view resolving a `DetailRoute` to its target destination view.
+struct DetailRouteDestinationView: View {
+    let route: DetailRoute
+
+    var body: some View {
+        switch route {
+        case .album(let browseId):
+            AlbumDetailView(browseId: browseId)
+        case .artist(let browseId):
+            ArtistDetailView(browseId: browseId)
+        case .playlist(let playlistId):
+            PlaylistDetailView(playlistId: playlistId)
+        case .podcast(let browseId):
+            PodcastDetailView(browseId: browseId)
+        case .autoPlaylist(let autoRoute):
+            PlaylistDetailView(autoPlaylistRoute: autoRoute)
+        case .history:
+            HistoryScreenView()
+        case .settings:
+            SettingsView()
+        }
+    }
+}
+
+extension View {
+    /// Registers standard DetailRoute navigation 
+    func detailRouteDestinations() -> some View {
+        self.navigationDestination(for: DetailRoute.self) { route in
+            DetailRouteDestinationView(route: route)
+        }
+    }
+
+    /// Presents a DetailRoute destination in a NavigationStack
+    func detailRouteSheet(item: Binding<DetailRoute?>) -> some View {
+        self.sheet(item: item) { route in
+            NavigationStack {
+                DetailRouteDestinationView(route: route)
+            }
+        }
+    }
 }
 
 enum AutoPlaylistRoute: Hashable {

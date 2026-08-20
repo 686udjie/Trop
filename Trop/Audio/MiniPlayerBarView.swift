@@ -37,30 +37,43 @@ struct MiniPlayerBarView: View {
     }
 
     private var barHeight: CGFloat {
-        isInline ? 44 : 48
+        48
     }
 
     private var artworkSize: CGFloat {
-        isInline ? 26 : 30
+        30
+    }
+
+    private var isDarkMode: Bool {
+        if let scene = UIApplication.shared.connectedScenes.first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene,
+           let window = scene.windows.first(where: { $0.isKeyWindow }) ?? scene.windows.first {
+            return window.traitCollection.userInterfaceStyle == .dark
+        }
+        if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+           let window = scene.windows.first {
+            return window.traitCollection.userInterfaceStyle == .dark
+        }
+        return colorScheme == .dark
     }
 
     private var titleColor: Color {
-        colorScheme == .dark ? .white : .black
+        isDarkMode ? .white : .black
     }
 
     private var artistColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.75) : Color.black.opacity(0.65)
+        isDarkMode ? Color.white.opacity(0.85) : Color.black.opacity(0.80)
     }
 
     var body: some View {
         HStack(spacing: 0) {
             pagingArea
             playPauseButton
-                .padding(.trailing, isInline ? 14 : 20)
+                .padding(.trailing, 16)
         }
         .frame(height: barHeight)
+        .frame(maxWidth: .infinity)
         .overlay(alignment: .bottom) { progressLine }
-        .padding(.horizontal, isInline ? 40 : 0)
+        .clipShape(Capsule())
         .onChange(of: np.videoId) { _, _ in
             dragOffset = 0
             preloadLyrics()
@@ -111,7 +124,7 @@ struct MiniPlayerBarView: View {
     }
 
     private func page(for song: SongItem, width: CGFloat) -> some View {
-        HStack(spacing: isInline ? 6 : 8) {
+        HStack(spacing: 8) {
             barArtwork(for: song.videoId)
 
             VStack(alignment: .leading, spacing: 0) {
@@ -138,7 +151,7 @@ struct MiniPlayerBarView: View {
             }
         }
         .frame(width: width, alignment: .leading)
-        .padding(.leading, isInline ? 14 : 16)
+        .padding(.leading, 16)
         .contentShape(Rectangle())
     }
 
@@ -155,27 +168,33 @@ struct MiniPlayerBarView: View {
             }
         }
         .frame(width: artworkSize, height: artworkSize)
-        .clipShape(RoundedRectangle(cornerRadius: isInline ? 5 : 6, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
     }
 
     private var playPauseButton: some View {
         Button(action: { player.togglePlayPause() }) {
             Image(systemName: np.isPlaying ? "pause.fill" : "play.fill")
                 .contentTransition(.symbolEffect(.replace))
-                .font(.system(size: isInline ? 16 : 17))
+                .font(.system(size: 17))
+                .foregroundStyle(.tint)
         }
         .accessibilityLabel(np.isPlaying ? "Pause" : "Play")
     }
 
     private var progressLine: some View {
         GeometryReader { geo in
-            Capsule()
-                .fill(.tint)
-                .frame(width: geo.size.width * CGFloat(np.progress))
+            let progressWidth = max(0, min(geo.size.width, geo.size.width * CGFloat(np.progress)))
+            ZStack(alignment: .leading) {
+                Rectangle()
+                    .fill(Color.white.opacity(0.15))
+                    .frame(width: geo.size.width, height: 2)
+
+                Rectangle()
+                    .fill(.tint)
+                    .frame(width: progressWidth, height: 2)
+            }
         }
-        .frame(height: 1.5)
-        .padding(.horizontal, 14)
-        .padding(.bottom, 1)
+        .frame(height: 2)
         .allowsHitTesting(false)
     }
 
