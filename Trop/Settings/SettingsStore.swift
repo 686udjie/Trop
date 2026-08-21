@@ -228,6 +228,10 @@ final class SettingsStore {
         didSet { defaults.set(playerVolume, forKey: Keys.playerVolume) }
     }
 
+    var artworkSwipeNavigation: Bool {
+        didSet { defaults.set(artworkSwipeNavigation, forKey: Keys.artworkSwipeNavigation) }
+    }
+
     // MARK: - Content
 
     var hideExplicit: Bool {
@@ -304,6 +308,7 @@ final class SettingsStore {
         static let autoplaySimilar = "settings.autoplaySimilar"
         static let persistQueue = "settings.persistQueue"
         static let playerVolume = "settings.playerVolume"
+        static let artworkSwipeNavigation = "settings.artworkSwipeNavigation"
         static let hideExplicit = "settings.hideExplicit"
         static let showQuickPicks = "settings.showQuickPicks"
         static let topListsLength = "settings.topListsLength"
@@ -340,6 +345,7 @@ final class SettingsStore {
         autoplaySimilar = defaults.object(forKey: Keys.autoplaySimilar) as? Bool ?? true
         persistQueue = defaults.object(forKey: Keys.persistQueue) as? Bool ?? false
         playerVolume = defaults.object(forKey: Keys.playerVolume) as? Double ?? 1
+        artworkSwipeNavigation = defaults.object(forKey: Keys.artworkSwipeNavigation) as? Bool ?? true
         hideExplicit = defaults.object(forKey: Keys.hideExplicit) as? Bool ?? false
         showQuickPicks = defaults.object(forKey: Keys.showQuickPicks) as? Bool ?? true
         topListsLength = defaults.object(forKey: Keys.topListsLength) as? Int ?? 8

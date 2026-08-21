@@ -38,6 +38,14 @@ struct PlayerSettingsView: View {
             } footer: {
                 Text("Persist Queue restores your queue, shuffle, and repeat state when the app relaunches.")
             }
+
+            Section {
+                SettingsToggleRow("Swipe Artwork to Skip", icon: "hand.draw", isOn: $settings.artworkSwipeNavigation)
+            } header: {
+                Text("Gestures")
+            } footer: {
+                Text("Swipe left or right on the artwork in the full player to play the next or previous song.")
+            }
         }
         .navigationTitle("Player")
         .navigationBarTitleDisplayMode(.inline)

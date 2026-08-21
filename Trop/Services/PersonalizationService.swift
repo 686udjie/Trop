@@ -261,7 +261,9 @@ actor PersonalizationService {
                     return nil
                 }
             }
-            return YTArtist(name: cleanArtistDisplay(trimmed), id: artistId)
+            let displayName = cleanArtistDisplay(trimmed)
+            if displayName.isEmpty { return nil }
+            return YTArtist(name: displayName, id: artistId)
         }
     }
 

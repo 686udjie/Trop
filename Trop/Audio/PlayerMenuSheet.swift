@@ -185,7 +185,7 @@ struct PlayerMenuSheet: View {
                     Text("View Artist")
                         .font(.body)
                         .foregroundStyle(.primary)
-                    Text(song.artists.map(\.name).joined(separator: ", "))
+                    Text(song.artistNamesDisplay)
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -572,7 +572,7 @@ struct SongDetailsView: View {
     private var trackSection: some View {
         section("Track") {
             row("Title", song.title)
-            row("Artists", song.artists.map(\.name).joined(separator: ", "))
+            row("Artists", song.artistNamesDisplay)
             if let album = song.album {
                 row("Album", album)
             }

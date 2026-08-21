@@ -23,6 +23,7 @@ struct FullPlayerView: View {
     @State private var showQueue = false
     @State private var pendingRoute: DetailRoute?
     @State private var showSongMenu = false
+    @State private var artworkEntryOffset: CGFloat = 0
 
     var body: some View {
         ZStack {
@@ -57,19 +58,6 @@ struct FullPlayerView: View {
                     .padding(.top, 16)
                     .padding(.bottom, 16)
                     .contentShape(Rectangle().size(width: 60, height: 30))
-                    .gesture(
-                        DragGesture(minimumDistance: 8)
-                            .onChanged { value in
-                                guard value.translation.height > 0 else { return }
-                                collapseOffset = value.translation.height
-                            }
-                            .onEnded { value in
-                                if value.translation.height > 140 {
-                                    onCollapse()
-                                }
-                                collapseOffset = 0
-                            }
-                    )
                     .accessibilityLabel("Collapse player")
 
                     if showLyrics {
@@ -143,6 +131,7 @@ struct FullPlayerView: View {
         }
         .offset(y: collapseOffset)
         .animation(.spring(response: 0.35, dampingFraction: 0.85), value: collapseOffset)
+        .simultaneousGesture(collapseDrag)
         .onChange(of: np.videoId) { _, _ in
             np.isVideoMode = false
             preloadLyrics()
@@ -167,6 +156,54 @@ struct FullPlayerView: View {
             Color.clear
                 .detailRouteSheet(item: $pendingRoute)
         )
+    }
+
+    // MARK: - Gestures
+
+    /// Swipe left/right on the artwork to skip tracks (toggleable in Settings).
+    /// Blocked at the queue's ends (no movement); on skip, the incoming
+    /// artwork slides in from the swipe direction.
+    private var artworkSwipe: some Gesture {
+        DragGesture(minimumDistance: 20)
+            .onEnded { value in
+                guard settings.artworkSwipeNavigation else { return }
+                guard abs(value.translation.width) > abs(value.translation.height) else { return }
+                if value.translation.width < -60, np.hasNext {
+                    np.playNext()
+                    slideInArtwork(fromLeft: false)
+                } else if value.translation.width > 60, np.hasPrevious {
+                    np.playPrevious()
+                    slideInArtwork(fromLeft: true)
+                }
+            }
+    }
+
+    private func slideInArtwork(fromLeft: Bool) {
+        artworkEntryOffset = fromLeft ? -600 : 600
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+            artworkEntryOffset = 0
+        }
+    }
+
+    /// Swipe down anywhere to collapse. Vertical-dominant drags only, and
+    /// disabled while lyrics/queue are shown so their ScrollViews keep
+    /// owning vertical pans.
+    private var collapseDrag: some Gesture {
+        DragGesture(minimumDistance: 12)
+            .onChanged { value in
+                guard !showLyrics, !showQueue else { return }
+                guard value.translation.height > 0,
+                      value.translation.height > abs(value.translation.width) else { return }
+                collapseOffset = value.translation.height
+            }
+            .onEnded { value in
+                defer { collapseOffset = 0 }
+                guard !showLyrics, !showQueue else { return }
+                let isVertical = value.translation.height > abs(value.translation.width)
+                if isVertical, value.translation.height > 140 {
+                    onCollapse()
+                }
+            }
     }
 
     // MARK: - Player Content
@@ -230,37 +267,41 @@ struct FullPlayerView: View {
 
     @ViewBuilder
     private var artwork: some View {
-        if np.isVideoMode, np.hasVideo {
-            VideoPlayerView()
-                .aspectRatio(16.0 / 9.0, contentMode: .fit)
+        Group {
+            if np.isVideoMode, np.hasVideo {
+                VideoPlayerView()
+                    .aspectRatio(16.0 / 9.0, contentMode: .fit)
+                    .onTapGesture {
+                        np.isVideoMode = false
+                    }
+            } else {
+                ZStack {
+                    if let uiImage = np.thumbnailUIImage {
+                        let cropped = uiImage.centerCroppedSquare()
+                        GeometryReader { geo in
+                            Image(uiImage: cropped)
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                                .frame(width: geo.size.width, height: geo.size.height)
+                        }
+                    } else {
+                        ZStack {
+                            Color.white.opacity(0.1)
+                            Image(systemName: "music.note")
+                                .font(.system(size: 64))
+                                .foregroundStyle(.white.opacity(0.4))
+                        }
+                    }
+                }
+                .aspectRatio(1.0, contentMode: .fit)
                 .onTapGesture {
-                    np.isVideoMode = false
+                    guard np.hasVideo else { return }
+                    player.setVideoMode()
                 }
-        } else {
-            ZStack {
-                if let uiImage = np.thumbnailUIImage {
-                    let cropped = uiImage.centerCroppedSquare()
-                    GeometryReader { geo in
-                        Image(uiImage: cropped)
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                            .frame(width: geo.size.width, height: geo.size.height)
-                    }
-                } else {
-                    ZStack {
-                        Color.white.opacity(0.1)
-                        Image(systemName: "music.note")
-                            .font(.system(size: 64))
-                            .foregroundStyle(.white.opacity(0.4))
-                    }
-                }
-            }
-            .aspectRatio(1.0, contentMode: .fit)
-            .onTapGesture {
-                guard np.hasVideo else { return }
-                player.setVideoMode()
             }
         }
+        .offset(x: artworkEntryOffset)
+        .gesture(artworkSwipe)
     }
 
     private var progressSlider: some View {

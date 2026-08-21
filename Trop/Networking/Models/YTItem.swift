@@ -635,6 +635,10 @@ extension SongItem {
         "https://music.youtube.com/watch?v=\(videoId)"
     }
 
+    var artistNamesDisplay: String {
+        artists.filter { !$0.name.isEmpty }.map(\.name).joined(separator: ", ")
+    }
+
     var firstArtistBrowseId: String? {
         artists.first(where: { $0.id != nil })?.id
     }

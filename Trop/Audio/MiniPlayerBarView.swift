@@ -184,15 +184,9 @@ struct MiniPlayerBarView: View {
     private var progressLine: some View {
         GeometryReader { geo in
             let progressWidth = max(0, min(geo.size.width, geo.size.width * CGFloat(np.progress)))
-            ZStack(alignment: .leading) {
-                Rectangle()
-                    .fill(Color.white.opacity(0.15))
-                    .frame(width: geo.size.width, height: 2)
-
-                Rectangle()
-                    .fill(.tint)
-                    .frame(width: progressWidth, height: 2)
-            }
+            Rectangle()
+                .fill(.tint)
+                .frame(width: progressWidth, height: 2)
         }
         .frame(height: 2)
         .allowsHitTesting(false)
