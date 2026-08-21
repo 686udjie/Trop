@@ -11,6 +11,8 @@ struct LyricsSettingsView: View {
     @State private var settings = SettingsStore.shared
 
     var body: some View {
+        @Bindable var settings = settings
+
         List {
             Section {
                 ForEach(LyricsProviderRegistry.all, id: \.id) { provider in

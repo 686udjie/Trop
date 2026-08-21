@@ -21,6 +21,7 @@ final class LyricsState {
     static let shared = LyricsState()
 
     var isAvailable: Bool = false
+    var providerName: String?
 
     private init() {}
 }
@@ -41,9 +42,13 @@ actor LyricsService {
             await updateAvailability(videoId: videoId, available: false)
             throw LyricsError.notFound
         }
-        let lines = try await LyricsManager.shared.fetchLyrics(query: query)
-        cache[videoId] = lines
-        await updateAvailability(videoId: videoId, available: !lines.isEmpty)
+        let (lines, providerName) = try await LyricsManager.shared.fetchLyricsReturningProvider(query: query)
+        // Only cache successful lookups — empty results should be retried later
+        // since lyrics can be matched/published after playback starts.
+        if !lines.isEmpty {
+            cache[videoId] = lines
+        }
+        await updateAvailability(videoId: videoId, available: !lines.isEmpty, providerName: providerName)
         return lines
     }
 
@@ -54,10 +59,13 @@ actor LyricsService {
         }
     }
 
-    private func updateAvailability(videoId: String, available: Bool) async {
+    private func updateAvailability(videoId: String, available: Bool, providerName: String? = nil) async {
         let currentId = await MainActor.run { NowPlaying.shared.videoId }
         guard currentId == videoId else { return }
-        await MainActor.run { LyricsState.shared.isAvailable = available }
+        await MainActor.run {
+            LyricsState.shared.isAvailable = available
+            if available { LyricsState.shared.providerName = providerName }
+        }
     }
 
     private func resolveQuery(videoId: String) async -> LyricsQuery? {

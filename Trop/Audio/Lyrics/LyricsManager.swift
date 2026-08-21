@@ -65,6 +65,11 @@ actor LyricsManager {
     private init() {}
 
     func fetchLyrics(query: LyricsQuery) async throws -> [LyricLine] {
+        let (lines, _) = try await fetchLyricsReturningProvider(query: query)
+        return lines
+    }
+
+    func fetchLyricsReturningProvider(query: LyricsQuery) async throws -> ([LyricLine], providerName: String?) {
         let order = LyricsSettings.shared.providerOrder
         let disabled = SettingsStore.shared.disabledLyricsProviders
         var lastError: Error?
@@ -75,7 +80,7 @@ actor LyricsManager {
             do {
                 let lines = try await provider.fetch(query: query)
                 if !lines.isEmpty {
-                    return lines
+                    return (lines, provider.name)
                 }
             } catch {
                 lastError = error

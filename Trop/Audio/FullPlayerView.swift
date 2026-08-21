@@ -75,10 +75,7 @@ struct FullPlayerView: View {
                     LyricsView(
                         showLyrics: $showLyrics,
                         showQueue: $showQueue,
-                        isShuffleOn: $np.isShuffleOn,
                         isRepeatOn: $np.isRepeatOn,
-                        editingProgress: $editingProgress,
-                        isEditingSlider: $isEditingSlider,
                         pendingRoute: $pendingRoute,
                         progressSlider: { progressSlider }
                     )

@@ -41,6 +41,46 @@ enum PlayerBackgroundStyle: String, CaseIterable, Identifiable, SettingsOption {
     }
 }
 
+enum LyricsAlignment: String, CaseIterable, Identifiable, SettingsOption {
+    case left
+    case center
+    case right
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .left: return "Left"
+        case .center: return "Center"
+        case .right: return "Right"
+        }
+    }
+
+    var iconName: String {
+        switch self {
+        case .left: return "text.alignleft"
+        case .center: return "text.aligncenter"
+        case .right: return "text.alignright"
+        }
+    }
+
+    var textAlignment: Alignment {
+        switch self {
+        case .left: return .leading
+        case .center: return .center
+        case .right: return .trailing
+        }
+    }
+
+    var multilineTextAlignment: TextAlignment {
+        switch self {
+        case .left: return .leading
+        case .center: return .center
+        case .right: return .trailing
+        }
+    }
+}
+
 enum AudioQuality: String, CaseIterable, Identifiable, SettingsOption {
     case auto
     case high
@@ -142,6 +182,10 @@ final class SettingsStore {
 
     var lyricsFontSize: Double {
         didSet { defaults.set(lyricsFontSize, forKey: Keys.lyricsFontSize) }
+    }
+
+    var lyricsAlignment: LyricsAlignment {
+        didSet { defaults.set(lyricsAlignment.rawValue, forKey: Keys.lyricsAlignment) }
     }
 
     // MARK: - Playback
@@ -246,6 +290,7 @@ final class SettingsStore {
         static let playerBackgroundStyle = "settings.playerBackgroundStyle"
         static let defaultTab = "settings.defaultTab"
         static let lyricsFontSize = "settings.lyricsFontSize"
+        static let lyricsAlignment = "settings.lyricsAlignment"
         static let equalizerEnabled = "settings.equalizerEnabled"
         static let equalizerPresetID = "settings.equalizerPresetID"
         static let equalizerGains = "settings.equalizerGains"
@@ -276,6 +321,7 @@ final class SettingsStore {
         playerBackgroundStyle = PlayerBackgroundStyle(rawValue: defaults.string(forKey: Keys.playerBackgroundStyle) ?? "") ?? .dynamic
         defaultTab = defaults.object(forKey: Keys.defaultTab) as? Int ?? 0
         lyricsFontSize = defaults.object(forKey: Keys.lyricsFontSize) as? Double ?? 17
+        lyricsAlignment = LyricsAlignment(rawValue: defaults.string(forKey: Keys.lyricsAlignment) ?? "") ?? .center
         equalizerEnabled = defaults.object(forKey: Keys.equalizerEnabled) as? Bool ?? false
         equalizerPresetID = defaults.string(forKey: Keys.equalizerPresetID) ?? "flat"
         if let saved = defaults.array(forKey: Keys.equalizerGains) as? [Double], saved.count == equalizerFrequencies.count {
