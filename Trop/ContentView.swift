@@ -58,6 +58,20 @@ struct ContentView: View {
             }
         }
         .environment(scrollState)
+        .onAppear { AppRouter.shared.selectedTabIndex = selectedTab }
+        .onChange(of: selectedTab) { _, newValue in
+            AppRouter.shared.selectedTabIndex = newValue
+        }
+        .onReceive(AppRouter.shared.$activeRoute) { route in
+            // A detail page was opened from the Big Player: collapse it so the
+            // pushed page is visible underneath. (The menu also collapses the
+            // player directly; this is a safety net.)
+            if route != nil {
+                withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                    isExpanded = false
+                }
+            }
+        }
     }
 }
 

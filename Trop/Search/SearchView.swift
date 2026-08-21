@@ -9,13 +9,14 @@ import SwiftUI
 
 struct SearchView: View {
     @State private var viewModel = SearchViewModel()
-    @State private var navigationPath = NavigationPath()
+    @ObservedObject private var router = AppRouter.shared
+
     @State private var pendingRoute: DetailRoute?
     @State private var hasFocusedOnce = false
     var onExitSearch: (() -> Void)?
 
     var body: some View {
-        NavigationStack(path: $navigationPath) {
+        NavigationStack(path: $router.searchPath) {
             VStack(spacing: 0) {
                 if viewModel.isLoading {
                     Spacer()
@@ -58,12 +59,12 @@ struct SearchView: View {
             .detailRouteDestinations()
             .onChange(of: pendingRoute) { _, route in
                 if let route {
-                    navigationPath.append(route)
+                    router.searchPath.append(route)
                     pendingRoute = nil
                 }
             }
             .onAppear {
-                if navigationPath.isEmpty && !hasFocusedOnce {
+                if router.searchPath.isEmpty && !hasFocusedOnce {
                     viewModel.isFocused = true
                     hasFocusedOnce = true
                 }
@@ -163,7 +164,7 @@ struct SearchView: View {
                             isSubscribed: false
                         ))
                         YouTubeListItemView(item: item, onTap: {
-                            navigationPath.append(DetailRoute.artist(browseId: artist.id))
+                            router.searchPath.append(DetailRoute.artist(browseId: artist.id))
                         }, onNavigate: { pendingRoute = $0 })
                         .listRowInsets(EdgeInsets())
                         .padding(.vertical, 4)
@@ -180,7 +181,7 @@ struct SearchView: View {
                             isExplicit: false
                         ))
                         YouTubeListItemView(item: item, onTap: {
-                            navigationPath.append(DetailRoute.album(browseId: album.id))
+                            router.searchPath.append(DetailRoute.album(browseId: album.id))
                         }, onNavigate: { pendingRoute = $0 })
                         .listRowInsets(EdgeInsets())
                         .padding(.vertical, 4)
@@ -195,7 +196,7 @@ struct SearchView: View {
                             songCount: playlist.remoteSongCount
                         ))
                         YouTubeListItemView(item: item, onTap: {
-                            navigationPath.append(DetailRoute.playlist(playlistId: playlist.browseId ?? playlist.id))
+                            router.searchPath.append(DetailRoute.playlist(playlistId: playlist.browseId ?? playlist.id))
                         }, onNavigate: { pendingRoute = $0 })
                         .listRowInsets(EdgeInsets())
                         .padding(.vertical, 4)
@@ -309,10 +310,10 @@ struct SearchView: View {
                 NowPlaying.shared.queueIndex = radio.currentIndex
             }
         case .episode(let e): playVideo(videoId: e.videoId)
-        case .album(let a):   navigationPath.append(DetailRoute.album(browseId: a.browseId))
-        case .artist(let a):  navigationPath.append(DetailRoute.artist(browseId: a.browseId))
-        case .playlist(let p): navigationPath.append(DetailRoute.playlist(playlistId: p.id))
-        case .podcast(let p): navigationPath.append(DetailRoute.podcast(browseId: p.browseId))
+        case .album(let a):   router.searchPath.append(DetailRoute.album(browseId: a.browseId))
+        case .artist(let a):  router.searchPath.append(DetailRoute.artist(browseId: a.browseId))
+        case .playlist(let p): router.searchPath.append(DetailRoute.playlist(playlistId: p.id))
+        case .podcast(let p): router.searchPath.append(DetailRoute.podcast(browseId: p.browseId))
         }
     }
 

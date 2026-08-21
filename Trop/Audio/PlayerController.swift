@@ -337,6 +337,22 @@ final class PlayerController {
         }
     }
 
+    // MARK: - App Volume
+
+    /// Sets the app-level playback volume (0...1). Applied as mpv software
+    /// gain — never touches the system/media volume.
+    func setPlayerVolume(_ volume: Double) {
+        SettingsStore.shared.playerVolume = min(1, max(0, volume))
+        applyPlayerVolume()
+    }
+
+    /// Pushes the persisted volume to the running mpv instance.
+    func applyPlayerVolume() {
+        guard let mpv else { return }
+        var val = Double(SettingsStore.shared.playerVolume * 100)
+        mpv_set_property(mpv, "volume", MPV_FORMAT_DOUBLE, &val)
+    }
+
     // MARK: - Playback Settings (equalizer / filters)
 
     /// Applies the equalizer, gapless, and normalization settings to the
@@ -372,6 +388,8 @@ final class PlayerController {
         if result < 0 {
             Log.player.error("Failed to set af chain '\(chain)': mpv error \(result)")
         }
+
+        applyPlayerVolume()
     }
 
     private static func fmt(_ value: Double) -> String {

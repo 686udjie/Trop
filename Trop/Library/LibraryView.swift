@@ -22,7 +22,8 @@ struct LibraryView: View {
     @State private var playlistSongCounts: [String: Int] = [:]
 
     @StateObject private var loginModel = LoginViewModel()
-    @State private var navigationPath = NavigationPath()
+    @ObservedObject private var router = AppRouter.shared
+
     @State private var accountName = "Guest"
     @State private var accountImageUrl: String?
     @State private var isLoginSheetPresented = false
@@ -44,13 +45,13 @@ struct LibraryView: View {
     }
 
     var body: some View {
-        NavigationStack(path: $navigationPath) {
+        NavigationStack(path: $router.libraryPath) {
             VStack(spacing: 0) {
                 TabHeaderView(
                     title: "Library",
                     accountIsLoggedIn: loginModel.isLoggedIn,
                     accountImageUrl: accountImageUrl,
-                    onHistory: { navigationPath.append(DetailRoute.history) },
+                    onHistory: { router.libraryPath.append(DetailRoute.history) },
                     onAccount: { tapAccount() }
                 )
 
@@ -426,7 +427,7 @@ struct LibraryView: View {
             },
             onSettings: {
                 isAccountSheetPresented = false
-                navigationPath.append(DetailRoute.settings)
+                router.libraryPath.append(DetailRoute.settings)
             },
             onSignOut: {
                 loginModel.logout()

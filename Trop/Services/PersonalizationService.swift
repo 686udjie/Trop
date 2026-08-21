@@ -232,15 +232,36 @@ actor PersonalizationService {
             guard let text = run["text"] as? String else { return nil }
             let trimmed = text.trimmingCharacters(in: .whitespaces)
             let lower = trimmed.lowercased()
-            if trimmed.isEmpty || trimmed == "•" || trimmed == "·" { return nil }
+            if trimmed.isEmpty || trimmed.range(of: "^[•·—–-]$", options: .regularExpression) != nil { return nil }
             if nonArtistLabels.contains(lower) { return nil }
             if conjunctions.contains(lower) { return nil }
             if lower.range(of: "^\\d+(\\.\\d+)?[KMBT]?\\s*(views|downloads|listeners|subscribers)$", options: [.regularExpression, .caseInsensitive]) != nil { return nil }
+
+            var artistId: String?
             if let nav = run["navigationEndpoint"] as? [String: Any],
                let browse = nav["browseEndpoint"] as? [String: Any],
-               let bid = browse["browseId"] as? String,
-               bid.hasPrefix("MPREb_") { return nil }
-            return YTArtist(name: cleanArtistDisplay(trimmed))
+               let bid = browse["browseId"] as? String {
+                let supported = nav["browseEndpointContextSupportedConfigs"] as? [String: Any]
+                let musicConfig = supported?["browseEndpointContextMusicConfig"] as? [String: Any]
+                let pageType = musicConfig?["pageType"] as? String
+                switch pageType {
+                case "MUSIC_PAGE_TYPE_ARTIST":
+                    // Genuine artist link
+                    artistId = bid
+                case "MUSIC_PAGE_TYPE_USER_CHANNEL":
+                    // Topic channels ("Artist - Topic") don't browse as artist
+                    // pages; leave nil so navigation resolves via search.
+                    artistId = nil
+                case nil:
+                    // No page type: MPREb_ here is an album link, not an artist
+                    if bid.hasPrefix("MPREb_") { return nil }
+                    artistId = nil
+                default:
+                    // Album / playlist / other non-artist link
+                    return nil
+                }
+            }
+            return YTArtist(name: cleanArtistDisplay(trimmed), id: artistId)
         }
     }
 

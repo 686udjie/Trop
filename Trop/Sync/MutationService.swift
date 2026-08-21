@@ -72,6 +72,7 @@ actor MutationService {
         entity.inLibrary = entity.inLibrary ?? Date()
         entity.modifyDate = Date()
         try? await db.save(entity)
+        guard !addToken.isEmpty else { return }
         do {
             _ = try await innerTube.feedback(tokens: [addToken])
         } catch {
@@ -89,6 +90,7 @@ actor MutationService {
             entity = existing
             try? await db.save(existing)
         }
+        guard !removeToken.isEmpty else { return }
         do {
             _ = try await innerTube.feedback(tokens: [removeToken])
         } catch {

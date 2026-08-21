@@ -65,6 +65,7 @@ actor DatabaseService {
         migrator.registerMigration("v5", migrate: DatabaseMigrations.v5)
         migrator.registerMigration("v6", migrate: DatabaseMigrations.v6)
         migrator.registerMigration("v7", migrate: DatabaseMigrations.v7)
+        migrator.registerMigration("v8", migrate: DatabaseMigrations.v8)
     }
 }
 
@@ -415,5 +416,32 @@ extension DatabaseService {
             .tracking { db in try type.fetchAll(db, sql: sql, arguments: arguments) }
             .publisher(in: dbPool, scheduling: .async(onQueue: .main))
             .eraseToAnyPublisher()
+    }
+}
+
+// MARK: - Speed Dial (homepage pinning)
+
+extension DatabaseService {
+    func fetchSpeedDial(limit: Int = 20) async throws -> [SpeedDialEntry] {
+        try await dbPool.read { db in
+            try SpeedDialEntry
+                .order(Column("pinned_at").desc)
+                .limit(limit)
+                .fetchAll(db)
+        }
+    }
+
+    func isPinnedToSpeedDial(videoId: String) async throws -> Bool {
+        try await fetchOne(SpeedDialEntry.self, key: videoId) != nil
+    }
+
+    func pinToSpeedDial(song: SongItem) async throws {
+        try await insertOrReplace(SpeedDialEntry(song: song))
+    }
+
+    func removeFromSpeedDial(videoId: String) async throws {
+        try await write { db in
+            _ = try SpeedDialEntry.deleteOne(db, key: videoId)
+        }
     }
 }

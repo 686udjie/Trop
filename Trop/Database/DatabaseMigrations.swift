@@ -240,4 +240,21 @@ enum DatabaseMigrations {
         }
         Log.db.debug("v7 migration complete")
     }
+
+    static let v8: (Database) throws -> Void = { db in
+        Log.db.debug("Running v8 migration")
+        // Songs pinned to the homepage Speed Dial.
+        if try !db.tableExists("speed_dial") {
+            try db.create(table: "speed_dial") { t in
+                t.column("video_id", .text).primaryKey()
+                t.column("title", .text).notNull()
+                t.column("artist", .text).notNull()
+                t.column("album", .text)
+                t.column("thumbnail_url", .text)
+                t.column("duration", .integer).notNull().defaults(to: 0)
+                t.column("pinned_at", .datetime).notNull()
+            }
+        }
+        Log.db.debug("v8 migration complete")
+    }
 }

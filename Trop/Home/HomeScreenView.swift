@@ -9,19 +9,21 @@ import SwiftUI
 
 struct HomeScreenView: View {
     @Environment(SettingsStore.self) private var settings
+    @ObservedObject private var router = AppRouter.shared
     @State private var viewModel = HomeViewModel()
     @StateObject private var loginModel = LoginViewModel()
-    @State private var navigationPath = NavigationPath()
+
     @State private var pendingRoute: DetailRoute?
+    @State private var speedDialEntries: [SpeedDialEntry] = []
 
     var body: some View {
-        NavigationStack(path: $navigationPath) {
+        NavigationStack(path: $router.homePath) {
             VStack(spacing: 0) {
                 TabHeaderView(
                     title: "Home",
                     accountIsLoggedIn: viewModel.isLoggedIn,
                     accountImageUrl: viewModel.accountImageUrl,
-                    onHistory: { navigationPath.append(DetailRoute.history) },
+                    onHistory: { router.homePath.append(DetailRoute.history) },
                     onAccount: { viewModel.tapAccount() }
                 )
 
@@ -40,7 +42,7 @@ struct HomeScreenView: View {
             .detailRouteDestinations()
             .onChange(of: pendingRoute) { _, route in
                 if let route {
-                    navigationPath.append(route)
+                    router.homePath.append(route)
                     pendingRoute = nil
                 }
             }
@@ -76,6 +78,7 @@ struct HomeScreenView: View {
             .task {
                 await viewModel.restoreSession()
                 viewModel.loadHomeData()
+                await reloadSpeedDial()
                 // Trigger library sync in background
                 Task {
                     await IncrementalSyncService.shared.checkAndSyncIfStale()
@@ -127,6 +130,7 @@ struct HomeScreenView: View {
         .refreshable {
             viewModel.refresh()
             await refreshTask()
+            await reloadSpeedDial()
             await IncrementalSyncService.shared.checkAndSyncIfStale()
         }
         .onChange(of: settings.hideExplicit) { _, _ in
@@ -158,7 +162,7 @@ struct HomeScreenView: View {
             },
             onSettings: {
                 viewModel.isAccountSheetPresented = false
-                navigationPath.append(DetailRoute.settings)
+                router.homePath.append(DetailRoute.settings)
             },
             onSignOut: { viewModel.logout() }
         )
@@ -196,6 +200,31 @@ struct HomeScreenView: View {
 
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHGrid(rows: Array(repeating: GridItem(.fixed(60)), count: 4), spacing: 12) {
+                    ForEach(speedDialEntries, id: \.videoId) { entry in
+                        YouTubeListItemView(
+                            item: .song(entry.toSongItem()),
+                            onTap: { handleItemTap(.song(entry.toSongItem())) },
+                            onNavigate: { pendingRoute = $0 }
+                        )
+                        .frame(width: 280)
+                        .overlay(alignment: .topTrailing) {
+                            Image(systemName: "pin.fill")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundStyle(settings.accentColor)
+                                .padding(6)
+                        }
+                        .contextMenu {
+                            Button(role: .destructive) {
+                                Task {
+                                    try? await DatabaseService.shared.removeFromSpeedDial(videoId: entry.videoId)
+                                    await reloadSpeedDial()
+                                }
+                            } label: {
+                                Label("Unpin", systemImage: "pin.slash")
+                            }
+                        }
+                    }
+
                     ForEach(section.items.indices, id: \.self) { i in
                         let item = section.items[i]
                         YouTubeListItemView(item: item, onTap: { handleItemTap(item) }, onNavigate: { pendingRoute = $0 })
@@ -241,6 +270,12 @@ struct HomeScreenView: View {
         .padding(.top, 8)
     }
 
+    // MARK: - Quick Picks (pinned)
+
+    private func reloadSpeedDial() async {
+        speedDialEntries = (try? await DatabaseService.shared.fetchSpeedDial()) ?? []
+    }
+
     private func handleItemTap(_ item: YTItem) {
         Log.homeScreenView.debug("Tapped item: \(item.title) type=\(typeName(item))")
         switch item {
@@ -259,16 +294,16 @@ struct HomeScreenView: View {
             playVideo(videoId: e.videoId)
         case .album(let a):
             Log.homeScreenView.debug("Navigating to album: \(a.browseId)")
-            navigationPath.append(DetailRoute.album(browseId: a.browseId))
+            router.homePath.append(DetailRoute.album(browseId: a.browseId))
         case .artist(let a):
             Log.homeScreenView.debug("Navigating to artist: \(a.browseId)")
-            navigationPath.append(DetailRoute.artist(browseId: a.browseId))
+            router.homePath.append(DetailRoute.artist(browseId: a.browseId))
         case .playlist(let p):
             Log.homeScreenView.debug("Navigating to playlist: \(p.id)")
-            navigationPath.append(DetailRoute.playlist(playlistId: p.id))
+            router.homePath.append(DetailRoute.playlist(playlistId: p.id))
         case .podcast(let p):
             Log.homeScreenView.debug("Navigating to podcast: \(p.browseId)")
-            navigationPath.append(DetailRoute.podcast(browseId: p.browseId))
+            router.homePath.append(DetailRoute.podcast(browseId: p.browseId))
         }
     }
 

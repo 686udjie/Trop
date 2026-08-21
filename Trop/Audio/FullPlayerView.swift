@@ -22,6 +22,7 @@ struct FullPlayerView: View {
     @State private var showLyrics = false
     @State private var showQueue = false
     @State private var pendingRoute: DetailRoute?
+    @State private var showSongMenu = false
 
     var body: some View {
         ZStack {
@@ -157,7 +158,15 @@ struct FullPlayerView: View {
             if newValue { np.preloadNeighborArtwork() }
         }
         .task { np.preloadNeighborArtwork() }
-        .detailRouteSheet(item: $pendingRoute)
+        .sheet(isPresented: $showSongMenu) {
+            if let song = np.queueSongs.indices.contains(np.queueIndex) ? np.queueSongs[np.queueIndex] : nil {
+                PlayerMenuSheet(song: song, onCollapseRequest: { onCollapse() })
+            }
+        }
+        .background(
+            Color.clear
+                .detailRouteSheet(item: $pendingRoute)
+        )
     }
 
     // MARK: - Player Content
@@ -204,35 +213,16 @@ struct FullPlayerView: View {
                 }
 
             let currentSong = np.queueSongs.indices.contains(np.queueIndex) ? np.queueSongs[np.queueIndex] : nil
-            if let song = currentSong {
-                Menu {
-                    Button {
-                        UIPasteboard.general.string = song.webUrl
-                    } label: {
-                        Label("Copy Link", systemImage: "link")
-                    }
-                    if let artistId = song.firstArtistBrowseId {
-                        Button {
-                            pendingRoute = DetailRoute.artist(browseId: artistId)
-                        } label: {
-                            Label("Go to Artist", systemImage: "music.mic")
-                        }
-                    }
-                    if let albumId = song.firstAlbumBrowseId {
-                        Button {
-                            pendingRoute = DetailRoute.album(browseId: albumId)
-                        } label: {
-                            Label("Go to Album", systemImage: "record.circle")
-                        }
-                    }
-
+            if currentSong != nil {
+                Button {
+                    showSongMenu = true
                 } label: {
                     Text("\u{22EE}")
                         .font(.system(size: 20, weight: .black))
                         .foregroundStyle(.white)
                         .frame(width: 36, height: 36)
                 }
-                .menuOrder(.fixed)
+                .accessibilityLabel("Song options")
             }
             }
         }
