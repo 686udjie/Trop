@@ -49,6 +49,12 @@ struct FullPlayerView: View {
                     .opacity(0.45)
                     .offset(y: -150)
                     .ignoresSafeArea()
+
+                if showQueue {
+                    Color.black.opacity(0.62)
+                        .ignoresSafeArea()
+                        .transition(.opacity)
+                }
             }
 
             VStack(spacing: 0) {
@@ -131,6 +137,7 @@ struct FullPlayerView: View {
         }
         .offset(y: collapseOffset)
         .animation(.spring(response: 0.35, dampingFraction: 0.85), value: collapseOffset)
+        .animation(.easeInOut(duration: 0.35), value: showQueue)
         .simultaneousGesture(collapseDrag)
         .onChange(of: np.videoId) { _, _ in
             np.isVideoMode = false
@@ -210,7 +217,7 @@ struct FullPlayerView: View {
 
     private func preloadLyrics() {
         guard let id = np.videoId else { return }
-        let upcoming = Array(np.queueSongs.suffix(from: np.queueIndex + 1).prefix(3).map(\.videoId))
+        let upcoming = np.upcomingSongs(prefixLimit: 3).map(\.videoId)
         Task { await LyricsService.shared.preload(videoId: id, upcoming: upcoming) }
     }
 

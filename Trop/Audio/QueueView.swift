@@ -21,10 +21,6 @@ struct QueueView<ProgressSlider: View>: View {
     let pendingRoute: Binding<DetailRoute?>
     @ViewBuilder var progressSlider: () -> ProgressSlider
 
-    private var upcomingSongs: [SongItem] {
-        Array(np.queueSongs.suffix(from: np.queueIndex + 1))
-    }
-
     var body: some View {
         queueContent
     }
@@ -40,33 +36,31 @@ struct QueueView<ProgressSlider: View>: View {
 
             queueListHeaderRow
 
-            ScrollView {
-                if !upcomingSongs.isEmpty {
-                    LazyVStack(spacing: 0) {
-                        ForEach(upcomingSongs.indices, id: \.self) { offset in
-                            let absoluteIndex = np.queueIndex + 1 + offset
-                            let song = upcomingSongs[offset]
-
-                            QueueSongRow(song: song, onPlay: {
-                                playSong(at: absoluteIndex)
-                            })
-                                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                                    Button(role: .destructive) {
-                                        withAnimation(.spring(response: 0.3)) {
-                                            removeSong(at: absoluteIndex)
-                                        }
-                                    } label: {
-                                        Label("Remove", systemImage: "trash")
-                                    }
-                                }
+            ScrollViewReader { proxy in
+                List {
+                    if np.queueSongs.isEmpty {
+                        emptyQueueRow
+                            .listRowInsets(EdgeInsets())
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
+                    } else {
+                        ForEach(Array(np.queueSongs.enumerated()), id: \.element.videoId) { index, song in
+                            queueRow(song: song, index: index)
                         }
+                        .onMove(perform: np.moveQueueSongs)
                     }
-                } else {
-                    emptyQueueRow
+                }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .environment(\.colorScheme, .dark)
+                .scrollIndicators(.hidden)
+                .layoutPriority(1)
+                .onAppear {
+                    if np.queueSongs.indices.contains(np.queueIndex) {
+                        proxy.scrollTo(np.queueSongs[np.queueIndex].videoId, anchor: .center)
+                    }
                 }
             }
-            .scrollIndicators(.hidden)
-            .layoutPriority(1)
 
             // Bottom control section is now naturally pinned to the bottom
             VStack(spacing: 16) {
@@ -90,7 +84,7 @@ struct QueueView<ProgressSlider: View>: View {
                     onRepeat: {}
                 )
             }
-            .padding(.bottom, 16) 
+            .padding(.bottom, 16)
         }
     }
 
@@ -232,7 +226,7 @@ struct QueueView<ProgressSlider: View>: View {
     private var emptyQueueRow: some View {
         HStack {
             Spacer()
-            Text("No upcoming songs")
+            Text("Queue is empty")
                 .font(.subheadline)
                 .foregroundStyle(.white.opacity(0.4))
             Spacer()
@@ -241,6 +235,42 @@ struct QueueView<ProgressSlider: View>: View {
     }
 
     // MARK: - Actions
+
+    private func queueRow(song: SongItem, index: Int) -> some View {
+        let isCurrent = index == np.queueIndex
+
+        return Button {
+            playSong(at: index)
+        } label: {
+            QueueSongRow(
+                song: song,
+                isCurrent: isCurrent,
+                isPlayed: index < np.queueIndex
+            )
+        }
+        .buttonStyle(.plain)
+        .listRowInsets(EdgeInsets())
+        .listRowBackground(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(isCurrent
+                    ? AnyShapeStyle(Color.white.opacity(0.08))
+                    : AnyShapeStyle(Color.black.opacity(0.35)))
+                .padding(.horizontal, 12)
+        )
+        .listRowSeparator(.hidden)
+        .onDrag {
+            NSItemProvider(object: song.videoId as NSString)
+        }
+        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+            Button(role: .destructive) {
+                withAnimation(.spring(response: 0.3)) {
+                    removeSong(at: index)
+                }
+            } label: {
+                Label("Remove", systemImage: "trash")
+            }
+        }
+    }
 
     private func playSong(at index: Int) {
         guard np.queueSongs.indices.contains(index) else { return }
@@ -271,37 +301,47 @@ struct QueueView<ProgressSlider: View>: View {
 
 struct QueueSongRow: View {
     let song: SongItem
-    var onPlay: (() -> Void)?
+    var isCurrent = false
+    var isPlayed = false
 
     var body: some View {
         HStack(spacing: 12) {
             AsyncImageView(url: song.thumbnailUrl)
                 .frame(width: 44, height: 44)
                 .clipShape(RoundedRectangle(cornerRadius: 6))
+                .opacity(isPlayed ? 0.5 : 1)
 
             VStack(alignment: .leading, spacing: 2) {
                 MarqueeText(
                     text: song.title,
-                    font: .subheadline.weight(.medium),
-                    frameHeight: 20
+                    font: .subheadline.weight(isCurrent ? .semibold : .medium),
+                    frameHeight: 20,
+                    textColor: titleColor
                 )
 
                 let artistStr = song.artists.map(\.name).joined(separator: ", ")
                 if !artistStr.isEmpty {
                     Text(artistStr)
                         .font(.caption)
-                        .foregroundStyle(.white.opacity(0.6))
+                        .foregroundStyle(.white.opacity(isPlayed ? 0.35 : 0.6))
                         .lineLimit(1)
                 }
             }
 
             Spacer()
+
+            Image(systemName: "line.3.horizontal")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.65))
+                .padding(.leading, 4)
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 6)
         .contentShape(Rectangle())
-        .onTapGesture {
-            onPlay?()
-        }
+        .animation(.easeInOut(duration: 0.25), value: isCurrent)
+    }
+
+    private var titleColor: Color {
+        isPlayed && !isCurrent ? Color.white.opacity(0.45) : .white
     }
 }

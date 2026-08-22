@@ -126,6 +126,14 @@ final class NowPlaying {
         }
     }
 
+    func upcomingSongs(prefixLimit: Int? = nil) -> [SongItem] {
+        let next = queueIndex + 1
+        guard queueSongs.indices.contains(next) else { return [] }
+        let rest = Array(queueSongs[next...])
+        guard let prefixLimit else { return rest }
+        return Array(rest.prefix(prefixLimit))
+    }
+
     /// Shuffles upcoming songs, keeping the current one; tapping again re-shuffles.
     func shuffleQueue() {
         guard queueSongs.count > 1 else {
@@ -155,6 +163,13 @@ final class NowPlaying {
         }
         originalQueue = nil
         isShuffleOn = false
+        persistQueueState()
+    }
+
+    func moveQueueSongs(from source: IndexSet, to destination: Int) {
+        guard !source.isEmpty, queueSongs.indices.contains(source.first ?? -1) else { return }
+        queueSongs.move(fromOffsets: source, toOffset: destination)
+        repairQueueIndex()
         persistQueueState()
     }
 
@@ -250,7 +265,7 @@ final class NowPlaying {
     /// Pre-warms artwork for the previous and upcoming songs so swiping the
     /// mini player bar shows their art instantly.
     func preloadNeighborArtwork() {
-        var urls = Array(queueSongs.suffix(from: queueIndex + 1).prefix(3))
+        var urls = upcomingSongs(prefixLimit: 3)
             .compactMap(\.thumbnailUrl)
             .compactMap { URL(string: $0) }
         let neighborIds = queueSongs.indices.compactMap { index -> String? in
@@ -288,14 +303,10 @@ final class NowPlaying {
         } else if SettingsStore.shared.autoplaySimilar, let endedVideoId = videoId {
             autoplaySimilar(from: endedVideoId)
         } else {
+            // End of queue, pause but keep the last song shown in the player.
             isPlaying = false
-            thumbnailImage = nil
-            thumbnailUIImage = nil
-            Task { @MainActor in
-                self.updateDominantColors(from: nil)
-            }
             stopTimer()
-            MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+            PlayerController.shared.updateNowPlayingProgress()
         }
     }
 
