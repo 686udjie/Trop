@@ -50,8 +50,24 @@ actor PoTokenGenerator: NSObject {
         }
         self.webView = wv
 
-        try await Task.sleep(nanoseconds: 500_000_000)
+        try await waitForPageLoad(wv, timeout: 10)
         self.webViewReady = true
+    }
+
+    private func waitForPageLoad(_ wv: WKWebView, timeout: TimeInterval) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            let state: String? = await withCheckedContinuation { cont in
+                Task { @MainActor in
+                    wv.evaluateJavaScript("document.readyState") { value, _ in
+                        cont.resume(returning: value as? String)
+                    }
+                }
+            }
+            if state == "complete" { return }
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+        Log.poToken.notice("PoToken WebView load wait timed out — continuing")
     }
 
     func generate(videoId: String, sessionId: String?) async throws -> PoTokenResult {

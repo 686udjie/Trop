@@ -43,9 +43,18 @@ actor PlayerJsFetcher {
     }
 
     // Returns the signature timestamp from the current player.js
+    // falling back to the player config's sts when extraction fails.
     func getSignatureTimestamp() async throws -> Int {
         let js = try await getPlayerJs()
-        return try Self.extractSignatureTimestamp(from: js)
+        if let ts = try? Self.extractSignatureTimestamp(from: js) {
+            return ts
+        }
+        let hash = try await getPlayerHash()
+        if let config = await PlayerConfigStore.shared.config(for: hash), let sts = config.sts {
+            Log.cipher.debug("signatureTimestamp from config: \(sts)")
+            return sts
+        }
+        throw CipherError.signatureTimestampNotFound
     }
 
     // MARK: - Fetch Pipeline

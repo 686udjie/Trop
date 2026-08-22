@@ -66,13 +66,18 @@ enum StreamResolver {
             throw StreamError.unplayable(reason: "No playability status in response")
         }
 
-        guard playabilityStatus.status == "OK" else {
+        if playabilityStatus.status != "OK" {
             let reason = playabilityStatus.reason ?? "Unknown"
-            Log.streamResolver.error("❌ Not playable: status=\(playabilityStatus.status ?? "?") reason=\(reason)")
-            throw StreamError.unplayable(reason: reason)
+            // Some clients (VISIONOS 0.1) report non-OK yet still return usable
+            // formats — only hard-fail for clients that don't tolerate it.
+            guard client.skipPlayerResponseValidation else {
+                Log.streamResolver.error("❌ Not playable: status=\(playabilityStatus.status ?? "?") reason=\(reason)")
+                throw StreamError.unplayable(reason: reason)
+            }
+            Log.streamResolver.notice("⚠️ Status=\(playabilityStatus.status ?? "?") (\(reason)) — attempting formats anyway")
+        } else {
+            Log.streamResolver.debug("✅ Playable: status=OK")
         }
-
-        Log.streamResolver.debug("✅ Playable: status=OK")
 
         // Extract streaming data
         guard let streamingData = response.streamingData else {

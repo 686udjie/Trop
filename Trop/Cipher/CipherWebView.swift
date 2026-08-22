@@ -13,6 +13,7 @@ actor CipherWebView: NSObject {
 
     private var isReady = false
     private var playerHash: String?
+    private var builtConfigEpoch = 0
     private var readyContinuation: CheckedContinuation<Void, Error>?
     private var loadTask: Task<Void, Error>?
 
@@ -32,7 +33,8 @@ actor CipherWebView: NSObject {
     func load() async throws {
         let hash = try await PlayerJsFetcher.shared.getPlayerHash()
 
-        if isReady, self.playerHash == hash {
+        let epoch = await PlayerConfigStore.shared.configEpoch
+        if isReady, self.playerHash == hash, builtConfigEpoch == epoch {
             return
         }
 
@@ -53,6 +55,7 @@ actor CipherWebView: NSObject {
 
     private func performLoad(hash: String) async throws {
         self.playerHash = hash
+        self.builtConfigEpoch = await PlayerConfigStore.shared.configEpoch
 
         let playerJs = try await PlayerJsFetcher.shared.getPlayerJs()
 
@@ -61,7 +64,12 @@ actor CipherWebView: NSObject {
         let nJsExpression: String?
         let isExpression: Bool
         var rawNFuncBody: String?
-        if let config = await PlayerConfigStore.shared.config(for: hash) {
+        var config = await PlayerConfigStore.shared.config(for: hash)
+        if config == nil {
+            _ = await PlayerConfigStore.shared.forceRefresh(missingHash: hash)
+            config = await PlayerConfigStore.shared.config(for: hash)
+        }
+        if let config {
             sigConfig = config.sigFunction.body
             nClass = config.nFunction.varName
             nJsExpression = config.nJsExpression
@@ -341,6 +349,11 @@ private final class CipherMessageHandler: NSObject, WKScriptMessageHandler {
             switch type {
             case "ready":
                 await self?.cipher?.handleReady()
+            case "discovery":
+                let sig = json["sigFuncName"] as? String ?? "?"
+                let n = json["nFuncName"] as? String ?? "?"
+                let info = json["info"] as? String ?? ""
+                Log.cipherWebView.info("Cipher discovery: sig=\(sig) n=\(n) (\(info))")
             case "sigError", "nError", "error":
                 let msg = json["error"] as? String ?? "unknown JS error"
                 Log.cipherWebView.error("JS \(type): \(msg)")

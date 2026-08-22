@@ -150,14 +150,38 @@ enum CipherHTMLBuilder {
         }
 
         // ============================================================
-        // READY SIGNAL
+        // READY SIGNAL — validate the exported n-transform first
+        // (ported from zemer-cipher): a transform that throws or returns
+        // same-value/garbage output must be disabled so the native side
+        // strips the untransformed n-param instead of shipping a bad one.
         // ============================================================
         var hasTransformN = typeof window._nTransformFunc === 'function';
+        var discoveryInfo = 'n_transform=' + hasTransformN;
+        if (hasTransformN) {
+            var testInput = "KdrqFlzJXl9EcCwlmEy";
+            try {
+                var testResult = window._nTransformFunc(testInput);
+                var valid = typeof testResult === 'string' &&
+                    testResult !== testInput &&
+                    testResult.length >= 5 &&
+                    /^[a-zA-Z0-9_-]+$/.test(testResult);
+                if (!valid) {
+                    window._nTransformFunc = null;
+                    hasTransformN = false;
+                    discoveryInfo = 'n_transform_invalid:' + String(testResult).substring(0, 20);
+                }
+            } catch(e) {
+                window._nTransformFunc = null;
+                hasTransformN = false;
+                discoveryInfo = 'n_transform_threw:' + e;
+            }
+        }
+
         var info = {
             type: 'discovery',
             sigFuncName: typeof _cipherSigFunc === 'function' ? 'exported_sig' : 'NOT_FOUND',
-            nFuncName: hasTransformN ? 'exported_n' : (typeof gN$ === 'function' ? 'gN$' : 'noop'),
-            info: 'n_transform=' + hasTransformN
+            nFuncName: hasTransformN ? 'exported_n' : 'noop',
+            info: discoveryInfo
         };
         window.webkit.messageHandlers.cipher.postMessage(
             JSON.stringify(info)

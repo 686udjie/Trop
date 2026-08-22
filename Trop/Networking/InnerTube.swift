@@ -93,18 +93,14 @@ actor InnerTube {
         signatureTimestamp: Int? = nil,
         poToken: String? = nil
     ) async throws -> [String: Any] {
-        var body: [String: Any] = [
-            "context": buildContextDict(client: client, locale: locale, visitorData: visitorData),
-            "videoId": videoId, "contentCheckOk": true, "racyCheckOk": true
-        ]
-        if let playlistId = playlistId { body["playlistId"] = playlistId }
-        body["startTimeSecs"] = 0
-        if let signatureTimestamp = signatureTimestamp {
-            body["playbackContext"] = ["contentPlaybackContext": ["signatureTimestamp": signatureTimestamp]]
-        }
-        if let poToken = poToken {
-            body["serviceIntegrityDimensions"] = ["poToken": poToken]
-        }
+        let body = makePlayerBody(
+            videoId: videoId,
+            playlistId: playlistId,
+            client: client,
+            locale: locale,
+            signatureTimestamp: signatureTimestamp,
+            poToken: poToken
+        )
         let session = Session(cookies: cookies, sapisid: sapisid, visitorData: visitorData, dataSyncId: dataSyncId)
         return try await post(endpoint: "player", body: body, client: client, session: session)
     }
@@ -118,20 +114,53 @@ actor InnerTube {
         signatureTimestamp: Int? = nil,
         poToken: String? = nil
     ) async throws -> PlayerResponse {
+        let body = makePlayerBody(
+            videoId: videoId,
+            playlistId: playlistId,
+            client: client,
+            locale: locale,
+            signatureTimestamp: signatureTimestamp,
+            poToken: poToken
+        )
+        let session = Session(cookies: cookies, sapisid: sapisid, visitorData: visitorData, dataSyncId: dataSyncId)
+        return try await postDecodable(endpoint: "player", body: body, client: client, session: session)
+    }
+
+    // Builds the /player request body shared by `player` and `playerResponse`,
+    private func makePlayerBody(
+        videoId: String,
+        playlistId: String?,
+        client: YouTubeClient,
+        locale: YouTubeLocale,
+        signatureTimestamp: Int?,
+        poToken: String?
+    ) -> [String: Any] {
         var body: [String: Any] = [
             "context": buildContextDict(client: client, locale: locale, visitorData: visitorData),
-            "videoId": videoId, "contentCheckOk": true, "racyCheckOk": true
+            "videoId": videoId,
+            "contentCheckOk": true,
+            "racyCheckOk": true
         ]
-        body["startTimeSecs"] = 0
-        if let playlistId = playlistId { body["playlistId"] = playlistId }
+        if !client.useMusicPlayerEndpoint {
+            body["videoCheckOk"] = true
+        }
+        if let playlistId {
+            body["playlistId"] = playlistId
+        }
         if let signatureTimestamp = signatureTimestamp {
-            body["playbackContext"] = ["contentPlaybackContext": ["signatureTimestamp": signatureTimestamp]]
+            var contentPlaybackContext: [String: Any] = ["signatureTimestamp": signatureTimestamp]
+            if !client.useMusicPlayerEndpoint {
+                contentPlaybackContext["html5Preference"] = "HTML5_PREF_WANTS"
+            }
+            body["playbackContext"] = ["contentPlaybackContext": contentPlaybackContext]
         }
         if let poToken = poToken {
             body["serviceIntegrityDimensions"] = ["poToken": poToken]
         }
-        let session = Session(cookies: cookies, sapisid: sapisid, visitorData: visitorData, dataSyncId: dataSyncId)
-        return try await postDecodable(endpoint: "player", body: body, client: client, session: session)
+        if client.isEmbedded {
+            body["thirdParty"] = ["embedUrl": "https://www.youtube.com/embed/\(videoId)"]
+        }
+        return body
     }
 
     // Lightweight duration-only fetch — no stream resolution
@@ -432,6 +461,8 @@ actor InnerTube {
         if let deviceMake = client.deviceMake { clientDict["deviceMake"] = deviceMake }
         if let deviceModel = client.deviceModel { clientDict["deviceModel"] = deviceModel }
         if let androidSdkVersion = client.androidSdkVersion { clientDict["androidSdkVersion"] = androidSdkVersion }
+        if let platform = client.platform { clientDict["platform"] = platform }
+        if client.includeUserAgentInContext { clientDict["userAgent"] = client.userAgent }
         if let clientScreen = client.clientScreen { clientDict["clientScreen"] = clientScreen }
 
         var contextDict: [String: Any] = [

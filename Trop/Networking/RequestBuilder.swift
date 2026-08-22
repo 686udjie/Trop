@@ -9,7 +9,23 @@ import Foundation
 
 // Builds URLRequest objects for InnerTube API calls with all required headers
 enum RequestBuilder {
-    private static let baseURL = URL(string: "https://music.youtube.com/youtubei/v1/")!
+    private static let musicBaseURL = URL(string: "https://music.youtube.com/youtubei/v1/")!
+    private static let webBaseURL = URL(string: "https://www.youtube.com/youtubei/v1/")!
+
+    // WEB_REMIX and music-endpoint player requests hit the Music host
+    // every other client hits the regular YouTube host
+    private static func routing(for client: YouTubeClient, endpoint: String) -> (base: URL, origin: String) {
+        let usesMusic = (endpoint == "player" && client.useMusicPlayerEndpoint)
+            || client.clientName == "WEB_REMIX"
+        return usesMusic
+            ? (musicBaseURL, "https://music.youtube.com")
+            : (webBaseURL, "https://www.youtube.com")
+    }
+
+    private static var acceptLanguage: String {
+        let gl = SettingsStore.shared.contentCountry
+        return gl.isEmpty ? "en-US,en;q=0.9" : "en-\(gl),en;q=0.9"
+    }
 
     static func buildRequest(
         endpoint: String,
@@ -19,16 +35,22 @@ enum RequestBuilder {
         cookies: [String: String],
         sapisid: String?
     ) -> URLRequest {
-        let url = baseURL.appendingPathComponent(endpoint)
+        let route = routing(for: client, endpoint: endpoint)
+        let url = route.base.appendingPathComponent(endpoint)
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("1", forHTTPHeaderField: "X-Goog-Api-Format-Version")
         request.setValue("\(client.clientId)", forHTTPHeaderField: "X-YouTube-Client-Name")
         request.setValue(client.clientVersion, forHTTPHeaderField: "X-YouTube-Client-Version")
-        request.setValue("https://music.youtube.com", forHTTPHeaderField: "X-Origin")
-        request.setValue("https://music.youtube.com/", forHTTPHeaderField: "Referer")
+        request.setValue(route.origin, forHTTPHeaderField: "X-Origin")
+        if client.isEmbedded {
+            request.setValue("https://www.reddit.com/", forHTTPHeaderField: "Referer")
+        } else {
+            request.setValue("\(route.origin)/", forHTTPHeaderField: "Referer")
+        }
         request.setValue(client.userAgent, forHTTPHeaderField: "User-Agent")
+        request.setValue(acceptLanguage, forHTTPHeaderField: "Accept-Language")
 
         if let visitorData = visitorData {
             request.setValue(visitorData, forHTTPHeaderField: "X-Goog-Visitor-Id")
@@ -45,7 +67,7 @@ enum RequestBuilder {
             // Generate SAPISID hash for signed-in Authorization header
             if let sapisid = sapisid {
                 request.setValue(
-                    SAPISIDAuth.authorizationHeader(sapisid: sapisid),
+                    SAPISIDAuth.authorizationHeader(sapisid: sapisid, origin: route.origin),
                     forHTTPHeaderField: "Authorization"
                 )
             }
@@ -101,7 +123,7 @@ enum RequestBuilder {
             }
             if let sapisid = sapisid {
                 request.setValue(
-                    SAPISIDAuth.authorizationHeader(sapisid: sapisid),
+                    SAPISIDAuth.authorizationHeader(sapisid: sapisid, origin: "https://music.youtube.com"),
                     forHTTPHeaderField: "Authorization"
                 )
             }

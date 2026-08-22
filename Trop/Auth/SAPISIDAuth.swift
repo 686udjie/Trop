@@ -11,9 +11,10 @@ import CommonCrypto
 // Generates the SAPISIDHASH Authorization header value for signed-in requests
 enum SAPISIDAuth {
     // Produces "SAPISIDHASH <timestamp>_<sha1>" from the SAPISID cookie value
-    static func authorizationHeader(sapisid: String) -> String {
+    // The hash must be computed against the request's Origin
+    static func authorizationHeader(sapisid: String, origin: String) -> String {
         let timestamp = Int(Date().timeIntervalSince1970)
-        let hash = sha1("\(timestamp) \(sapisid) https://music.youtube.com")
+        let hash = sha1("\(timestamp) \(sapisid) \(origin)")
         return "SAPISIDHASH \(timestamp)_\(hash)"
     }
 

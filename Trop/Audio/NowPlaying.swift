@@ -353,6 +353,7 @@ final class NowPlaying {
         isPlaying = false
         Log.nowPlaying.notice("Stream failed mid-play, re-resolving \(videoId)")
         Task {
+            await PlayerConfigStore.shared.notifyStreamRejection()
             await StreamCache.shared.remove(videoId: videoId)
             do {
                 try await PlaybackManager.shared.resolveAndPlay(videoId: videoId)
