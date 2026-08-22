@@ -31,7 +31,7 @@ final class PlayerController {
         let layer = CAMetalLayer()
         layer.framebufferOnly = true
         layer.isOpaque = false
-        layer.contentsScale = 1.0
+        layer.contentsScale = 1
         layer.contentsGravity = .resizeAspect
         layer.backgroundColor = UIColor.clear.cgColor
         let bounds = CGRect(
@@ -98,7 +98,15 @@ final class PlayerController {
     }
 
     @MainActor
-    func play(url: String, title: String? = nil, artist: String? = nil, videoId: String? = nil, duration: TimeInterval? = nil, artists: [YTArtist] = [], loudnessDb: Double? = nil) async {
+    func play(
+        url: String,
+        title: String? = nil,
+        artist: String? = nil,
+        videoId: String? = nil,
+        duration: TimeInterval? = nil,
+        artists: [YTArtist] = [],
+        loudnessDb: Double? = nil
+    ) async {
         currentLoudnessDb = loudnessDb
         guard let url = URL(string: url) else {
             Log.player.error("Invalid URL: \(url)")
@@ -145,7 +153,9 @@ final class PlayerController {
         setVideoCrop(.none)
 
         pendingVideoId = videoId
-        Log.player.debug("TRANSITION play videoId=\(videoId ?? "nil") isNewSong=\(isNewSong) muxedActive=\(muxedActive) url=\(url.absoluteString.prefix(80))")
+        Log.player.debug(
+            "TRANSITION play videoId=\(videoId ?? "nil") isNewSong=\(isNewSong) muxedActive=\(muxedActive) url=\(url.absoluteString.prefix(80))"
+        )
         _ = ["loadfile", url.absoluteString, "replace"].withUnsafeCArg { mpv_command(mpv, $0) }
         NowPlaying.shared.isPlaying = true
         NowPlaying.shared.currentTime = 0
@@ -302,7 +312,6 @@ final class PlayerController {
                 }
             case MPV_EVENT_START_FILE:
                 Log.player.debug("TRANSITION START_FILE")
-                break
             case MPV_EVENT_END_FILE:
                 let stoppedVideoId = self.currentVideoId
                 let endFile = event.pointee.data?.load(as: mpv_event_end_file.self)
@@ -313,7 +322,9 @@ final class PlayerController {
                 // Treating it as a failure would spuriously re-resolve and bounce
                 // out of video mode. Only genuine errors run failure recovery.
                 let isFailure = reason == MPV_END_FILE_REASON_ERROR
-                Log.player.debug("TRANSITION END_FILE reason=\(reason) isEof=\(isEof) isFailure=\(isFailure) stoppedVideoId=\(stoppedVideoId ?? "nil")")
+                Log.player.debug(
+                    "TRANSITION END_FILE reason=\(reason) isEof=\(isEof) isFailure=\(isFailure) stoppedVideoId=\(stoppedVideoId ?? "nil")"
+                )
                 // Only a genuine end-of-file or error stops tracking; an
                 // intentional replace (STOP) must not kill the NEW song's
                 // tracking session, which play() has already started.
@@ -379,7 +390,7 @@ final class PlayerController {
         }
 
         if settings.audioNormalization, let loudness = currentLoudnessDb, loudness.isFinite {
-            let gain = max(-12.0, min(12.0, -14.0 - loudness))
+            let gain = max(-12, min(12, -14 - loudness))
             filters.append("volume=\(Self.fmt(gain))dB")
         }
 
@@ -394,187 +405,6 @@ final class PlayerController {
 
     private static func fmt(_ value: Double) -> String {
         String(format: "%.4f", value)
-    }
-
-    // MARK: - Audio Session
-
-    func assertAudioSession() {
-        do {
-            try AVAudioSession.sharedInstance().setCategory(
-                .playback,
-                mode: .default,
-                policy: .longFormAudio
-            )
-            try AVAudioSession.sharedInstance().setActive(true)
-        } catch {
-            Log.player.error("Failed to assert audio session: \(error)")
-        }
-    }
-
-    private func observeInterruptions() {
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleInterruption),
-            name: AVAudioSession.interruptionNotification,
-            object: nil
-        )
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleRouteChange),
-            name: AVAudioSession.routeChangeNotification,
-            object: nil
-        )
-    }
-
-    @objc private func handleInterruption(_ notification: Notification) {
-        guard let userInfo = notification.userInfo,
-              let typeValue = userInfo[AVAudioSessionInterruptionTypeKey] as? UInt,
-              let type = AVAudioSession.InterruptionType(rawValue: typeValue) else { return }
-
-        switch type {
-        case .began:
-            if playState.value == .playing {
-                Task { @MainActor in self.togglePlayPause() }
-            }
-        case .ended:
-            if let optionsValue = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt {
-                let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue)
-                if options.contains(.shouldResume) {
-                    assertAudioSession()
-                    if playState.value == .paused {
-                        Task { @MainActor in self.togglePlayPause() }
-                    }
-                }
-            }
-        @unknown default:
-            break
-        }
-    }
-
-    @objc private func handleRouteChange(_ notification: Notification) {
-        guard let userInfo = notification.userInfo,
-              let reasonValue = userInfo[AVAudioSessionRouteChangeReasonKey] as? UInt,
-              let reason = AVAudioSession.RouteChangeReason(rawValue: reasonValue) else { return }
-
-        if reason == .oldDeviceUnavailable {
-            if playState.value == .playing {
-                Task { @MainActor in self.togglePlayPause() }
-            }
-        }
-    }
-
-    // MARK: - Now Playing Info
-
-    @MainActor
-    func setNowPlayingMetadata() {
-        assertAudioSession()
-        let np = NowPlaying.shared
-
-        var liveDur = Double(0)
-        if let mpv { mpv_get_property(mpv, "duration", MPV_FORMAT_DOUBLE, &liveDur) }
-        let duration = liveDur > 0 ? liveDur : np.duration
-        if duration > 0 { np.duration = duration }
-
-        var livePos = Double(0)
-        if let mpv { mpv_get_property(mpv, "time-pos", MPV_FORMAT_DOUBLE, &livePos) }
-        let elapsed = livePos > 0 ? livePos : np.currentTime
-
-        nowPlayingInfo[MPMediaItemPropertyTitle] = np.title
-        nowPlayingInfo[MPMediaItemPropertyArtist] = np.artist
-        nowPlayingInfo[MPMediaItemPropertyAlbumTitle] = np.albumTitle
-        nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] = np.isPlaying ? 1.0 : 0.0
-        nowPlayingInfo[MPNowPlayingInfoPropertyMediaType] = MPNowPlayingInfoMediaType.audio.rawValue
-        if duration > 0 {
-            nowPlayingInfo[MPMediaItemPropertyPlaybackDuration] = duration
-        }
-        nowPlayingInfo[MPNowPlayingInfoPropertyElapsedPlaybackTime] = elapsed
-        nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackQueueIndex] = np.queueIndex
-        nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackQueueCount] = np.queueSongs.count
-        if let image = np.thumbnailUIImage {
-            nowPlayingInfo[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
-        } else {
-            nowPlayingInfo[MPMediaItemPropertyArtwork] = nil
-        }
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
-    }
-
-    @MainActor
-    func updateNowPlayingArtwork() {
-        let np = NowPlaying.shared
-        if let image = np.thumbnailUIImage {
-            nowPlayingInfo[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
-        } else {
-            nowPlayingInfo[MPMediaItemPropertyArtwork] = nil
-        }
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
-    }
-
-    @MainActor
-    func updateNowPlayingProgress() {
-        guard let mpv else { return }
-        let np = NowPlaying.shared
-
-        var dur = Double(0)
-        mpv_get_property(mpv, "duration", MPV_FORMAT_DOUBLE, &dur)
-        guard dur > 0 else { return }
-
-        var info = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? nowPlayingInfo
-        info[MPMediaItemPropertyPlaybackDuration] = dur
-        np.duration = dur
-
-        var pos = Double(0)
-        mpv_get_property(mpv, "time-pos", MPV_FORMAT_DOUBLE, &pos)
-        info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = pos
-        np.currentTime = pos
-
-        info[MPNowPlayingInfoPropertyPlaybackRate] = np.isPlaying ? 1.0 : 0.0
-        info[MPNowPlayingInfoPropertyPlaybackQueueIndex] = np.queueIndex
-        info[MPNowPlayingInfoPropertyPlaybackQueueCount] = np.queueSongs.count
-        nowPlayingInfo = info
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
-    }
-
-    // MARK: - Remote Commands
-
-    private func setupRemoteCommands() {
-        let center = MPRemoteCommandCenter.shared()
-
-        center.playCommand.isEnabled = true
-        center.playCommand.addTarget { [weak self] _ in
-            Task { @MainActor [weak self] in self?.togglePlayPause() }
-            return .success
-        }
-
-        center.pauseCommand.isEnabled = true
-        center.pauseCommand.addTarget { [weak self] _ in
-            Task { @MainActor [weak self] in self?.togglePlayPause() }
-            return .success
-        }
-
-        center.nextTrackCommand.isEnabled = true
-        center.nextTrackCommand.addTarget { _ in
-            Task { @MainActor in NowPlaying.shared.playNext() }
-            return .success
-        }
-
-        center.previousTrackCommand.isEnabled = true
-        center.previousTrackCommand.addTarget { _ in
-            Task { @MainActor in NowPlaying.shared.playPrevious() }
-            return .success
-        }
-
-        center.changePlaybackPositionCommand.isEnabled = true
-        center.changePlaybackPositionCommand.addTarget { [weak self] event in
-            guard let event = event as? MPChangePlaybackPositionCommandEvent else {
-                return .commandFailed
-            }
-            let position = event.positionTime
-            Task { @MainActor [weak self] in
-                self?.seek(to: position)
-                self?.updateNowPlayingProgress()
-            }
-            return .success
-        }
     }
 
     @MainActor
@@ -777,6 +607,191 @@ extension Array where Element == String {
         var ptrs = cstrings.map { UnsafePointer($0) } + [nil]
         return ptrs.withUnsafeMutableBufferPointer { buf in
             body(buf.baseAddress)
+        }
+    }
+}
+
+// MARK: - System Integration (audio session, lock-screen info, remote commands)
+
+extension PlayerController {
+    // MARK: - Audio Session
+
+    func assertAudioSession() {
+        do {
+            try AVAudioSession.sharedInstance().setCategory(
+                .playback,
+                mode: .default,
+                policy: .longFormAudio
+            )
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch {
+            Log.player.error("Failed to assert audio session: \(error)")
+        }
+    }
+
+    private func observeInterruptions() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleInterruption),
+            name: AVAudioSession.interruptionNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleRouteChange),
+            name: AVAudioSession.routeChangeNotification,
+            object: nil
+        )
+    }
+
+    @objc private func handleInterruption(_ notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let typeValue = userInfo[AVAudioSessionInterruptionTypeKey] as? UInt,
+              let type = AVAudioSession.InterruptionType(rawValue: typeValue) else { return }
+
+        switch type {
+        case .began:
+            if playState.value == .playing {
+                Task { @MainActor in self.togglePlayPause() }
+            }
+        case .ended:
+            if let optionsValue = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt {
+                let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue)
+                if options.contains(.shouldResume) {
+                    assertAudioSession()
+                    if playState.value == .paused {
+                        Task { @MainActor in self.togglePlayPause() }
+                    }
+                }
+            }
+        @unknown default:
+            break
+        }
+    }
+
+    @objc private func handleRouteChange(_ notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let reasonValue = userInfo[AVAudioSessionRouteChangeReasonKey] as? UInt,
+              let reason = AVAudioSession.RouteChangeReason(rawValue: reasonValue) else { return }
+
+        if reason == .oldDeviceUnavailable {
+            if playState.value == .playing {
+                Task { @MainActor in self.togglePlayPause() }
+            }
+        }
+    }
+
+    // MARK: - Now Playing Info
+
+    @MainActor
+    func setNowPlayingMetadata() {
+        assertAudioSession()
+        let np = NowPlaying.shared
+
+        var liveDur = Double(0)
+        if let mpv { mpv_get_property(mpv, "duration", MPV_FORMAT_DOUBLE, &liveDur) }
+        let duration = liveDur > 0 ? liveDur : np.duration
+        if duration > 0 { np.duration = duration }
+
+        var livePos = Double(0)
+        if let mpv { mpv_get_property(mpv, "time-pos", MPV_FORMAT_DOUBLE, &livePos) }
+        let elapsed = livePos > 0 ? livePos : np.currentTime
+
+        nowPlayingInfo[MPMediaItemPropertyTitle] = np.title
+        nowPlayingInfo[MPMediaItemPropertyArtist] = np.artist
+        nowPlayingInfo[MPMediaItemPropertyAlbumTitle] = np.albumTitle
+        nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] = np.isPlaying ? 1 : 0
+        nowPlayingInfo[MPNowPlayingInfoPropertyMediaType] = MPNowPlayingInfoMediaType.audio.rawValue
+        if duration > 0 {
+            nowPlayingInfo[MPMediaItemPropertyPlaybackDuration] = duration
+        }
+        nowPlayingInfo[MPNowPlayingInfoPropertyElapsedPlaybackTime] = elapsed
+        nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackQueueIndex] = np.queueIndex
+        nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackQueueCount] = np.queueSongs.count
+        if let image = np.thumbnailUIImage {
+            nowPlayingInfo[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+        } else {
+            nowPlayingInfo[MPMediaItemPropertyArtwork] = nil
+        }
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
+    }
+
+    @MainActor
+    func updateNowPlayingArtwork() {
+        let np = NowPlaying.shared
+        if let image = np.thumbnailUIImage {
+            nowPlayingInfo[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+        } else {
+            nowPlayingInfo[MPMediaItemPropertyArtwork] = nil
+        }
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
+    }
+
+    @MainActor
+    func updateNowPlayingProgress() {
+        guard let mpv else { return }
+        let np = NowPlaying.shared
+
+        var dur = Double(0)
+        mpv_get_property(mpv, "duration", MPV_FORMAT_DOUBLE, &dur)
+        guard dur > 0 else { return }
+
+        var info = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? nowPlayingInfo
+        info[MPMediaItemPropertyPlaybackDuration] = dur
+        np.duration = dur
+
+        var pos = Double(0)
+        mpv_get_property(mpv, "time-pos", MPV_FORMAT_DOUBLE, &pos)
+        info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = pos
+        np.currentTime = pos
+
+        info[MPNowPlayingInfoPropertyPlaybackRate] = np.isPlaying ? 1 : 0
+        info[MPNowPlayingInfoPropertyPlaybackQueueIndex] = np.queueIndex
+        info[MPNowPlayingInfoPropertyPlaybackQueueCount] = np.queueSongs.count
+        nowPlayingInfo = info
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+    }
+
+    // MARK: - Remote Commands
+
+    private func setupRemoteCommands() {
+        let center = MPRemoteCommandCenter.shared()
+
+        center.playCommand.isEnabled = true
+        center.playCommand.addTarget { [weak self] _ in
+            Task { @MainActor [weak self] in self?.togglePlayPause() }
+            return .success
+        }
+
+        center.pauseCommand.isEnabled = true
+        center.pauseCommand.addTarget { [weak self] _ in
+            Task { @MainActor [weak self] in self?.togglePlayPause() }
+            return .success
+        }
+
+        center.nextTrackCommand.isEnabled = true
+        center.nextTrackCommand.addTarget { _ in
+            Task { @MainActor in NowPlaying.shared.playNext() }
+            return .success
+        }
+
+        center.previousTrackCommand.isEnabled = true
+        center.previousTrackCommand.addTarget { _ in
+            Task { @MainActor in NowPlaying.shared.playPrevious() }
+            return .success
+        }
+
+        center.changePlaybackPositionCommand.isEnabled = true
+        center.changePlaybackPositionCommand.addTarget { [weak self] event in
+            guard let event = event as? MPChangePlaybackPositionCommandEvent else {
+                return .commandFailed
+            }
+            let position = event.positionTime
+            Task { @MainActor [weak self] in
+                self?.seek(to: position)
+                self?.updateNowPlayingProgress()
+            }
+            return .success
         }
     }
 }

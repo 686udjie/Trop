@@ -55,10 +55,17 @@ actor PlayerConfigStore {
     private let refreshTTL: TimeInterval = 6 * 60 * 60          // mirrors PlayerJsFetcher cache TTL
     private let forcedRefreshCooldown: TimeInterval = 5 * 60    // unknown-hash misses must not hammer GitHub
 
-    // Validation locks (mirrors upstream PlayerConfigParser)
-    private let sigRegex = try! NSRegularExpression(pattern: "^[A-Za-z0-9$_]{1,8}\\(\\d+,\\d+,INPUT\\)$")
-    private let nClassRegex = try! NSRegularExpression(pattern: "^[A-Za-z0-9$_]{1,8}$")
-    private let hashRegex = try! NSRegularExpression(pattern: "^[a-f0-9]{8}$")
+    private struct ValidationRegexes {
+        let sig = PlayerConfigStore.lockedRegex("^[A-Za-z0-9$_]{1,8}\\(\\d+,\\d+,INPUT\\)$")
+        let nClass = PlayerConfigStore.lockedRegex("^[A-Za-z0-9$_]{1,8}$")
+        let hash = PlayerConfigStore.lockedRegex("^[a-f0-9]{8}$")
+    }
+
+    /// The patterns are compile-time constants — a throw here can only be a typo.
+    private static func lockedRegex(_ pattern: String) -> NSRegularExpression {
+        // swiftlint:disable:next force_try
+        try! NSRegularExpression(pattern: pattern)
+    }
 
     /// Advances every time a remote refresh changes the table. The cipher WebView records
     /// the epoch it was built under and rebuilds when this advances, so a corrected config
@@ -207,9 +214,7 @@ actor PlayerConfigStore {
         writeMeta()
     }
 
-    private var regexes: (sig: NSRegularExpression, nClass: NSRegularExpression, hash: NSRegularExpression) {
-        (sigRegex, nClassRegex, hashRegex)
-    }
+    private var regexes: ValidationRegexes { ValidationRegexes() }
 
     /// Applies a validated table to memory first, then best-effort persists. Merged =
     /// bundled + remote with remote winning per key; bundled-only keys survive.
@@ -243,7 +248,7 @@ actor PlayerConfigStore {
     /// Parses and validates a config document. File-level problems return nil (callers keep
     /// their previous table); invalid individual entries are skipped so one bad entry can't
     /// poison the rest. Duplicate hash/alias keys make the table ambiguous → whole-file reject.
-    static func parse(text: String, regexes: (sig: NSRegularExpression, nClass: NSRegularExpression, hash: NSRegularExpression)) -> [String: PlayerConfig]? {
+    private static func parse(text: String, regexes: ValidationRegexes) -> [String: PlayerConfig]? {
         guard let data = text.data(using: .utf8),
               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return nil

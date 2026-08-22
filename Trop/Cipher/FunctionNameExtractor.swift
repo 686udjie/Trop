@@ -170,7 +170,7 @@ actor FunctionNameExtractor {
     private func extractNClassHeuristic(_ js: String) -> String? {
         let patterns = [
             #"\(?new\s+g\.(\w+)\([^,]+,\s*(?:!0|true)\)\)?\s*\.[\w$]+\(\s*['""]n['""]\s*\)"#,
-            #"new\s+g\.(\w+)\([^,]+,\s*!0\)"#,
+            #"new\s+g\.(\w+)\([^,]+,\s*!0\)"#
         ]
 
         let nsJs = js as NSString

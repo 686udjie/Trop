@@ -16,7 +16,7 @@ actor InnerTube {
 
     private let maxRetries = 3
     private let retryBaseDelay: Duration = .milliseconds(500)
-    private let retryBackoffFactor = 2.0
+    private let retryBackoffFactor = 2
 
     // Singleton — declared nonisolated so callers don't need `await self`
     nonisolated static let shared = InnerTube()
@@ -96,10 +96,12 @@ actor InnerTube {
         let body = makePlayerBody(
             videoId: videoId,
             playlistId: playlistId,
-            client: client,
-            locale: locale,
-            signatureTimestamp: signatureTimestamp,
-            poToken: poToken
+            context: PlayerRequestContext(
+                client: client,
+                locale: locale,
+                signatureTimestamp: signatureTimestamp,
+                poToken: poToken
+            )
         )
         let session = Session(cookies: cookies, sapisid: sapisid, visitorData: visitorData, dataSyncId: dataSyncId)
         return try await post(endpoint: "player", body: body, client: client, session: session)
@@ -117,47 +119,55 @@ actor InnerTube {
         let body = makePlayerBody(
             videoId: videoId,
             playlistId: playlistId,
-            client: client,
-            locale: locale,
-            signatureTimestamp: signatureTimestamp,
-            poToken: poToken
+            context: PlayerRequestContext(
+                client: client,
+                locale: locale,
+                signatureTimestamp: signatureTimestamp,
+                poToken: poToken
+            )
         )
         let session = Session(cookies: cookies, sapisid: sapisid, visitorData: visitorData, dataSyncId: dataSyncId)
         return try await postDecodable(endpoint: "player", body: body, client: client, session: session)
     }
 
+    // Playback-specific request knobs shared by `player` and `playerResponse`
+    private struct PlayerRequestContext {
+        let client: YouTubeClient
+        let locale: YouTubeLocale
+        let signatureTimestamp: Int?
+        let poToken: String?
+    }
+
     // Builds the /player request body shared by `player` and `playerResponse`,
+    // mirroring innertubex's PlayerBody construction.
     private func makePlayerBody(
         videoId: String,
         playlistId: String?,
-        client: YouTubeClient,
-        locale: YouTubeLocale,
-        signatureTimestamp: Int?,
-        poToken: String?
+        context: PlayerRequestContext
     ) -> [String: Any] {
         var body: [String: Any] = [
-            "context": buildContextDict(client: client, locale: locale, visitorData: visitorData),
+            "context": buildContextDict(client: context.client, locale: context.locale, visitorData: visitorData),
             "videoId": videoId,
             "contentCheckOk": true,
             "racyCheckOk": true
         ]
-        if !client.useMusicPlayerEndpoint {
+        if !context.client.useMusicPlayerEndpoint {
             body["videoCheckOk"] = true
         }
         if let playlistId {
             body["playlistId"] = playlistId
         }
-        if let signatureTimestamp = signatureTimestamp {
+        if let signatureTimestamp = context.signatureTimestamp {
             var contentPlaybackContext: [String: Any] = ["signatureTimestamp": signatureTimestamp]
-            if !client.useMusicPlayerEndpoint {
+            if !context.client.useMusicPlayerEndpoint {
                 contentPlaybackContext["html5Preference"] = "HTML5_PREF_WANTS"
             }
             body["playbackContext"] = ["contentPlaybackContext": contentPlaybackContext]
         }
-        if let poToken = poToken {
+        if let poToken = context.poToken {
             body["serviceIntegrityDimensions"] = ["poToken": poToken]
         }
-        if client.isEmbedded {
+        if context.client.isEmbedded {
             body["thirdParty"] = ["embedUrl": "https://www.youtube.com/embed/\(videoId)"]
         }
         return body
@@ -215,7 +225,8 @@ actor InnerTube {
         locale: YouTubeLocale = .default
     ) async throws -> [String: Any] {
         let session = Session(cookies: cookies, sapisid: sapisid, visitorData: visitorData, dataSyncId: dataSyncId)
-        return try await post(endpoint: "account/account_menu", body: ["context": buildContextDict(client: client, locale: locale, visitorData: visitorData)], client: client, session: session)
+        let body = ["context": buildContextDict(client: client, locale: locale, visitorData: visitorData)]
+        return try await post(endpoint: "account/account_menu", body: body, client: client, session: session)
     }
 
     // Fetches account info (name, email, profile picture)
@@ -277,7 +288,7 @@ actor InnerTube {
     private func withRetry<T>(
         maxAttempts: Int = 3,
         backoffBase: Duration = .milliseconds(500),
-        backoffFactor: Double = 2.0,
+        backoffFactor: Double = 2,
         operation: () async throws -> T
     ) async throws -> T {
         var lastError: Error?
@@ -324,9 +335,11 @@ actor InnerTube {
             endpoint: endpoint,
             body: body,
             client: client,
-            visitorData: session.visitorData,
-            cookies: session.cookies,
-            sapisid: session.sapisid
+            session: RequestSession(
+                visitorData: session.visitorData,
+                cookies: session.cookies,
+                sapisid: session.sapisid
+            )
         )
         let (data, response) = try await self.session.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else {
@@ -371,13 +384,15 @@ actor InnerTube {
     // Like or unlike a video
     func like(videoId: String, client: YouTubeClient = .webRemix, locale: YouTubeLocale = .default) async throws -> [String: Any] {
         let session = Session(cookies: cookies, sapisid: sapisid, visitorData: visitorData, dataSyncId: dataSyncId)
-        let body: [String: Any] = ["context": buildContextDict(client: client, locale: locale, visitorData: visitorData), "target": ["videoId": videoId]]
+        let context = buildContextDict(client: client, locale: locale, visitorData: visitorData)
+        let body: [String: Any] = ["context": context, "target": ["videoId": videoId]]
         return try await post(endpoint: "like/like", body: body, client: client, session: session)
     }
 
     func unlike(videoId: String, client: YouTubeClient = .webRemix, locale: YouTubeLocale = .default) async throws -> [String: Any] {
         let session = Session(cookies: cookies, sapisid: sapisid, visitorData: visitorData, dataSyncId: dataSyncId)
-        let body: [String: Any] = ["context": buildContextDict(client: client, locale: locale, visitorData: visitorData), "target": ["videoId": videoId]]
+        let context = buildContextDict(client: client, locale: locale, visitorData: visitorData)
+        let body: [String: Any] = ["context": context, "target": ["videoId": videoId]]
         return try await post(endpoint: "like/removelike", body: body, client: client, session: session)
     }
 
@@ -402,7 +417,12 @@ actor InnerTube {
     }
 
     // Create a new playlist
-    func createPlaylist(title: String, description: String? = nil, client: YouTubeClient = .webRemix, locale: YouTubeLocale = .default) async throws -> [String: Any] {
+    func createPlaylist(
+        title: String,
+        description: String? = nil,
+        client: YouTubeClient = .webRemix,
+        locale: YouTubeLocale = .default
+    ) async throws -> [String: Any] {
         let session = Session(cookies: cookies, sapisid: sapisid, visitorData: visitorData, dataSyncId: dataSyncId)
         var body: [String: Any] = ["context": buildContextDict(client: client, locale: locale, visitorData: visitorData), "title": title]
         if let description { body["description"] = description }
@@ -493,9 +513,7 @@ actor InnerTube {
             trackingUrl: trackingUrl,
             cpn: cpn,
             client: client,
-            visitorData: visitorData,
-            cookies: cookies,
-            sapisid: sapisid,
+            session: RequestSession(visitorData: visitorData, cookies: cookies, sapisid: sapisid),
             playlistId: playlistId
         ) else {
             Log.innerTube.error("Failed to build playback tracking request")

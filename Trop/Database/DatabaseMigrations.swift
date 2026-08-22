@@ -178,13 +178,18 @@ enum DatabaseMigrations {
         // from the app succeed on existing databases.
         if try db.tableExists("downloaded_track") {
             let existing = try db.columns(in: "downloaded_track").map(\.name)
-            let required: [(name: String, type: Database.ColumnType, notNull: Bool)] = [
-                ("artist", .text, true),
-                ("thumbnail_url", .text, false),
-                ("local_path", .text, true),
-                ("downloaded_at", .text, true),
-                ("duration", .integer, true),
-                ("title", .text, true)
+            struct RequiredColumn {
+                let name: String
+                let type: Database.ColumnType
+                let notNull: Bool
+            }
+            let required: [RequiredColumn] = [
+                RequiredColumn(name: "artist", type: .text, notNull: true),
+                RequiredColumn(name: "thumbnail_url", type: .text, notNull: false),
+                RequiredColumn(name: "local_path", type: .text, notNull: true),
+                RequiredColumn(name: "downloaded_at", type: .text, notNull: true),
+                RequiredColumn(name: "duration", type: .integer, notNull: true),
+                RequiredColumn(name: "title", type: .text, notNull: true)
             ]
             for col in required where !existing.contains(col.name) {
                 try db.alter(table: "downloaded_track") { t in

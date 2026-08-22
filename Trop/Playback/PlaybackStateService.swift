@@ -13,7 +13,7 @@ actor PlaybackStateService {
     private let db = DatabaseService.shared
     private let innerTube = InnerTube.shared
 
-    private let historyDurationThreshold: TimeInterval = 30.0
+    private let historyDurationThreshold: TimeInterval = 30
     private var currentVideoId: String?
     private var playbackStartTime: Date?
     private var isTracking = false
@@ -58,7 +58,9 @@ actor PlaybackStateService {
         if elapsed >= historyDurationThreshold, !hasRecordedPlayback {
             await firePlayback(videoId: videoId, playTimeMs: Int64(elapsed * 1000))
         } else if elapsed < historyDurationThreshold {
-            Log.playbackState.debug("Elapsed \(String(format: "%.1f", elapsed))s below threshold \(self.historyDurationThreshold)s — skipping history recording")
+            Log.playbackState.debug(
+                "Elapsed \(String(format: "%.1f", elapsed))s below threshold \(self.historyDurationThreshold)s — skipping history recording"
+            )
         }
     }
 

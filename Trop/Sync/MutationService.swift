@@ -151,7 +151,14 @@ actor MutationService {
         guard let playlistId = extractPlaylistId(from: json) else {
             throw MutationError.playlistCreationFailed
         }
-        var entity = PlaylistEntity(id: playlistId, browseId: "VL\(playlistId)", name: title, isEditable: true, bookmarkedAt: Date(), remoteSongCount: 0)
+        var entity = PlaylistEntity(
+            id: playlistId,
+            browseId: "VL\(playlistId)",
+            name: title,
+            isEditable: true,
+            bookmarkedAt: Date(),
+            remoteSongCount: 0
+        )
         entity = try await db.insertOrReplace(entity)
         return playlistId
     }

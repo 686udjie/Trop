@@ -56,7 +56,10 @@ final class PlaylistDetailViewModel {
             let json = try await innerTube.browse(browseId: browseId)
             let parsed = Self.parsePlaylistDetail(from: json, playlistId: playlistId)
             let hasAvatar = parsed.authorAvatarUrl != nil
-            Log.playlistDetail.debug("title=\(parsed.title) author=\(parsed.authorName ?? "nil") avatar=\(hasAvatar) cnt=\(parsed.songCount) dur=\(parsed.duration) songs=\(parsed.songs.count)")
+            Log.playlistDetail.debug(
+                "title=\(parsed.title) author=\(parsed.authorName ?? "nil") avatar=\(hasAvatar) " +
+                    "cnt=\(parsed.songCount) dur=\(parsed.duration) songs=\(parsed.songs.count)"
+            )
 
             // Persist songs to the song table so they become searchable in the library
             let pid = playlistId
@@ -228,9 +231,11 @@ final class PlaylistDetailViewModel {
 // MARK: - Parser
 
 extension PlaylistDetailViewModel {
+    // swiftlint:disable cyclomatic_complexity
     /// Parses InnerTube browse JSON into a PlaylistDetailInfo.
     /// Extracts header metadata (title, author, song count, duration, thumbnail, description)
     /// from musicDetailHeaderRenderer and songs from musicPlaylistShelfRenderer or musicShelfRenderer.
+    /// Branch count is inherent to tolerant InnerTube JSON parsing.
     static func parsePlaylistDetail(from json: [String: Any], playlistId: String) -> PlaylistDetailInfo {
         var title = "Unknown Playlist"
         var authorName: String?
@@ -267,8 +272,10 @@ extension PlaylistDetailViewModel {
             ?? (firstTabSection?["musicEditablePlaylistDetailHeaderRenderer"] as? NSDictionary)
                 .flatMap { ($0 as? [String: Any]) }
                 .flatMap { ($0["header"] as? NSDictionary) as? [String: Any] }
-                .flatMap { $0["musicDetailHeaderRenderer"] as? [String: Any]
-                        ?? $0["musicResponsiveHeaderRenderer"] as? [String: Any] }
+                .flatMap {
+                    ($0["musicDetailHeaderRenderer"] as? [String: Any])
+                        ?? $0["musicResponsiveHeaderRenderer"] as? [String: Any]
+                }
             ?? (json["header"] as? [String: Any]).flatMap {
                 $0["musicDetailHeaderRenderer"] as? [String: Any]
                 ?? $0["musicResponsiveHeaderRenderer"] as? [String: Any]
@@ -443,6 +450,7 @@ extension PlaylistDetailViewModel {
             songs: songs
         )
     }
+    // swiftlint:enable cyclomatic_complexity
 }
 
 // MARK: - View
@@ -502,9 +510,9 @@ struct PlaylistDetailView: View {
         .toolbar {
             if isEditable {
                 ToolbarItem(placement: .primaryAction) {
-                    Button(action: { showAddSongs = true }) {
+                                        Button(action: { showAddSongs = true }, label: {
                         Image(systemName: "plus")
-                    }
+                    })
                 }
             }
         }
@@ -618,22 +626,22 @@ struct PlaylistDetailView: View {
 
             // Action buttons: shuffle, play
             HStack(spacing: 20) {
-                Button(action: { shufflePlay(playlist) }) {
+                                Button(action: { shufflePlay(playlist) }, label: {
                     Image(systemName: "shuffle")
                         .font(.title3)
                         .frame(width: 44, height: 44)
                         .background(Circle().fill(Color(.systemGray6)))
-                }
+                })
                 .buttonStyle(.plain)
                 .accessibilityLabel("Shuffle")
 
-                Button(action: { playAll(playlist) }) {
+                                Button(action: { playAll(playlist) }, label: {
                     Image(systemName: "play.fill")
                         .font(.title2)
                         .foregroundColor(.white)
                         .frame(width: 60, height: 60)
                         .background(Circle().fill(Color.accentColor))
-                }
+                })
                 .buttonStyle(.plain)
                 .accessibilityLabel("Play all")
             }

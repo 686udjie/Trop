@@ -90,7 +90,9 @@ enum StreamResolver {
         let allFormats = (streamingData.formats ?? []) + adaptiveFormats
         let maxVideoHeight = allFormats.compactMap { $0.height }.max() ?? 0
         let hasVideoContent = maxVideoHeight >= 480
-        Log.streamResolver.debug("hasVideoContent=\(hasVideoContent) (maxVideoHeight=\(maxVideoHeight), video formats: \(allFormats.filter { $0.width != nil }.count))")
+        Log.streamResolver.debug(
+            "hasVideoContent=\(hasVideoContent) (maxVideoHeight=\(maxVideoHeight), video formats: \(allFormats.filter { $0.width != nil }.count))"
+        )
 
         // Select best audio format. For downloads, prefer an AAC/MP4 streams
         let selectedFormat: Format
@@ -103,7 +105,8 @@ enum StreamResolver {
             selectedFormat = best
         } else {
             let formatInfos = allFormats.map { f in
-                "itag=\(f.itag ?? 0) mime=\(f.mimeType ?? "?") audio=\(f.audioChannels != nil) url=\(f.url != nil) cipher=\(f.signatureCipher != nil || f.cipher != nil)"
+                "itag=\(f.itag ?? 0) mime=\(f.mimeType ?? "?") audio=\(f.audioChannels != nil) " +
+                    "url=\(f.url != nil) cipher=\(f.signatureCipher != nil || f.cipher != nil)"
             }
             Log.streamResolver.error("No suitable format. Formats: \(formatInfos.joined(separator: ", "))")
             throw StreamError.noSuitableFormat
@@ -174,7 +177,10 @@ enum StreamResolver {
             DurationCache.set(vid, duration)
         }
 
-        Log.streamResolver.debug("Result: title=\"\(result.title ?? "?")\" author=\"\(result.author ?? "?")\" itag=\(result.itag) quality=\(result.audioQuality) bitrate=\(result.bitrate)")
+        Log.streamResolver.debug(
+            "Result: title=\"\(result.title ?? "?")\" author=\"\(result.author ?? "?")\" " +
+                "itag=\(result.itag) quality=\(result.audioQuality) bitrate=\(result.bitrate)"
+        )
 
         // Cache format info for playback tracking
         let trackingUrl = response.playbackTracking?.videostatsPlaybackUrl?.baseUrl

@@ -47,9 +47,11 @@ final class AlbumDetailViewModel {
 // MARK: - Parser
 
 extension AlbumDetailViewModel {
+    // swiftlint:disable cyclomatic_complexity
     /// Parses InnerTube browse JSON into an AlbumDetailInfo.
     /// Extracts header metadata (title, artists, year, song count, duration, thumbnail)
     /// from musicDetailHeaderRenderer and songs from musicPlaylistShelfRenderer.
+    /// Branch count is inherent to tolerant InnerTube JSON parsing.
     static func parseAlbumDetail(from json: [String: Any], browseId: String) -> AlbumDetailInfo {
         var title = "Unknown Album"
         var artists: [YTArtist] = []
@@ -259,6 +261,7 @@ extension AlbumDetailViewModel {
             songs: songs
         )
     }
+    // swiftlint:enable cyclomatic_complexity
 }
 
 // MARK: - View
@@ -393,22 +396,22 @@ struct AlbumDetailView: View {
 
             // Action buttons: shuffle, play
             HStack(spacing: 20) {
-                Button(action: { shufflePlay(album) }) {
+                                Button(action: { shufflePlay(album) }, label: {
                     Image(systemName: "shuffle")
                         .font(.title3)
                         .frame(width: 44, height: 44)
                         .background(Circle().fill(Color(.systemGray6)))
-                }
+                })
                 .buttonStyle(.plain)
                 .accessibilityLabel("Shuffle")
 
-                Button(action: { playAll(album) }) {
+                                Button(action: { playAll(album) }, label: {
                     Image(systemName: "play.fill")
                         .font(.title2)
                         .foregroundColor(.white)
                         .frame(width: 60, height: 60)
                         .background(Circle().fill(Color.accentColor))
-                }
+                })
                 .buttonStyle(.plain)
                 .accessibilityLabel("Play all")
             }

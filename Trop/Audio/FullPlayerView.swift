@@ -277,7 +277,7 @@ struct FullPlayerView: View {
         Group {
             if np.isVideoMode, np.hasVideo {
                 VideoPlayerView()
-                    .aspectRatio(16.0 / 9.0, contentMode: .fit)
+                    .aspectRatio(16 / 9, contentMode: .fit)
                     .onTapGesture {
                         np.isVideoMode = false
                     }
@@ -288,7 +288,7 @@ struct FullPlayerView: View {
                         GeometryReader { geo in
                             Image(uiImage: cropped)
                                 .resizable()
-                                .aspectRatio(contentMode: .fill)
+                                .scaledToFill()
                                 .frame(width: geo.size.width, height: geo.size.height)
                         }
                     } else {
@@ -300,7 +300,7 @@ struct FullPlayerView: View {
                         }
                     }
                 }
-                .aspectRatio(1.0, contentMode: .fit)
+                .aspectRatio(1, contentMode: .fit)
                 .onTapGesture {
                     guard np.hasVideo else { return }
                     player.setVideoMode()

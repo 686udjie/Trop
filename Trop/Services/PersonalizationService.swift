@@ -235,7 +235,8 @@ actor PersonalizationService {
             if trimmed.isEmpty || trimmed.range(of: "^[•·—–-]$", options: .regularExpression) != nil { return nil }
             if nonArtistLabels.contains(lower) { return nil }
             if conjunctions.contains(lower) { return nil }
-            if lower.range(of: "^\\d+(\\.\\d+)?[KMBT]?\\s*(views|downloads|listeners|subscribers)$", options: [.regularExpression, .caseInsensitive]) != nil { return nil }
+            let viewsPattern = "^\\d+(\\.\\d+)?[KMBT]?\\s*(views|downloads|listeners|subscribers)$"
+            if lower.range(of: viewsPattern, options: [.regularExpression, .caseInsensitive]) != nil { return nil }
 
             var artistId: String?
             if let nav = run["navigationEndpoint"] as? [String: Any],

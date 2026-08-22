@@ -108,7 +108,9 @@ enum FormatSelector {
         }
 
         let pool = aacFormats.isEmpty ? audioFormats : aacFormats
-        Log.formatSelector.debug("Download pool: \(pool.count) format(s)\(aacFormats.isEmpty ? " (no AAC, falling back to Opus)" : " (AAC preferred)")")
+        Log.formatSelector.debug(
+            "Download pool: \(pool.count) format(s)\(aacFormats.isEmpty ? " (no AAC, falling back to Opus)" : " (AAC preferred)")"
+        )
 
         let selected = pool.max { a, b in
             formatScore(a) < formatScore(b)
@@ -130,7 +132,10 @@ enum FormatSelector {
         let bitrateScore = (format.bitrate ?? 0) / 1000  // normalize to kbps for readability
 
         let total = qualityScore + channelsScore + codecScore + bitrateScore
-        Log.formatSelector.debug("  Scoring itag=\(format.itag ?? 0): quality=\(qualityScore) channels=\(channelsScore) codec=\(codecScore) bitrate=\(bitrateScore) total=\(total)")
+        Log.formatSelector.debug(
+            "  Scoring itag=\(format.itag ?? 0): quality=\(qualityScore) channels=\(channelsScore) " +
+                "codec=\(codecScore) bitrate=\(bitrateScore) total=\(total)"
+        )
 
         return total
     }
@@ -192,7 +197,10 @@ enum FormatSelector {
         }
 
         if let selected {
-            Log.formatSelector.debug("Selected video: itag=\(selected.itag ?? 0) resolution=\(selected.width ?? 0)x\(selected.height ?? 0) codec=\(selected.codec) bitrate=\(selected.bitrate ?? 0)")
+            Log.formatSelector.debug(
+                "Selected video: itag=\(selected.itag ?? 0) resolution=\(selected.width ?? 0)x\(selected.height ?? 0) " +
+                    "codec=\(selected.codec) bitrate=\(selected.bitrate ?? 0)"
+            )
         }
 
         return selected

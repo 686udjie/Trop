@@ -52,7 +52,7 @@ struct NeteaseProvider: LyricsProvider {
             let album = normalize(albumName(song))
             let sdur = songDuration(song)
 
-            var score = 0.0
+            var score: Double = 0
             if name == cleanTitle {
                 score += 100
             } else if name.contains(cleanTitle) || cleanTitle.contains(name) {
@@ -71,7 +71,7 @@ struct NeteaseProvider: LyricsProvider {
             if !expectedAlbum.isEmpty, album == expectedAlbum { score += 40 }
 
             if dur > 0, sdur > 0 {
-                score += max(0, 30 - Double(abs(sdur - dur)) / 1000.0)
+                score += max(0, 30 - Double(abs(sdur - dur)) / 1000)
             }
 
             if score > bestScore {

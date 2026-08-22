@@ -28,6 +28,6 @@ enum ClientFallbackChain {
         FallbackClient(client: .iOS, skipValidation: true),
         FallbackClient(client: .tvHtml5, skipValidation: false),
         FallbackClient(client: .mobile, skipValidation: false),
-        FallbackClient(client: .webRemix, skipValidation: true),
+        FallbackClient(client: .webRemix, skipValidation: true)
     ]
 }

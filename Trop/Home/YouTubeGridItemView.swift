@@ -29,9 +29,13 @@ struct YouTubeGridItemView: View {
             let effectiveDuration = s.duration > 0 ? s.duration : resolvedDuration
             let durationStr = effectiveDuration.formattedDuration
             let result: String
-            if artistStr.isEmpty { result = durationStr }
-            else if durationStr.isEmpty { result = artistStr }
-            else { result = "\(artistStr) • \(durationStr)" }
+            if artistStr.isEmpty {
+                result = durationStr
+            } else if durationStr.isEmpty {
+                result = artistStr
+            } else {
+                result = "\(artistStr) • \(durationStr)"
+            }
             return result
         case .episode(let e):
             let artistStr = e.artists.map(\.name).joined(separator: ", ")

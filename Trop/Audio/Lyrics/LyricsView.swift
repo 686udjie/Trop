@@ -257,7 +257,7 @@ struct LyricsView<ProgressSlider: View>: View {
             if let uiImage = np.thumbnailUIImage {
                 Image(uiImage: uiImage.centerCroppedSquare())
                     .resizable()
-                    .aspectRatio(contentMode: .fill)
+                    .scaledToFill()
                     .frame(width: 48, height: 48)
                     .clipShape(RoundedRectangle(cornerRadius: 8))
             } else {
@@ -445,8 +445,8 @@ private struct LetterSyncLineView: View {
     let progress: Double
     let alignment: LyricsAlignment
     let fontSize: Double
-    var lineOpacity: Double = 1.0
-    var lineScale: CGFloat = 1.0
+    var lineOpacity: Double = 1
+    var lineScale: CGFloat = 1
     let onTap: () -> Void
 
     var body: some View {

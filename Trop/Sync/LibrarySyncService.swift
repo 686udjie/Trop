@@ -45,7 +45,10 @@ extension LibrarySyncService {
             // Unset bookmarked_at for artists no longer subscribed remotely
             if !remoteIds.isEmpty {
                 let placeholders = remoteIds.map { _ in "?" }.joined(separator: ",")
-                try db.execute(sql: "UPDATE artist SET bookmarked_at = NULL WHERE bookmarked_at IS NOT NULL AND id NOT IN (\(placeholders))", arguments: StatementArguments(Array(remoteIds)))
+                try db.execute(
+                    sql: "UPDATE artist SET bookmarked_at = NULL WHERE bookmarked_at IS NOT NULL AND id NOT IN (\(placeholders))",
+                    arguments: StatementArguments(Array(remoteIds))
+                )
             }
         }
         return remoteIds
@@ -77,11 +80,13 @@ extension LibrarySyncService {
             if !remoteIds.isEmpty {
                 try db.execute(sql: """
                     DELETE FROM playlist_song_map WHERE playlist_id IN (
-                        SELECT id FROM playlist WHERE is_auto_sync = 1 AND browse_id IS NOT NULL AND browse_id NOT IN (\(remoteIds.map { _ in "?" }.joined(separator: ",")))
+                        SELECT id FROM playlist WHERE is_auto_sync = 1 AND browse_id IS NOT NULL
+                        AND browse_id NOT IN (\(remoteIds.map { _ in "?" }.joined(separator: ",")))
                     )
                     """, arguments: StatementArguments(Array(remoteIds)))
                 try db.execute(sql: """
-                    DELETE FROM playlist WHERE is_auto_sync = 1 AND browse_id IS NOT NULL AND browse_id NOT IN (\(remoteIds.map { _ in "?" }.joined(separator: ",")))
+                    DELETE FROM playlist WHERE is_auto_sync = 1 AND browse_id IS NOT NULL
+                    AND browse_id NOT IN (\(remoteIds.map { _ in "?" }.joined(separator: ",")))
                     """, arguments: StatementArguments(Array(remoteIds)))
             }
         }

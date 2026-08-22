@@ -336,7 +336,7 @@ struct ArtistDetailView: View {
                         .shadow(color: .black.opacity(0.35), radius: 4, y: 2)
 
                     HStack(spacing: 12) {
-                        Button(action: { toggleSubscribe(artist) }) {
+                                                Button(action: { toggleSubscribe(artist) }, label: {
                             Text(artist.isSubscribed ? "Subscribed" : "Subscribe")
                                 .font(.subheadline.weight(.bold))
                                 .foregroundStyle(artist.isSubscribed ? Color.white : Color.black)
@@ -350,7 +350,7 @@ struct ArtistDetailView: View {
                                     Capsule()
                                         .stroke(.white, lineWidth: artist.isSubscribed ? 1.5 : 0)
                                 )
-                        }
+                        })
                         .buttonStyle(.plain)
 
                         Spacer(minLength: 0)
@@ -362,13 +362,13 @@ struct ArtistDetailView: View {
                                 .lineLimit(1)
                         }
 
-                        Button(action: { shufflePlay(artist) }) {
+                                                Button(action: { shufflePlay(artist) }, label: {
                             Image(systemName: "shuffle")
                                 .font(.title3.weight(.bold))
                                 .foregroundStyle(.white)
                                 .frame(width: 52, height: 52)
                                 .background(Circle().fill(Color.accentColor))
-                        }
+                        })
                         .buttonStyle(.plain)
                         .accessibilityLabel("Shuffle artist")
                     }
@@ -412,7 +412,7 @@ struct ArtistDetailView: View {
                 .padding(.top, 20)
 
             ForEach(Array(songs.enumerated()), id: \.offset) { index, song in
-                Button(action: { playSong(song) }) {
+                                Button(action: { playSong(song) }, label: {
                     HStack(spacing: 12) {
                         AsyncImageView(url: song.thumbnailUrl)
                             .frame(width: 40, height: 40)
@@ -439,7 +439,7 @@ struct ArtistDetailView: View {
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 6)
-                }
+                })
                 .buttonStyle(.plain)
 
                 if index < songs.count - 1 {

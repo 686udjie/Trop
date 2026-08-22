@@ -223,11 +223,11 @@ enum YTItem {
             if !videoId.isEmpty {
                 let runs = flexTextRuns(flexColumns, index: 1)
                 let segments = splitRunsBySeparator(runs)
-                var podcastName: String? = nil
+                var podcastName: String?
                 if let lastSeg = segments.last {
                     podcastName = lastSeg.joined(separator: " ")
                 }
-                
+
                 let episodeItem = EpisodeItem(
                     videoId: videoId,
                     title: title,
@@ -258,7 +258,7 @@ enum YTItem {
             let runs = flexTextRuns(flexColumns, index: 1)
             let segments = splitRunsBySeparator(runs)
             var artists: [YTArtist] = []
-            var year: Int? = nil
+            var year: Int?
 
             for seg in segments {
                 if let firstWord = seg.first {
@@ -295,7 +295,7 @@ enum YTItem {
         case "MUSIC_PAGE_TYPE_PLAYLIST":
             let runs = flexTextRuns(flexColumns, index: 1)
             let segments = splitRunsBySeparator(runs)
-            var author: String? = nil
+            var author: String?
             if let firstSeg = segments.first {
                 author = firstSeg.joined(separator: " ")
             }
@@ -399,21 +399,21 @@ struct SongItem: Codable, Hashable {
         let lower = trimmed.lowercased()
         if lower.isEmpty || lower == "•" || lower == "·" { return true }
         if conjunctions.contains(lower) || nonArtistLabels.contains(lower) { return true }
-        for pattern in nonArtistPatterns {
-            if lower.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil { return true }
+        for pattern in nonArtistPatterns where lower.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil {
+            return true
         }
         return false
     }
 
     private static func isArtistSegment(_ text: String) -> Bool {
-        return !isViewCountOrJunk(text)
+        !isViewCountOrJunk(text)
     }
 
     // Strips the YouTube "- Topic" auto-generated channel suffix and bare years from a name.
     static func cleanArtistName(_ name: String) -> String {
         var s = name
-        for suffix in [" - Topic", " - topic"] {
-            if s.hasSuffix(suffix) { s = String(s.dropLast(suffix.count)) }
+        for suffix in [" - Topic", " - topic"] where s.hasSuffix(suffix) {
+            s = String(s.dropLast(suffix.count))
         }
         // Remove trailing bare year like " (2023)" or " [2023]"
         if let r = try? NSRegularExpression(pattern: "\\s*[\\(\\[]\\d{4}[\\)\\]]\\s*$") {
@@ -447,7 +447,13 @@ struct SongItem: Codable, Hashable {
         return map
     }
 
-    private static func fromResponsiveListItem(renderer: [String: Any], flexColumns: [[String: Any]], videoId: String, duration: Int, playlistId: String?) -> SongItem? {
+    private static func fromResponsiveListItem(
+        renderer: [String: Any],
+        flexColumns: [[String: Any]],
+        videoId: String,
+        duration: Int,
+        playlistId: String?
+    ) -> SongItem? {
         let title = flexText(flexColumns, index: 0) ?? "Unknown"
         let runs = flexTextRuns(flexColumns, index: 1)
         let segments = splitRunsBySeparator(runs)

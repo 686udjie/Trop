@@ -11,7 +11,7 @@ import SwiftUI
 struct PlayerMenuSheet: View {
     let song: SongItem
     /// Collapses the Big Player so the pushed page is visible underneath.
-    var onCollapseRequest: (() -> Void)? = nil
+    var onCollapseRequest: (() -> Void)?
 
     @Environment(\.dismiss) private var dismiss
     @State private var settings = SettingsStore.shared

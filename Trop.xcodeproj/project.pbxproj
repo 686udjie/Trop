@@ -155,7 +155,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "if [ \"${SKIP_SWIFTLINT}\" != \"YES\" ] && which swiftlint > /dev/null; then swiftlint; fi\n";
+			shellScript = "SWIFTLINT=\"\"\nfor candidate in \"$(command -v swiftlint)\" /opt/homebrew/bin/swiftlint /usr/local/bin/swiftlint; do\n\tif [ -x \"$candidate\" ]; then\n\t\tSWIFTLINT=\"$candidate\"\n\t\tbreak\n\tfi\ndone\nif [ \"${SKIP_SWIFTLINT}\" != \"YES\" ] && [ -n \"$SWIFTLINT\" ]; then\n\t\"$SWIFTLINT\" lint --config \"${SRCROOT}/.swiftlint.yml\"\nelse\n\techo \"warning: SwiftLint not found - skipping lint (install with: brew install swiftlint)\"\nfi\n";
 		};
 		250D2C10929042AA8A8BE59906F78CD5 /* InjectUIFileSharingEnabled */ = {
 			isa = PBXShellScriptBuildPhase;

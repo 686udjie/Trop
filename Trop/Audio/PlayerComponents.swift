@@ -14,18 +14,18 @@ struct ProgressBar: View {
     let accentColor: Color
     let isPlaying: Bool
     let onEditingChanged: (Bool) -> Void
-    
+
     var body: some View {
         GeometryReader { geo in
             let width = geo.size.width
             let elapsedWidth = max(0, min(width, width * CGFloat(progress)))
-            
+
             ZStack(alignment: .leading) {
                 // Remaining track (unwatched)
                 Capsule()
                     .fill(.white.opacity(0.15))
                     .frame(height: 6)
-                
+
                 // Elapsed track (watched, marked)
                 Capsule()
                     .fill(.white.opacity(0.8))
@@ -40,7 +40,7 @@ struct ProgressBar: View {
                         let percent = max(0, min(1, loc / width))
                         progress = Float(percent)
                     }
-                    .onEnded { value in
+                    .onEnded { _ in
                         onEditingChanged(false)
                     }
             )
@@ -54,11 +54,11 @@ struct PlaybackControlsRow: View {
     let isPlaying: Bool
     let hasPrevious: Bool
     let hasNext: Bool
-    
+
     let onPrevious: () -> Void
     let onPlayPause: () -> Void
     let onNext: () -> Void
-    
+
     var body: some View {
         HStack(spacing: 0) {
             Button(action: onPrevious) {

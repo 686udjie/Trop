@@ -54,16 +54,11 @@ actor PoTokenGenerator: NSObject {
         self.webViewReady = true
     }
 
+    @MainActor
     private func waitForPageLoad(_ wv: WKWebView, timeout: TimeInterval) async throws {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            let state: String? = await withCheckedContinuation { cont in
-                Task { @MainActor in
-                    wv.evaluateJavaScript("document.readyState") { value, _ in
-                        cont.resume(returning: value as? String)
-                    }
-                }
-            }
+            let state = (try? await wv.evaluateJavaScript("document.readyState")) as? String
             if state == "complete" { return }
             try? await Task.sleep(nanoseconds: 100_000_000)
         }

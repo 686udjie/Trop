@@ -113,12 +113,18 @@ actor LyricsService {
         )
     }
 
-    private func cleanQuery(title: String, artist: String, album: String?) -> (title: String, artist: String, album: String?) {
+    private struct CleanedQuery {
+        let title: String
+        let artist: String
+        let album: String?
+    }
+
+    private func cleanQuery(title: String, artist: String, album: String?) -> CleanedQuery {
         let (extractedTitle, extractedArtist) = Self.extractArtistTitle(from: title, channelArtist: artist)
         let cleanedTitle = Self.cleanTitle(extractedTitle)
         let cleanedArtist = Self.cleanArtist(extractedArtist ?? artist)
         let cleanedAlbum = album.map { Self.cleanAlbum($0) }
-        return (cleanedTitle, cleanedArtist, cleanedAlbum)
+        return CleanedQuery(title: cleanedTitle, artist: cleanedArtist, album: cleanedAlbum)
     }
 
     private static func extractArtistTitle(from rawTitle: String, channelArtist: String) -> (title: String, artist: String?) {

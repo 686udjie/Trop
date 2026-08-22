@@ -144,7 +144,7 @@ private struct EqualizerGraph: View {
                         )
                 }
 
-                ForEach(Array(points.enumerated()), id: \.offset) { index, point in
+                ForEach(Array(points.enumerated()), id: \.offset) { _, point in
                     Circle()
                         .fill(.white)
                         .frame(width: 14, height: 14)

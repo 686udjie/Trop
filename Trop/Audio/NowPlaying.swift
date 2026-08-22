@@ -487,10 +487,8 @@ func cleanArtistDisplay(_ name: String) -> String {
     var tempName = name
 
     // Strip " - Topic"
-    for suffix in [" - Topic", " - topic", " - TOPIC"] {
-        if tempName.lowercased().hasSuffix(suffix.lowercased()) {
-            tempName = String(tempName.dropLast(suffix.count))
-        }
+    for suffix in [" - Topic", " - topic", " - TOPIC"] where tempName.lowercased().hasSuffix(suffix.lowercased()) {
+        tempName = String(tempName.dropLast(suffix.count))
     }
 
     // Strip trailing year "(2025)" / "[2025]"
@@ -533,8 +531,8 @@ private func _isJunkArtistSegment(_ segment: String) -> Bool {
         "^\\d{4}$",              // bare year
         "^[\\d,\\.\\s]+[KMBT]?$" // purely numeric / abbreviated counts
     ]
-    for pattern in patterns {
-        if lower.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil { return true }
+    for pattern in patterns where lower.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil {
+        return true
     }
     return false
 }

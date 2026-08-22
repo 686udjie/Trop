@@ -96,7 +96,7 @@ struct QueueView<ProgressSlider: View>: View {
                 let cropped = uiImage.centerCroppedSquare()
                 Image(uiImage: cropped)
                     .resizable()
-                    .aspectRatio(contentMode: .fill)
+                    .scaledToFill()
                     .frame(width: 64, height: 64)
                     .clipShape(RoundedRectangle(cornerRadius: 8))
             } else {

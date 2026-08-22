@@ -155,7 +155,7 @@ enum SearchParser {
     private static func parseTopResult(from cardShelf: [String: Any]) -> YTItem? {
 
         // ✅ FIX: no ?? operator (avoids tuple parsing crash)
-        var nav: [String: Any]? = nil
+        var nav: [String: Any]?
 
         if let onTap = cardShelf["onTap"] as? [String: Any] {
             nav = onTap

@@ -335,8 +335,7 @@ private final class CipherMessageHandler: NSObject, WKScriptMessageHandler {
         self.cipher = cipher
     }
 
-    func userContentController(_ userContentController: WKUserContentController,
-                                didReceive message: WKScriptMessage) {
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         guard message.name == "cipher",
               let body = message.body as? String,
               let data = body.data(using: .utf8),

@@ -129,7 +129,7 @@ struct AccentPreset: Identifiable, Hashable {
     }
 
     static let all: [AccentPreset] = [
-        AccentPreset(name: "Default Blue", color: Color(red: 0.0, green: 0.48, blue: 1.0)),
+        AccentPreset(name: "Default Blue", color: Color(red: 0, green: 0.48, blue: 1)),
         AccentPreset(name: "Red", color: Color(red: 0.91, green: 0.22, blue: 0.22)),
         AccentPreset(name: "Orange", color: Color(red: 0.95, green: 0.45, blue: 0.13)),
         AccentPreset(name: "Amber", color: Color(red: 0.98, green: 0.70, blue: 0.15)),

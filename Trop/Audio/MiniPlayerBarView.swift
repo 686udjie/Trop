@@ -162,7 +162,7 @@ struct MiniPlayerBarView: View {
             if isCurrent, let uiImage = np.thumbnailUIImage {
                 Image(uiImage: uiImage)
                     .resizable()
-                    .aspectRatio(contentMode: .fill)
+                    .scaledToFill()
             } else {
                 MiniArtworkView(videoId: videoId)
             }
@@ -172,12 +172,12 @@ struct MiniPlayerBarView: View {
     }
 
     private var playPauseButton: some View {
-        Button(action: { player.togglePlayPause() }) {
+                Button(action: { player.togglePlayPause() }, label: {
             Image(systemName: np.isPlaying ? "pause.fill" : "play.fill")
                 .contentTransition(.symbolEffect(.replace))
                 .font(.system(size: 17))
                 .foregroundStyle(.tint)
-        }
+        })
         .accessibilityLabel(np.isPlaying ? "Pause" : "Play")
     }
 
@@ -287,7 +287,7 @@ private struct MiniArtworkView: View {
             if let uiImage {
                 Image(uiImage: uiImage)
                     .resizable()
-                    .aspectRatio(contentMode: .fill)
+                    .scaledToFill()
             } else {
                 Color.white.opacity(0.12)
                 Image(systemName: "music.note")

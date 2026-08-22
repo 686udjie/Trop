@@ -349,13 +349,13 @@ struct PodcastDetailView: View {
             }
 
             HStack(spacing: 20) {
-                Button(action: { playAll(podcast) }) {
+                                Button(action: { playAll(podcast) }, label: {
                     Image(systemName: "play.fill")
                         .font(.title2)
                         .foregroundColor(.white)
                         .frame(width: 60, height: 60)
                         .background(Circle().fill(Color.accentColor))
-                }
+                })
                 .buttonStyle(.plain)
                 .accessibilityLabel("Play all")
             }

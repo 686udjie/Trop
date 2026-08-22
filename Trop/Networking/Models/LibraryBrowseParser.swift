@@ -409,7 +409,8 @@ extension LibraryBrowseParser {
             guard trimmed != " • " && !trimmed.hasPrefix("http") else { return false }
             if nonArtistLabels.contains(lower) { return false }
             if conjunctions.contains(lower) { return false }
-            if lower.range(of: "^\\d+(\\.\\d+)?[KMBT]?\\s*(views|downloads|listeners|subscribers)$", options: [.regularExpression, .caseInsensitive]) != nil { return false }
+            let viewsPattern = "^\\d+(\\.\\d+)?[KMBT]?\\s*(views|downloads|listeners|subscribers)$"
+            if lower.range(of: viewsPattern, options: [.regularExpression, .caseInsensitive]) != nil { return false }
             return true
         }
         let albumRun = allFlexTextRuns(renderer, index: 2).filter { $0 != " • " && !$0.hasPrefix("http") }

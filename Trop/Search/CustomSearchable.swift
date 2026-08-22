@@ -5,7 +5,6 @@
 //  Created by 686udjie on 03/07/2026.
 //
 
-
 // Adapted (with minor edits) from Aidoku's CustomSearchable.
 // https://github.com/Aidoku/Aidoku/blob/main/iOS/New/Utilities/CustomSearchable.swift
 // Thank you skitty! :3

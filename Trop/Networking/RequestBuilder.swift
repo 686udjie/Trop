@@ -7,6 +7,13 @@
 
 import Foundation
 
+// Per-actor session identity passed to request builders
+struct RequestSession {
+    let visitorData: String?
+    let cookies: [String: String]
+    let sapisid: String?
+}
+
 // Builds URLRequest objects for InnerTube API calls with all required headers
 enum RequestBuilder {
     private static let musicBaseURL = URL(string: "https://music.youtube.com/youtubei/v1/")!
@@ -31,9 +38,7 @@ enum RequestBuilder {
         endpoint: String,
         body: [String: Any],
         client: YouTubeClient,
-        visitorData: String?,
-        cookies: [String: String],
-        sapisid: String?
+        session: RequestSession
     ) -> URLRequest {
         let route = routing(for: client, endpoint: endpoint)
         let url = route.base.appendingPathComponent(endpoint)
@@ -52,20 +57,20 @@ enum RequestBuilder {
         request.setValue(client.userAgent, forHTTPHeaderField: "User-Agent")
         request.setValue(acceptLanguage, forHTTPHeaderField: "Accept-Language")
 
-        if let visitorData = visitorData {
+        if let visitorData = session.visitorData {
             request.setValue(visitorData, forHTTPHeaderField: "X-Goog-Visitor-Id")
         }
 
         // Only send auth headers for clients that support login (matching Metrolist's ytClient)
         if client.loginSupported {
             // Attach auth cookies as a single Cookie header
-            if !cookies.isEmpty {
-                let cookieString = cookies.map { "\($0.key)=\($0.value)" }.joined(separator: "; ")
+            if !session.cookies.isEmpty {
+                let cookieString = session.cookies.map { "\($0.key)=\($0.value)" }.joined(separator: "; ")
                 request.setValue(cookieString, forHTTPHeaderField: "Cookie")
             }
 
             // Generate SAPISID hash for signed-in Authorization header
-            if let sapisid = sapisid {
+            if let sapisid = session.sapisid {
                 request.setValue(
                     SAPISIDAuth.authorizationHeader(sapisid: sapisid, origin: route.origin),
                     forHTTPHeaderField: "Authorization"
@@ -82,9 +87,7 @@ enum RequestBuilder {
         trackingUrl: String,
         cpn: String,
         client: YouTubeClient,
-        visitorData: String?,
-        cookies: [String: String],
-        sapisid: String?,
+        session: RequestSession,
         playlistId: String? = nil
     ) -> URLRequest? {
         guard var components = URLComponents(string: trackingUrl) else { return nil }
@@ -112,16 +115,16 @@ enum RequestBuilder {
         request.setValue("https://music.youtube.com/", forHTTPHeaderField: "Referer")
         request.setValue(client.userAgent, forHTTPHeaderField: "User-Agent")
 
-        if let visitorData = visitorData {
+        if let visitorData = session.visitorData {
             request.setValue(visitorData, forHTTPHeaderField: "X-Goog-Visitor-Id")
         }
 
         if client.loginSupported {
-            if !cookies.isEmpty {
-                let cookieString = cookies.map { "\($0.key)=\($0.value)" }.joined(separator: "; ")
+            if !session.cookies.isEmpty {
+                let cookieString = session.cookies.map { "\($0.key)=\($0.value)" }.joined(separator: "; ")
                 request.setValue(cookieString, forHTTPHeaderField: "Cookie")
             }
-            if let sapisid = sapisid {
+            if let sapisid = session.sapisid {
                 request.setValue(
                     SAPISIDAuth.authorizationHeader(sapisid: sapisid, origin: "https://music.youtube.com"),
                     forHTTPHeaderField: "Authorization"

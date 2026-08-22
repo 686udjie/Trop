@@ -103,7 +103,8 @@ struct YouTubeClient: Codable {
         clientName: "ANDROID_VR",
         clientVersion: "1.43.32",
         clientId: 28,
-        userAgent: "com.google.android.apps.youtube.vr.oculus/1.43.32 (Linux; U; Android 12; en_US; Quest 3; Build/SQ3A.220605.009.A1; Cronet/107.0.5284.2)",
+        userAgent: "com.google.android.apps.youtube.vr.oculus/1.43.32 (Linux; U; Android 12; en_US; Quest 3;" +
+            " Build/SQ3A.220605.009.A1; Cronet/107.0.5284.2)",
         osName: "Android",
         osVersion: "12",
         deviceMake: "Oculus",
@@ -118,7 +119,8 @@ struct YouTubeClient: Codable {
         clientName: "ANDROID_VR",
         clientVersion: "1.61.48",
         clientId: 28,
-        userAgent: "com.google.android.apps.youtube.vr.oculus/1.61.48 (Linux; U; Android 12; en_US; Quest 3; Build/SQ3A.220605.009.A1; Cronet/132.0.6808.3)",
+        userAgent: "com.google.android.apps.youtube.vr.oculus/1.61.48 (Linux; U; Android 12; en_US; Quest 3;" +
+            " Build/SQ3A.220605.009.A1; Cronet/132.0.6808.3)",
         osName: "Android",
         osVersion: "12",
         deviceMake: "Oculus",
@@ -132,7 +134,8 @@ struct YouTubeClient: Codable {
         clientName: "TVHTML5",
         clientVersion: "7.20260707.07.00",
         clientId: 7,
-        userAgent: "Mozilla/5.0 (ChromiumStylePlatform) Cobalt/25.lts.30.1034943-gold (unlike Gecko), Unknown_TV_Unknown_0/Unknown (Unknown, Unknown)",
+        userAgent: "Mozilla/5.0 (ChromiumStylePlatform) Cobalt/25.lts.30.1034943-gold (unlike Gecko)," +
+            " Unknown_TV_Unknown_0/Unknown (Unknown, Unknown)",
         loginSupported: true,
         useSignatureTimestamp: true,
         useWebPoTokens: true,

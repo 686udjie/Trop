@@ -16,7 +16,7 @@ struct LibraryView: View {
     @State private var podcasts: [PodcastEntity] = []
     @State private var likedSongCount = 0
     @State private var isLoading = true
-    @State private var selectedFilter: LibraryFilter? = nil
+    @State private var selectedFilter: LibraryFilter?
     @State private var showCreateDialog = false
     @State private var playlistToDelete: PlaylistEntity?
     @State private var playlistSongCounts: [String: Int] = [:]
@@ -33,7 +33,7 @@ struct LibraryView: View {
     private var autoPlaylists: [AutoPlaylistInfo] {
         [
             AutoPlaylistInfo(id: "liked", title: "Liked Songs", icon: "heart.fill", subtitle: "\(likedSongCount) songs", route: .likedSongs),
-            AutoPlaylistInfo(id: "top100", title: "My Top 100", icon: "trophy.fill", subtitle: "Top 100", route: .topSongs(limit: 100)),
+            AutoPlaylistInfo(id: "top100", title: "My Top 100", icon: "trophy.fill", subtitle: "Top 100", route: .topSongs(limit: 100))
         ]
     }
 
@@ -69,14 +69,14 @@ struct LibraryView: View {
             .toolbar(.hidden, for: .navigationBar)
             .detailRouteDestinations()
             .overlay(alignment: .bottomTrailing) {
-                Button(action: { showCreateDialog = true }) {
+                                Button(action: { showCreateDialog = true }, label: {
                     Image(systemName: "plus")
                         .font(.title2.weight(.semibold))
                         .foregroundColor(.white)
                         .frame(width: 56, height: 56)
                         .background(Circle().fill(settings.accentColor))
                         .shadow(color: .black.opacity(0.3), radius: 6, y: 3)
-                }
+                })
                 .accessibilityLabel("Create playlist")
                 .padding(.trailing, 20)
                 .padding(.bottom, 20)
@@ -515,7 +515,7 @@ struct CreatePlaylistDialog: View {
                 .padding(.bottom, 4)
 
             HStack(spacing: 12) {
-                Button(action: { isPresented = false }) {
+                                Button(action: { isPresented = false }, label: {
                     Text("Cancel")
                         .font(.body.weight(.medium))
                         .foregroundColor(.primary)
@@ -525,7 +525,7 @@ struct CreatePlaylistDialog: View {
                             RoundedRectangle(cornerRadius: 12, style: .continuous)
                                 .fill(Color(.systemGray6))
                         )
-                }
+                })
                 .buttonStyle(.plain)
 
                 Button(action: {
@@ -541,7 +541,7 @@ struct CreatePlaylistDialog: View {
                         }
                         isCreating = false
                     }
-                }) {
+                }, label: {
                     HStack(spacing: 6) {
                         if isCreating {
                             ProgressView()
@@ -558,7 +558,7 @@ struct CreatePlaylistDialog: View {
                         RoundedRectangle(cornerRadius: 12, style: .continuous)
                             .fill(name.trimmingCharacters(in: .whitespaces).isEmpty ? settings.accentColor.opacity(0.4) : settings.accentColor)
                     )
-                }
+                })
                 .buttonStyle(.plain)
                 .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || isCreating)
             }
