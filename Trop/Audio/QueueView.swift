@@ -251,11 +251,13 @@ struct QueueView<ProgressSlider: View>: View {
         .buttonStyle(.plain)
         .listRowInsets(EdgeInsets())
         .listRowBackground(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(isCurrent
-                    ? AnyShapeStyle(Color.white.opacity(0.08))
-                    : AnyShapeStyle(Color.black.opacity(0.35)))
-                .padding(.horizontal, 12)
+            Group {
+                if isCurrent {
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(Color.white.opacity(0.08))
+                        .padding(.horizontal, 12)
+                }
+            }
         )
         .listRowSeparator(.hidden)
         .onDrag {

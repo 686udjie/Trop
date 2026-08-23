@@ -110,6 +110,7 @@ struct YouTubeGridItemView: View {
 }
 
 struct YouTubeListItemView: View {
+    @Environment(SettingsStore.self) private var settings
     var item: YTItem
     var onTap: () -> Void
     var onNavigate: ((DetailRoute) -> Void)?
@@ -194,7 +195,7 @@ struct YouTubeListItemView: View {
                 } label: {
                     Text("\u{22EE}")
                         .font(.body.weight(.black))
-                        .foregroundStyle(.blue)
+                        .foregroundStyle(settings.accentColor)
                 }
                 .menuOrder(.fixed)
             }

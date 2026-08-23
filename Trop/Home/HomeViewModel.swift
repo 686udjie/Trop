@@ -31,6 +31,7 @@ final class HomeViewModel {
 
     private var isHomeDataLoaded = false
     private var isLoadingMore = false
+    private var loadGeneration = 0
     private var previousHomePage: HomePage?
     private let cookieStore = CookieStore()
     private let personalization = PersonalizationService.shared
@@ -115,37 +116,75 @@ final class HomeViewModel {
     // MARK: - Home Data Loading
 
     private func load() async {
+        loadGeneration += 1
+        let generation = loadGeneration
         isLoading = true
         error = nil
 
-        async let serverTask: Void = loadServerSections()
-        async let localTask: Void = loadLocalSections()
+        async let serverTask: Void = fetchHomePage(generation: generation)
+        async let localTask: Void = storeLocalSections()
 
         _ = await (serverTask, localTask)
+
+        guard generation == loadGeneration else { return }
+
+        await ensureQuickPicksAvailable(generation: generation)
+
+        mergeSections()
 
         isLoading = false
 
         Task { await loadPhase2Sections() }
     }
 
-    private func loadServerSections() async {
-        do {
-            let json = try await InnerTube.shared.browse(browseId: "FEmusic_home")
-            guard let page = HomePageParser.parseHomePage(from: json) else {
-                error = InnerTubeError.decodingFailed
-                return
+    private func ensureQuickPicksAvailable(generation: Int) async {
+        guard SettingsStore.shared.showQuickPicks else { return }
+        var attempts = 0
+        while attempts < 3,
+              generation == loadGeneration,
+              !hasQuickPicksServerSection(),
+              !isLoadingMore,
+              let continuation = homePage?.continuation {
+            attempts += 1
+            isLoadingMore = true
+            defer { isLoadingMore = false }
+            do {
+                let json = try await InnerTube.shared.browse(continuation: continuation)
+                guard let (newSections, next) = HomePageParser.parseContinuationSections(from: json) else { break }
+                homePage?.sections.append(contentsOf: newSections)
+                homePage?.continuation = next
+                mergeSections()
+            } catch {
+                break
             }
-            homePage = page
-            let serverSections = page.sections.enumerated().map { mapServerSection($1, index: $0) }
-            let existingLocal = cachedLocalSections
-            let existingPhase2 = cachedPhase2Sections
-            homeSections = orderSections(existingLocal + serverSections + existingPhase2)
-        } catch {
-            self.error = error
         }
     }
 
-    private func loadLocalSections() async {
+    private func hasQuickPicksServerSection() -> Bool {
+        homePage?.sections.contains { section in
+            if case .quickPicks = mapServerSection(section, index: 0) { return true }
+            return false
+        } ?? false
+    }
+
+    private func fetchHomePage(generation: Int) async {
+        do {
+            let json = try await InnerTube.shared.browse(browseId: "FEmusic_home")
+            guard let page = HomePageParser.parseHomePage(from: json) else {
+                if generation == loadGeneration {
+                    error = InnerTubeError.decodingFailed
+                }
+                return
+            }
+            homePage = page
+        } catch {
+            if generation == loadGeneration {
+                self.error = error
+            }
+        }
+    }
+
+    private func storeLocalSections() async {
         let settings = SettingsStore.shared
         async let qp: HomeSection = settings.showQuickPicks
             ? personalization.buildQuickPicks(limit: settings.topListsLength)
@@ -160,10 +199,6 @@ final class HomeViewModel {
         if !klResult.items.isEmpty { local.append(klResult) }
         if !ffResult.items.isEmpty { local.append(ffResult) }
         cachedLocalSections = local
-
-        let serverSections = homePage?.sections.enumerated().map { mapServerSection($1, index: $0) } ?? []
-        let existingPhase2 = cachedPhase2Sections
-        homeSections = orderSections(local + serverSections + existingPhase2)
     }
 
     private func loadPhase2Sections() async {

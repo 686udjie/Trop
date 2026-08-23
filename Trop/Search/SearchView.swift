@@ -8,53 +8,45 @@
 import SwiftUI
 
 struct SearchView: View {
+    @Environment(SettingsStore.self) private var settings
     @State private var viewModel = SearchViewModel()
     @ObservedObject private var router = AppRouter.shared
 
     @State private var pendingRoute: DetailRoute?
     @State private var hasFocusedOnce = false
-    var onExitSearch: (() -> Void)?
+
+    @StateObject private var loginModel = LoginViewModel()
+    @State private var isLoginSheetPresented = false
+    @State private var isAccountSheetPresented = false
+    @State private var accountName = "Guest"
+    @State private var accountImageUrl: String?
 
     var body: some View {
         NavigationStack(path: $router.searchPath) {
             VStack(spacing: 0) {
-                if viewModel.isLoading {
-                    Spacer()
-                    ShimmerLoadingView()
-                    Spacer()
-                } else if let error = viewModel.error {
-                    errorView(error)
-                } else if !viewModel.searchSections.isEmpty {
-                    if !viewModel.availableFilters.isEmpty {
-                        filterChips
-                    }
-                    searchResultsList
-                } else if viewModel.hasSearched {
-                    noResultsView
-                } else if !viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    suggestionsAndLocalView
-                } else if !viewModel.searchHistory.isEmpty {
-                    searchHistoryView
-                } else {
-                    noRecentSearchesView
-                }
+                TabHeaderView(
+                    title: "Search",
+                    accountIsLoggedIn: loginModel.isLoggedIn,
+                    accountImageUrl: accountImageUrl,
+                    onHistory: { router.searchPath.append(DetailRoute.history) },
+                    onAccount: { tapAccount() }
+                )
+
+                content
             }
-            .navigationTitle("Search")
-            .customSearchable(
-                text: $viewModel.searchText,
-                focused: $viewModel.isFocused,
-                hideCancelButton: false,
-                hideClearButton: true,
-                onSubmit: {
-                    viewModel.performSearch()
-                },
-                onCancel: {
-                    onExitSearch?()
-                    viewModel.clearSearch()
-                }
+            .frame(maxHeight: .infinity, alignment: .top)
+            .toolbar(.hidden, for: .navigationBar)
+            .searchable(
+                text: $viewModel.fieldText,
+                placement: .automatic,
+                prompt: "Search"
             )
-            .onChange(of: viewModel.searchText) { _, _ in
-                viewModel.onSearchTextChange()
+            .onSubmit(of: .search) { submit(nil) }
+            .onChange(of: viewModel.fieldText) { _, _ in
+                suppressNativeClearButtons()
+            }
+            .onChange(of: viewModel.phase) { _, _ in
+                suppressNativeClearButtons()
             }
             .detailRouteDestinations()
             .onChange(of: pendingRoute) { _, route in
@@ -64,14 +56,35 @@ struct SearchView: View {
                 }
             }
             .onAppear {
-                if router.searchPath.isEmpty && !hasFocusedOnce {
-                    viewModel.isFocused = true
-                    hasFocusedOnce = true
-                }
+                suppressNativeClearButtons()
                 viewModel.loadSearchHistory()
             }
-            .task(id: viewModel.searchSections.count) {
-                let urls = viewModel.searchSections
+            .sheet(isPresented: $isLoginSheetPresented) {
+                NavigationStack {
+                    LoginWebView(model: loginModel)
+                        .ignoresSafeArea()
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("Cancel") { isLoginSheetPresented = false }
+                            }
+                        }
+                }
+            }
+            .sheet(isPresented: $isAccountSheetPresented) {
+                accountSheet
+            }
+            .onChange(of: loginModel.isLoggedIn) { _, loggedIn in
+                if loggedIn {
+                    isLoginSheetPresented = false
+                    Task { await fetchAccountInfo() }
+                }
+            }
+            .task {
+                loginModel.restoreSessionIfPresent()
+                await fetchAccountInfo()
+            }
+            .task(id: viewModel.results.count) {
+                let urls = viewModel.results
                     .flatMap(\.items)
                     .compactMap(\.thumbnailUrl)
                     .compactMap(URL.init)
@@ -80,36 +93,110 @@ struct SearchView: View {
         }
     }
 
-    private var searchHistoryView: some View {
-        List {
-            Section {
-                ForEach(viewModel.searchHistory, id: \.query) { entry in
-                    Button {
-                        viewModel.searchText = entry.query
-                        viewModel.performSearch()
-                    } label: {
-                        HStack {
-                            Image(systemName: "clock.arrow.trianglehead.counterclockwise.rotate.90")
-                                .foregroundColor(.blue)
-                            Text(entry.query)
-                                .foregroundColor(.primary)
-                            Spacer()
-                        }
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                        Button(role: .destructive) {
-                            viewModel.deleteSearchHistoryEntry(entry)
-                        } label: {
-                            Label("Delete", systemImage: "trash")
-                        }
-                    }
+    // MARK: - Content
+
+    @ViewBuilder
+    private var content: some View {
+        switch viewModel.phase {
+        case .idle:
+            if viewModel.searchHistory.isEmpty {
+                noRecentSearchesView
+            } else {
+                searchHistoryView
+            }
+        case .typing:
+            suggestionsAndLocalView
+        case .loading:
+            loadingView
+        case .results:
+            searchResultsList
+        case .noResults:
+            noResultsView
+        case .failed:
+            errorView(viewModel.error)
+        }
+    }
+
+    private var loadingView: some View {
+        VStack {
+            Spacer()
+            ShimmerLoadingView()
+            Spacer()
+        }
+    }
+
+    // MARK: - Submission
+
+    private func submit(_ text: String? = nil) {
+        if let text {
+            viewModel.fieldText = text
+        }
+        viewModel.submit()
+    }
+
+    // MARK: - Native clear button suppression
+
+    @MainActor private func suppressNativeClearButtons() {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        for window in scenes.flatMap(\.windows) {
+            Self.removeClearButton(from: window)
+        }
+    }
+
+    @MainActor private static func removeClearButton(from view: UIView) {
+        if let searchField = view as? UISearchTextField {
+            searchField.clearButtonMode = .never
+        }
+        view.subviews.forEach(Self.removeClearButton(from:))
+    }
+
+    // MARK: - Account
+
+    private func tapAccount() {
+        isAccountSheetPresented = true
+    }
+
+    private func fetchAccountInfo() async {
+        guard loginModel.isLoggedIn else { return }
+        do {
+            let info = try await InnerTube.shared.accountInfo()
+            accountName = info.name
+            accountImageUrl = info.thumbnailUrl
+        } catch {
+            Log.searchView.error("Failed to fetch account info: \(error)")
+        }
+    }
+
+    private var accountSheet: some View {
+        AccountSheetView(
+            isLoggedIn: loginModel.isLoggedIn,
+            titleText: accountName,
+            accountImageUrl: accountImageUrl,
+            onDone: { isAccountSheetPresented = false },
+            onLogin: {
+                isAccountSheetPresented = false
+                DispatchQueue.main.async {
+                    isLoginSheetPresented = true
                 }
-            } header: {
+            },
+            onSettings: {
+                isAccountSheetPresented = false
+                router.searchPath.append(DetailRoute.settings)
+            },
+            onSignOut: {
+                loginModel.logout()
+                accountName = "Guest"
+                accountImageUrl = nil
+                isAccountSheetPresented = false
+            }
+        )
+    }
+
+    private var searchHistoryView: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
                 HStack {
                     Text("Recently searched")
-                        .textCase(nil)
                         .font(.headline)
                         .foregroundColor(.primary)
                     Spacer()
@@ -117,19 +204,62 @@ struct SearchView: View {
                         viewModel.clearSearchHistory()
                     }
                     .font(.subheadline)
-                    .foregroundColor(.blue)
+                    .foregroundColor(settings.accentColor)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+
+                ForEach(viewModel.searchHistory, id: \.query) { entry in
+                    Button {
+                        submit(entry.query)
+                    } label: {
+                        HStack {
+                            Image(systemName: "clock.arrow.trianglehead.counterclockwise.rotate.90")
+                                .foregroundColor(settings.accentColor)
+                            Text(entry.query)
+                                .foregroundColor(.primary)
+                            Spacer()
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .contextMenu {
+                        Button(role: .destructive) {
+                            viewModel.deleteSearchHistoryEntry(entry)
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
+                    }
+
+                    Divider()
+                        .padding(.leading, 16)
                 }
             }
         }
-        .listStyle(.plain)
+        .scrollIndicators(.automatic)
         .miniPlayerTracksScroll()
     }
 
+    private func sectionLabel(_ title: String) -> some View {
+        Text(title.uppercased())
+            .font(.subheadline)
+            .fontWeight(.semibold)
+            .foregroundColor(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+            .padding(.bottom, 4)
+    }
+
     private var suggestionsAndLocalView: some View {
-        List {
-            if !viewModel.localSongs.isEmpty || !viewModel.localArtists.isEmpty
-                || !viewModel.localAlbums.isEmpty || !viewModel.localPlaylists.isEmpty {
-                Section(header: Text("In Library").textCase(.uppercase)) {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                if !viewModel.localSongs.isEmpty || !viewModel.localArtists.isEmpty
+                    || !viewModel.localAlbums.isEmpty || !viewModel.localPlaylists.isEmpty {
+                    sectionLabel("In Library")
+
                     ForEach(viewModel.localSongs, id: \.id) { song in
                         let item = YTItem.song(SongItem(
                             videoId: song.id,
@@ -141,19 +271,8 @@ struct SearchView: View {
                             isExplicit: false
                         ))
                         YouTubeListItemView(item: item, onTap: {
-                            guard case .song(let s) = item else { return }
-                            NowPlaying.shared.setQueue([s], startIndex: 0)
-                            playVideo(videoId: song.id)
-                            Task {
-                                guard let radio = try? await PersonalizationService.shared.fetchRadio(videoId: s.videoId),
-                                      radio.songs.count > 1 else { return }
-                                guard NowPlaying.shared.videoId == s.videoId else { return }
-                                NowPlaying.shared.queueSongs = radio.songs
-                                NowPlaying.shared.queueIndex = radio.currentIndex
-                            }
+                            handleItemTap(item)
                         }, onNavigate: { pendingRoute = $0 })
-                        .listRowInsets(EdgeInsets())
-                        .padding(.vertical, 4)
                     }
 
                     ForEach(viewModel.localArtists, id: \.id) { artist in
@@ -166,8 +285,6 @@ struct SearchView: View {
                         YouTubeListItemView(item: item, onTap: {
                             router.searchPath.append(DetailRoute.artist(browseId: artist.id))
                         }, onNavigate: { pendingRoute = $0 })
-                        .listRowInsets(EdgeInsets())
-                        .padding(.vertical, 4)
                     }
 
                     ForEach(viewModel.localAlbums, id: \.id) { album in
@@ -183,8 +300,6 @@ struct SearchView: View {
                         YouTubeListItemView(item: item, onTap: {
                             router.searchPath.append(DetailRoute.album(browseId: album.id))
                         }, onNavigate: { pendingRoute = $0 })
-                        .listRowInsets(EdgeInsets())
-                        .padding(.vertical, 4)
                     }
 
                     ForEach(viewModel.localPlaylists, id: \.id) { playlist in
@@ -198,18 +313,15 @@ struct SearchView: View {
                         YouTubeListItemView(item: item, onTap: {
                             router.searchPath.append(DetailRoute.playlist(playlistId: playlist.browseId ?? playlist.id))
                         }, onNavigate: { pendingRoute = $0 })
-                        .listRowInsets(EdgeInsets())
-                        .padding(.vertical, 4)
                     }
                 }
-            }
 
-            if !viewModel.suggestions.isEmpty {
-                Section(header: Text("Suggestions").textCase(.uppercase)) {
+                if !viewModel.suggestions.isEmpty {
+                    sectionLabel("Suggestions")
+
                     ForEach(viewModel.suggestions, id: \.self) { suggestion in
                         Button {
-                            viewModel.searchText = suggestion
-                            viewModel.performSearch()
+                            submit(suggestion)
                         } label: {
                             HStack {
                                 Image(systemName: "magnifyingglass")
@@ -221,33 +333,55 @@ struct SearchView: View {
                                     .foregroundColor(.secondary)
                                     .font(.footnote)
                             }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
+
+                        Divider()
+                            .padding(.leading, 16)
                     }
                 }
             }
         }
-        .listStyle(.plain)
+        .scrollIndicators(.automatic)
         .miniPlayerTracksScroll()
     }
 
     private var searchResultsList: some View {
-        List {
-            ForEach(viewModel.filteredSections) { section in
-                Section(header: Text(section.title).font(.headline).foregroundColor(.primary).textCase(nil)) {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                if !viewModel.availableFilters.isEmpty {
+                    filterChips
+                }
+
+                ForEach(viewModel.filteredResults) { section in
+                    NavigationTitleView(title: section.title)
+                        .padding(.top, 8)
+
                     ForEach(section.items, id: \.id) { item in
                         YouTubeListItemView(item: item, onTap: {
                             handleItemTap(item)
                         }, onNavigate: { pendingRoute = $0 })
-                        .listRowInsets(EdgeInsets())
-                        .padding(.vertical, 4)
                     }
                 }
             }
         }
-        .listStyle(.plain)
+        .scrollIndicators(.automatic)
         .miniPlayerTracksScroll()
+    }
+
+    /// Phase-change logging.
+    private var phaseDescription: String {
+        switch viewModel.phase {
+        case .idle: return "idle"
+        case .typing: return "typing(suggestions=\(viewModel.suggestions.count))"
+        case .loading: return "loading"
+        case .results: return "results(sections=\(viewModel.results.count), filters=\(viewModel.availableFilters.count))"
+        case .noResults: return "noResults"
+        case .failed: return "failed"
+        }
     }
 
     private var filterChips: some View {
@@ -277,7 +411,7 @@ struct SearchView: View {
         ContentUnavailableView(
             "No Results",
             systemImage: "magnifyingglass",
-            description: Text("No results found for \"\(viewModel.searchText)\"")
+            description: Text("No results found for \"\(viewModel.submittedQuery)\"")
         )
     }
 
@@ -289,11 +423,11 @@ struct SearchView: View {
         )
     }
 
-    private func errorView(_ error: Error) -> some View {
+    private func errorView(_ error: Error?) -> some View {
         ContentUnavailableView(
             "Search failed",
             systemImage: "exclamationmark.triangle",
-            description: Text(error.localizedDescription)
+            description: Text(error?.localizedDescription ?? "Something went wrong.")
         )
     }
 

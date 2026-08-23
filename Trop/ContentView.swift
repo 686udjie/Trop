@@ -15,30 +15,20 @@ struct ContentView: View {
     @State private var scrollState = MiniPlayerScrollState()
 
     var body: some View {
-        ZStack {
-            if settings.playerBackgroundStyle == .solid {
-                Color.black.ignoresSafeArea()
-            } else if let accent = nowPlaying.accentColor {
-                accent
-                    .opacity(0.06)
-                    .ignoresSafeArea()
-                    .animation(.easeInOut(duration: 0.8), value: nowPlaying.accentColor)
+        TabView(selection: $selectedTab) {
+            Tab("Home", systemImage: "music.note.house.fill", value: 0) {
+                HomeScreenView()
             }
 
-            TabView(selection: $selectedTab) {
-                Tab("Home", systemImage: "music.note.house.fill", value: 0) {
-                    HomeScreenView()
-                }
-
-                Tab("Library", systemImage: "music.note.square.stack", value: 1) {
-                    LibraryView()
-                }
-
-                Tab("Search", systemImage: "magnifyingglass", value: 2, role: .search) {
-                    SearchView(onExitSearch: { selectedTab = 0 })
-                }
+            Tab("Library", systemImage: "music.note.square.stack", value: 1) {
+                LibraryView()
             }
-            .tabBarMinimizeBehavior(.onScrollDown)
+
+            Tab("Search", systemImage: "magnifyingglass", value: 2, role: .search) {
+                SearchView()
+            }
+        }
+        .tabBarMinimizeBehavior(.onScrollDown)
             .tabViewBottomAccessory(isEnabled: nowPlaying.isBarPresented) {
                 MiniPlayerBarView(onExpand: {
                     withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
@@ -46,18 +36,20 @@ struct ContentView: View {
                     }
                 })
             }
-
-            if isExpanded {
-                FullPlayerView(onCollapse: {
-                    withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
-                        isExpanded = false
-                    }
-                })
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-                .zIndex(2)
+            .background {
+                backgroundLayer
             }
-        }
-        .environment(scrollState)
+            .overlay {
+                if isExpanded {
+                    FullPlayerView(onCollapse: {
+                        withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                            isExpanded = false
+                        }
+                    })
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            .environment(scrollState)
         .onAppear { AppRouter.shared.selectedTabIndex = selectedTab }
         .onChange(of: selectedTab) { _, newValue in
             AppRouter.shared.selectedTabIndex = newValue
@@ -71,6 +63,18 @@ struct ContentView: View {
                     isExpanded = false
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private var backgroundLayer: some View {
+        if settings.playerBackgroundStyle == .solid {
+            Color.black.ignoresSafeArea()
+        } else if let accent = nowPlaying.accentColor {
+            accent
+                .opacity(0.06)
+                .ignoresSafeArea()
+                .animation(.easeInOut(duration: 0.8), value: nowPlaying.accentColor)
         }
     }
 }

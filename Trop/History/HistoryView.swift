@@ -8,6 +8,7 @@
 import SwiftUI
 
 struct HistoryScreenView: View {
+    @Environment(SettingsStore.self) private var settings
     @State private var viewModel = HistoryView()
     @State private var isSelecting = false
     @State private var selectedEvents: Set<Event> = []
@@ -152,7 +153,7 @@ struct HistoryScreenView: View {
                     } label: {
                         Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                             .font(.title3)
-                            .foregroundStyle(isSelected ? .blue : .secondary)
+                            .foregroundStyle(isSelected ? settings.accentColor : .secondary)
                             .padding(.leading, 16)
                             .padding(.trailing, 4)
                     }
