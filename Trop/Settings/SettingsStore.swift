@@ -188,6 +188,21 @@ final class SettingsStore {
         didSet { defaults.set(lyricsAlignment.rawValue, forKey: Keys.lyricsAlignment) }
     }
 
+    /// Shifts lyric timing by this many seconds (positive = later, negative = earlier).
+    var lyricsOffsetSeconds: Double {
+        didSet { defaults.set(lyricsOffsetSeconds, forKey: Keys.lyricsOffsetSeconds) }
+    }
+
+    /// Shows a progress ring during long instrumental gaps in synced lyrics.
+    var showIntervalIndicator: Bool {
+        didSet { defaults.set(showIntervalIndicator, forKey: Keys.showIntervalIndicator) }
+    }
+
+    /// Displays romanized lyrics for Japanese/Korean/Cyrillic lines when available.
+    var romanizeCurrentTrack: Bool {
+        didSet { defaults.set(romanizeCurrentTrack, forKey: Keys.romanizeCurrentTrack) }
+    }
+
     // MARK: - Playback
 
     var equalizerEnabled: Bool {
@@ -299,6 +314,9 @@ final class SettingsStore {
         static let defaultTab = "settings.defaultTab"
         static let lyricsFontSize = "settings.lyricsFontSize"
         static let lyricsAlignment = "settings.lyricsAlignment"
+        static let lyricsOffsetSeconds = "settings.lyricsOffsetSeconds"
+        static let showIntervalIndicator = "settings.showIntervalIndicator"
+        static let romanizeCurrentTrack = "settings.romanizeCurrentTrack"
         static let equalizerEnabled = "settings.equalizerEnabled"
         static let equalizerPresetID = "settings.equalizerPresetID"
         static let equalizerGains = "settings.equalizerGains"
@@ -332,6 +350,9 @@ final class SettingsStore {
         defaultTab = defaults.object(forKey: Keys.defaultTab) as? Int ?? 0
         lyricsFontSize = defaults.object(forKey: Keys.lyricsFontSize) as? Double ?? 17
         lyricsAlignment = LyricsAlignment(rawValue: defaults.string(forKey: Keys.lyricsAlignment) ?? "") ?? .center
+        lyricsOffsetSeconds = defaults.object(forKey: Keys.lyricsOffsetSeconds) as? Double ?? 0
+        showIntervalIndicator = defaults.object(forKey: Keys.showIntervalIndicator) as? Bool ?? true
+        romanizeCurrentTrack = defaults.object(forKey: Keys.romanizeCurrentTrack) as? Bool ?? true
         equalizerEnabled = defaults.object(forKey: Keys.equalizerEnabled) as? Bool ?? false
         equalizerPresetID = defaults.string(forKey: Keys.equalizerPresetID) ?? "flat"
         if let saved = defaults.array(forKey: Keys.equalizerGains) as? [Double], saved.count == equalizerFrequencies.count {

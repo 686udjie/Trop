@@ -52,11 +52,41 @@ enum LyricsParsing {
         return (time, text)
     }
 
-    /// Split a raw LRC string into lines, dropping empty/credit lines.
+    /// Split a raw LRC string into lines. Blank timestamped lines are kept —
+    /// they mark instrumental spans (like Metrolist's isBlank entries).
     static func parseLrc(_ raw: String) -> [LyricLine] {
         raw.split(whereSeparator: \.isNewline).map(String.init).compactMap { line in
-            guard let (time, text) = parseLrcTimestamp(line), !text.isEmpty else { return nil }
+            guard let (time, text) = parseLrcTimestamp(line) else { return nil }
             return LyricLine(text: text, startTime: time)
         }
+    }
+
+    /// Parses stored lyrics text — LRC if timestamped, otherwise plain lines.
+    static func parseStoredText(_ raw: String) -> [LyricLine] {
+        let lrc = parseLrc(raw)
+        if !lrc.isEmpty { return lrc }
+        return raw
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .map { LyricLine(text: $0, startTime: nil) }
+    }
+
+    /// Serializes lines back to LRC/plain text for storage and editing.
+    static func serializeLines(_ lines: [LyricLine]) -> String {
+        let synced = lines.contains { $0.startTime != nil }
+        return lines.map { line in
+            guard synced, let t = line.startTime else { return line.text }
+            let minutes = Int(t) / 60
+            let seconds = Int(t) % 60
+            let centis = Int((t - floor(t)) * 100)
+            return String(format: "[%02d:%02d.%02d]", minutes, seconds, centis) + line.text
+        }
+        .joined(separator: "\n")
+    }
+
+    /// Plain text without timestamps — what "Copy" puts on the clipboard.
+    static func plainText(_ lines: [LyricLine]) -> String {
+        lines.map(\.text).filter { !$0.isEmpty }.joined(separator: "\n")
     }
 }

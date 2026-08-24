@@ -24,6 +24,16 @@ struct LyricsView<ProgressSlider: View>: View {
     @State private var activeIndex: Int = 0
     @State private var isFullscreen = false
     @State private var displayTime: TimeInterval = 0
+    @State private var showSongMenu = false
+    @State private var instrumentalGaps: [InstrumentalGap] = []
+    @State private var allLines: [LyricLine] = []
+    @State private var romanizedLines: [String?] = []
+
+    struct InstrumentalGap {
+        let afterIndex: Int
+        let start: TimeInterval
+        let end: TimeInterval
+    }
 
     // MARK: - Auto-scroll & Re-sync
 
@@ -47,8 +57,18 @@ struct LyricsView<ProgressSlider: View>: View {
         }
         .ignoresSafeArea(edges: .bottom)
         .animation(.easeInOut(duration: 0.3), value: isFullscreen)
+        .sheet(isPresented: $showSongMenu) {
+            LyricsMenuSheet()
+        }
         .task(id: np.videoId) { await loadLyrics() }
         .onChange(of: np.currentTime) { _, _ in updateActiveLine() }
+        .onChange(of: settings.lyricsOffsetSeconds) { _, _ in updateActiveLine() }
+        .onChange(of: settings.romanizeCurrentTrack) { _, _ in
+            Task { await rebuildRomanization() }
+        }
+        .onChange(of: LyricsState.shared.refreshToken) { _, _ in
+            Task { await loadLyrics() }
+        }
         .task { await runDisplayTimer() }
     }
 
@@ -100,47 +120,44 @@ struct LyricsView<ProgressSlider: View>: View {
 
     private var lyricsContentView: some View {
         ZStack(alignment: .bottom) {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    VStack(alignment: settings.lyricsAlignment.textAlignment.horizontal, spacing: 18) {
-                        Spacer().frame(height: 24)
+            GeometryReader { geo in
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(alignment: settings.lyricsAlignment.textAlignment.horizontal, spacing: 18) {
+                            // Oversized insets so any line can be centered —
+                            // Metrolist-style.
+                            Spacer().frame(height: geo.size.height * 0.38)
 
-                        ForEach(Array(lines.enumerated()), id: \.element.id) { index, line in
-                            LetterSyncLineView(
-                                text: line.text,
-                                isActive: index == activeIndex,
-                                progress: progressForLine(at: index),
-                                alignment: settings.lyricsAlignment,
-                                fontSize: settings.lyricsFontSize,
-                                lineOpacity: index == activeIndex ? 1 : opacityForDistance(abs(index - activeIndex)),
-                                lineScale: index == activeIndex ? 1 : scaleForDistance(abs(index - activeIndex)),
-                                onTap: {
-                                    if let t = line.startTime {
-                                        player.seek(to: t)
-                                        np.currentTime = t
-                                        resumeAutoScroll()
-                                    }
-                                }
-                            )
-                            .id(line.id)
+                            if let provider = LyricsState.shared.providerName {
+                                Text("Lyrics from \(provider)")
+                                    .font(.caption.weight(.medium))
+                                    .foregroundStyle(.white.opacity(0.6))
+                                    .frame(maxWidth: .infinity, alignment: settings.lyricsAlignment.textAlignment)
+                                    .padding(.horizontal, 24)
+                            }
+
+                            ForEach(Array(lines.enumerated()), id: \.element.id) { index, line in
+                                lyricsLineRow(index: index, line: line)
+                                    .id(line.id)
+                            }
+
+                            Spacer().frame(height: geo.size.height * 0.38)
                         }
-
-                        Spacer().frame(height: 24)
+                        .padding(.vertical, 8)
                     }
-                    .padding(.vertical, 8)
-                }
-                .scrollIndicators(.hidden)
-                .scrollPosition(id: $visibleLineID)
-                .onScrollPhaseChange { _, newPhase in
-                    if newPhase == .tracking || newPhase == .interacting {
-                        pauseAutoScroll()
+                    .scrollIndicators(.hidden)
+                    .scrollPosition(id: $visibleLineID)
+                    .onScrollPhaseChange { _, newPhase in
+                        if newPhase == .tracking || newPhase == .interacting {
+                            pauseAutoScroll()
+                        }
                     }
-                }
-                .onAppear { scrollProxy = proxy }
-                .onChange(of: activeIndex) { _, newIndex in
-                    guard lines.indices.contains(newIndex) else { return }
-                    if isAutoScrollEnabled && !userHasScrolled {
-                        scrollToActive()
+                    .onAppear { scrollProxy = proxy }
+                    .onChange(of: activeIndex) { _, newIndex in
+                        guard lines.indices.contains(newIndex) else { return }
+                        if isAutoScrollEnabled && !userHasScrolled {
+                            scrollToActive()
+                        }
                     }
                 }
             }
@@ -191,13 +208,13 @@ struct LyricsView<ProgressSlider: View>: View {
         scrollToActive()
     }
 
-    /// Writing the scrollPosition binding cancels any in-flight user drag or
-    /// deceleration; proxy.scrollTo then centers the active line.
+    /// Centers the active line via the proxy only — writing the
+    /// scrollPosition binding here would top-align the line and fight the
+    /// center anchor.
     private func scrollToActive() {
         guard lines.indices.contains(activeIndex) else { return }
         let targetID = lines[activeIndex].id
         withAnimation(.easeInOut(duration: 0.4)) {
-            visibleLineID = targetID
             scrollProxy?.scrollTo(targetID, anchor: .center)
         }
     }
@@ -225,9 +242,10 @@ struct LyricsView<ProgressSlider: View>: View {
         guard lines.indices.contains(index), index == activeIndex else { return 0 }
         let line = lines[index]
         guard let start = line.startTime else { return 0 }
+        let t = displayTime + settings.lyricsOffsetSeconds
 
         // Use the actual next line's start time as end, like Metrolist does
-        let end: TimeInterval
+        var end: TimeInterval
         if index + 1 < lines.count, let nextStart = lines[index + 1].startTime, nextStart > start {
             end = nextStart
         } else {
@@ -235,10 +253,139 @@ struct LyricsView<ProgressSlider: View>: View {
             end = start + min(8, max(2, Double(charCount) * 0.08))
         }
 
-        if displayTime < start { return 0 }
-        if displayTime >= end { return 1 }
-        let progress = (displayTime - start) / max(0.01, end - start)
+        // Hand the rest of the slot to the interval ring — the line's fill
+        // finishes when the words end, never bleeding into instrumental time.
+        if let gap = instrumentalGaps.last(where: { $0.afterIndex == index }) {
+            let capped = min(end, gap.start)
+            if capped > start { end = capped }
+        }
+
+        if t < start { return 0 }
+        if t >= end { return 1 }
+        let progress = (t - start) / max(0.01, end - start)
         return min(1, max(0, progress))
+    }
+
+    // MARK: - Interval Indicator (instrumental gaps)
+
+    /// A lyric line plus its interval ring, which only exists in the hierarchy
+    /// while playback is actually inside the gap.
+    private func lyricsLineRow(index: Int, line: LyricLine) -> some View {
+        let gap = instrumentalGaps.last(where: { $0.afterIndex == index })
+        let showRing = settings.showIntervalIndicator && gap != nil && isVisibleInGap(gap!)
+        let romanized = romanization(for: index)
+
+        return VStack(spacing: 0) {
+            LetterSyncLineView(
+                text: line.text,
+                isActive: index == activeIndex,
+                progress: progressForLine(at: index),
+                alignment: settings.lyricsAlignment,
+                fontSize: settings.lyricsFontSize,
+                lineOpacity: index == activeIndex ? 1 : opacityForDistance(abs(index - activeIndex)),
+                lineScale: index == activeIndex ? 1 : scaleForDistance(abs(index - activeIndex)),
+                romanizedText: romanized,
+                onTap: {
+                    if let t = line.startTime {
+                        player.seek(to: t)
+                        np.currentTime = t
+                        resumeAutoScroll()
+                    }
+                }
+            )
+
+            if showRing, let gap {
+                IntervalIndicatorView(
+                    start: gap.start,
+                    end: gap.end - 0.65,
+                    now: displayTime + settings.lyricsOffsetSeconds,
+                    color: intervalIndicatorColor
+                )
+                .transition(.opacity.combined(with: .scale(scale: 0.6)))
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: showRing)
+    }
+
+    /// Metrolist's expressiveAccent: white on dynamic (album art) backgrounds,
+    /// the accent color on solid ones.
+    private var intervalIndicatorColor: Color {
+        switch settings.playerBackgroundStyle {
+        case .solid: return settings.accentColor
+        case .dynamic: return .white
+        }
+    }
+
+    /// The romanized variant for a line, when the toggle is on and one exists.
+    private func romanization(for index: Int) -> String? {
+        guard settings.romanizeCurrentTrack,
+              romanizedLines.indices.contains(index) else { return nil }
+        return romanizedLines[index]
+    }
+
+    /// Blank / ♪-only timestamped lines declare instrumental spans.
+    private static func isInstrumentalMarker(_ line: LyricLine) -> Bool {
+        line.text.trimmingCharacters(in: CharacterSet(charactersIn: "♪*· "))
+            .isEmpty
+    }
+
+    /// Mirrors Metrolist's updateMergedList: an interval ring is created only
+    /// from positive evidence — a blank interlude marker whose timestamp says
+    /// the words already ended. Nothing is estimated, so the ring never shows
+    /// over actual singing.
+    private func detectGaps(in all: [LyricLine]) -> [InstrumentalGap] {
+        var displayIndices = [Int?](repeating: nil, count: all.count)
+        var displayCount = 0
+        for (i, line) in all.enumerated() where !Self.isInstrumentalMarker(line) {
+            displayIndices[i] = displayCount
+            displayCount += 1
+        }
+
+        var gaps: [InstrumentalGap] = []
+        for (i, marker) in all.enumerated() {
+            guard Self.isInstrumentalMarker(marker), let gapStart = marker.startTime else { continue }
+
+            // Attach to the nearest preceding vocal line; intro markers have none.
+            var afterIndex: Int?
+            var j = i - 1
+            while j >= 0, afterIndex == nil {
+                afterIndex = displayIndices[j]
+                j -= 1
+            }
+            guard let afterIndex else { continue }
+
+            // The break ends when the next lyrics start.
+            var nextStart: TimeInterval?
+            var k = i + 1
+            while k < all.count, nextStart == nil {
+                nextStart = all[k].startTime
+                k += 1
+            }
+            guard let gapEnd = nextStart, gapEnd - gapStart > 4 else { continue }
+
+            gaps.append(InstrumentalGap(afterIndex: afterIndex, start: gapStart, end: gapEnd))
+        }
+        return gaps
+    }
+
+    /// The ring disappears slightly before vocals resume, like Metrolist's -650ms.
+    private func isVisibleInGap(_ gap: InstrumentalGap) -> Bool {
+        let t = displayTime + settings.lyricsOffsetSeconds
+        return t >= gap.start && t <= gap.end - 0.65
+    }
+
+    // MARK: - Romanization
+
+    /// Transliterates lines off the main actor when the toggle is on.
+    private func rebuildRomanization() async {
+        guard settings.romanizeCurrentTrack, !lines.isEmpty else {
+            romanizedLines = []
+            return
+        }
+        let texts = lines.map(\.text)
+        romanizedLines = await Task.detached(priority: .userInitiated) {
+            texts.map { LyricsRomanizer.romanize($0) }
+        }.value
     }
 
     /// Fires every 50 ms so letter-sync progress is smooth regardless of NowPlaying update rate.
@@ -306,34 +453,15 @@ struct LyricsView<ProgressSlider: View>: View {
     private var threeDotsMenu: some View {
         Group {
             if np.queueSongs.indices.contains(np.queueIndex) {
-                let currentSong = np.queueSongs[np.queueIndex]
-                Menu {
-                    Button {
-                        UIPasteboard.general.string = currentSong.webUrl
-                    } label: {
-                        Label("Copy Link", systemImage: "link")
-                    }
-                    if let artistId = currentSong.firstArtistBrowseId {
-                        Button {
-                            pendingRoute.wrappedValue = DetailRoute.artist(browseId: artistId)
-                        } label: {
-                            Label("Go to Artist", systemImage: "music.mic")
-                        }
-                    }
-                    if let albumId = currentSong.firstAlbumBrowseId {
-                        Button {
-                            pendingRoute.wrappedValue = DetailRoute.album(browseId: albumId)
-                        } label: {
-                            Label("Go to Album", systemImage: "record.circle")
-                        }
-                    }
+                Button {
+                    showSongMenu = true
                 } label: {
                     Text("\u{22EE}")
                         .font(.system(size: 20, weight: .black))
                         .foregroundStyle(.white)
                         .frame(width: 36, height: 36)
                 }
-                .menuOrder(.fixed)
+                .accessibilityLabel("Song options")
             }
         }
     }
@@ -341,10 +469,20 @@ struct LyricsView<ProgressSlider: View>: View {
     // MARK: - Fullscreen Bottom Row
 
     private var fullscreenBottomRow: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 6) {
             songInfoRow(showFullscreenButton: true)
 
             progressSlider()
+
+            PlaybackControlsRow(
+                isPlaying: np.isPlaying,
+                hasPrevious: np.hasPrevious,
+                hasNext: np.hasNext,
+                onPrevious: { np.playPrevious() },
+                onPlayPause: { player.togglePlayPause() },
+                onNext: { np.playNext() }
+            )
+            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: np.isPlaying)
         }
         .padding(.horizontal, 20)
         .padding(.bottom, 16)
@@ -353,7 +491,7 @@ struct LyricsView<ProgressSlider: View>: View {
     // MARK: - Bottom Bar
 
     private var bottomBar: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 6) {
             songInfoRow(showFullscreenButton: true)
                 .padding(.horizontal, 20)
 
@@ -396,6 +534,8 @@ struct LyricsView<ProgressSlider: View>: View {
         }
         isLoading = true
         lines = []
+        allLines = []
+        instrumentalGaps = []
         activeIndex = 0
         isAutoScrollEnabled = true
         userHasScrolled = false
@@ -407,9 +547,13 @@ struct LyricsView<ProgressSlider: View>: View {
             do {
                 let result = try await LyricsService.shared.fetchLyrics(videoId: videoId)
                 if !result.isEmpty {
-                    lines = result
+                    let withoutMarkers = result.filter { !Self.isInstrumentalMarker($0) }
+                    allLines = result
+                    lines = withoutMarkers.isEmpty ? result : withoutMarkers
+                    instrumentalGaps = detectGaps(in: result)
                     isLoading = false
                     updateActiveLine()
+                    await rebuildRomanization()
                     return
                 }
             } catch {
@@ -421,7 +565,7 @@ struct LyricsView<ProgressSlider: View>: View {
 
     private func updateActiveLine() {
         guard !lines.isEmpty else { return }
-        let t = np.currentTime
+        let t = np.currentTime + settings.lyricsOffsetSeconds
         var idx = 0
         for (i, line) in lines.enumerated() {
             guard let start = line.startTime else { continue }
@@ -437,6 +581,73 @@ struct LyricsView<ProgressSlider: View>: View {
     }
 }
 
+// MARK: - Interval Indicator Ring
+
+/// Circular progress ring shown during instrumental gaps — SwiftUI take on
+/// Metrolist's wavy ring: colored stroke over a 20% track.
+///
+/// Instead of stepping with playback-position updates (which arrive in coarse
+/// chunks), the sweep is one continuous linear animation timed to finish
+/// exactly when the gap ends; playback seeks re-anchor it.
+private struct IntervalIndicatorView: View {
+    let start: TimeInterval
+    let end: TimeInterval
+    let now: TimeInterval
+    let color: Color
+
+    @State private var displayedProgress: Double
+    @State private var anchorNow: TimeInterval
+
+    init(start: TimeInterval, end: TimeInterval, now: TimeInterval, color: Color) {
+        self.start = start
+        self.end = end
+        self.now = now
+        self.color = color
+        _displayedProgress = State(initialValue: Self.fraction(at: now, start: start, end: end))
+        _anchorNow = State(initialValue: now)
+    }
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(color.opacity(0.2), lineWidth: 3.5)
+            Circle()
+                .trim(from: 0, to: CGFloat(max(0.02, min(1, displayedProgress))))
+                .stroke(color, style: StrokeStyle(lineWidth: 3.5, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+        }
+        .frame(width: 36, height: 36)
+        .frame(maxWidth: .infinity)
+        .padding(.top, 16)
+        .padding(.bottom, 4)
+        .onAppear { animateToCompletion() }
+        .onChange(of: now) { _, newNow in
+            // Position ticks are small; anything larger is a seek — re-anchor
+            // the sweep so it still completes exactly on time.
+            if abs(newNow - anchorNow) > 0.75 {
+                anchorNow = newNow
+                displayedProgress = Self.fraction(at: newNow, start: start, end: end)
+                animateToCompletion(at: newNow)
+            } else {
+                anchorNow = newNow
+            }
+        }
+    }
+
+    private static func fraction(at t: TimeInterval, start: TimeInterval, end: TimeInterval) -> Double {
+        guard end > start else { return 1 }
+        return min(1, max(0, (t - start) / (end - start)))
+    }
+
+    private func animateToCompletion(at reference: TimeInterval? = nil) {
+        let remaining = max(0.15, end - (reference ?? now))
+        displayedProgress = min(displayedProgress, 0.999)
+        withAnimation(.linear(duration: remaining).delay(0)) {
+            displayedProgress = 1
+        }
+    }
+}
+
 // MARK: - Letter-by-Letter Sync Line View
 
 private struct LetterSyncLineView: View {
@@ -447,21 +658,32 @@ private struct LetterSyncLineView: View {
     let fontSize: Double
     var lineOpacity: Double = 1
     var lineScale: CGFloat = 1
+    /// Romanized variant rendered under the main line, Metrolist-style.
+    var romanizedText: String?
     let onTap: () -> Void
 
     var body: some View {
         let textToDisplay = text.isEmpty ? "\u{266A}" : text
 
         Button(action: onTap) {
-            Group {
-                if isActive {
-                    Text(revealedAttributedString(for: textToDisplay))
-                        .font(.system(size: fontSize, weight: .bold))
-                        .multilineTextAlignment(alignment.multilineTextAlignment)
-                } else {
-                    Text(textToDisplay)
-                        .font(.system(size: fontSize, weight: .semibold))
-                        .foregroundStyle(Color.white)
+            VStack(alignment: alignment.textAlignment.horizontal, spacing: 4) {
+                Group {
+                    if isActive {
+                        Text(revealedAttributedString(for: textToDisplay))
+                            .font(.system(size: fontSize, weight: .bold))
+                            .multilineTextAlignment(alignment.multilineTextAlignment)
+                    } else {
+                        Text(textToDisplay)
+                            .font(.system(size: fontSize, weight: .semibold))
+                            .foregroundStyle(Color.white)
+                            .multilineTextAlignment(alignment.multilineTextAlignment)
+                    }
+                }
+
+                if let romanizedText, !romanizedText.isEmpty {
+                    Text(romanizedText)
+                        .font(.system(size: max(12, fontSize * 0.55), weight: .medium))
+                        .foregroundStyle(Color.white.opacity(0.65))
                         .multilineTextAlignment(alignment.multilineTextAlignment)
                 }
             }

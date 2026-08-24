@@ -22,6 +22,7 @@ final class LyricsState {
 
     var isAvailable: Bool = false
     var providerName: String?
+    var refreshToken: Int = 0
 
     private init() {}
 }
@@ -30,10 +31,18 @@ actor LyricsService {
     static let shared = LyricsService()
 
     private var cache: [String: [LyricLine]] = [:]
+    private var customs: [String: (lines: [LyricLine], providerName: String)] = [:]
 
     private init() {}
 
+    private static func customKey(_ videoId: String) -> String { "lyrics.custom.\(videoId)" }
+    private static func customProviderKey(_ videoId: String) -> String { "lyrics.customProvider.\(videoId)" }
+
     func fetchLyrics(videoId: String) async throws -> [LyricLine] {
+        if let custom = customEntry(for: videoId) {
+            await updateAvailability(videoId: videoId, available: true, providerName: custom.providerName)
+            return custom.lines
+        }
         if let cached = cache[videoId] {
             await updateAvailability(videoId: videoId, available: !cached.isEmpty)
             return cached
@@ -50,6 +59,85 @@ actor LyricsService {
         }
         await updateAvailability(videoId: videoId, available: !lines.isEmpty, providerName: providerName)
         return lines
+    }
+
+    // MARK: - Manual Manipulations (edit / refetch / search selection / copy)
+
+    /// Raw text of the active lyrics for the editor.
+    func editableText(videoId: String) -> String {
+        if let custom = customEntry(for: videoId) {
+            return LyricsParsing.serializeLines(custom.lines)
+        }
+        if let cached = cache[videoId] {
+            return LyricsParsing.serializeLines(cached)
+        }
+        return ""
+    }
+
+    /// Plain text without timestamps for the clipboard.
+    func plainTextForCopy(videoId: String) -> String? {
+        if let custom = customEntry(for: videoId) {
+            return LyricsParsing.plainText(custom.lines)
+        }
+        if let cached = cache[videoId] {
+            return LyricsParsing.plainText(cached)
+        }
+        return nil
+    }
+
+    /// Stores edited or search-selected lyrics and signals the view to reload.
+    func saveCustom(videoId: String, rawText: String, providerName: String?) {
+        let lines = LyricsParsing.parseStoredText(rawText)
+        guard !lines.isEmpty else { return }
+        // Edits keep the existing provider; fresh selections pass their own.
+        let provider = providerName
+            ?? customs[videoId]?.providerName
+            ?? UserDefaults.standard.string(forKey: Self.customProviderKey(videoId))
+            ?? "Manual"
+        customs[videoId] = (lines, provider)
+        UserDefaults.standard.set(rawText, forKey: Self.customKey(videoId))
+        UserDefaults.standard.set(provider, forKey: Self.customProviderKey(videoId))
+        cache.removeValue(forKey: videoId)
+        Task {
+            await MainActor.run {
+                LyricsState.shared.providerName = provider
+                LyricsState.shared.refreshToken += 1
+            }
+        }
+    }
+
+    /// Re-fetches from providers; replaces any manual override with the fresh
+    /// result (explicit user intent), like Metrolist's refetchLyrics.
+    func refetch(videoId: String) async {
+        cache.removeValue(forKey: videoId)
+        func signalReload() {
+            Task { await MainActor.run { LyricsState.shared.refreshToken += 1 } }
+        }
+        guard let query = await resolveQuery(videoId: videoId),
+              let (fetchedLines, fetchedProvider) = try? await LyricsManager.shared.fetchLyricsReturningProvider(query: query),
+              !fetchedLines.isEmpty else {
+            signalReload()
+            return
+        }
+        cache[videoId] = fetchedLines
+        let raw = LyricsParsing.serializeLines(fetchedLines)
+        let provider = fetchedProvider ?? "Manual"
+        customs[videoId] = (fetchedLines, provider)
+        UserDefaults.standard.set(raw, forKey: Self.customKey(videoId))
+        UserDefaults.standard.set(provider, forKey: Self.customProviderKey(videoId))
+        await updateAvailability(videoId: videoId, available: true, providerName: provider)
+        signalReload()
+    }
+
+    private func customEntry(for videoId: String) -> (lines: [LyricLine], providerName: String)? {
+        if let entry = customs[videoId] { return entry }
+        guard let raw = UserDefaults.standard.string(forKey: Self.customKey(videoId)) else { return nil }
+        let lines = LyricsParsing.parseStoredText(raw)
+        guard !lines.isEmpty else { return nil }
+        let provider = UserDefaults.standard.string(forKey: Self.customProviderKey(videoId)) ?? "Manual"
+        let entry = (lines, provider)
+        customs[videoId] = entry
+        return entry
     }
 
     func preload(videoId: String, upcoming: [String] = []) async {

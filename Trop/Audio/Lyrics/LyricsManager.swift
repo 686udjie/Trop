@@ -64,9 +64,48 @@ actor LyricsManager {
 
     private init() {}
 
+    struct LyricSearchResult: Identifiable {
+        let id = UUID()
+        let lines: [LyricLine]
+        let providerName: String
+        let sortOrder: Int
+
+        var previewText: String {
+            lines.prefix(2).map(\.text).joined(separator: "\n")
+        }
+
+        var isSynced: Bool {
+            lines.contains { $0.startTime != nil }
+        }
+    }
+
     func fetchLyrics(query: LyricsQuery) async throws -> [LyricLine] {
         let (lines, _) = try await fetchLyricsReturningProvider(query: query)
         return lines
+    }
+
+    /// Queries every enabled provider concurrently and returns all matches.
+    func searchAll(query: LyricsQuery) async -> [LyricSearchResult] {
+        let order = LyricsSettings.shared.providerOrder
+        let disabled = SettingsStore.shared.disabledLyricsProviders
+        let providers = order
+            .compactMap { LyricsProviderRegistry.provider(for: $0) }
+            .filter { !disabled.contains($0.id) }
+            .enumerated().map { ($1, $0) }
+
+        return await withTaskGroup(of: (Int, LyricSearchResult)?.self) { group in
+            for (provider, index) in providers {
+                group.addTask {
+                    guard let lines = try? await provider.fetch(query: query), !lines.isEmpty else { return nil }
+                    return (index, LyricSearchResult(lines: lines, providerName: provider.name, sortOrder: index))
+                }
+            }
+            var results: [(Int, LyricSearchResult)] = []
+            for await item in group {
+                if let item { results.append(item) }
+            }
+            return results.sorted { $0.0 < $1.0 }.map(\.1)
+        }
     }
 
     func fetchLyricsReturningProvider(query: LyricsQuery) async throws -> ([LyricLine], providerName: String?) {
