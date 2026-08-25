@@ -23,6 +23,10 @@ final class DownloadsViewModel {
         downloadManager.activeDownloads
     }
 
+    var totalDuration: Int {
+        tracks.reduce(0) { $0 + $1.duration }
+    }
+
     func load() async {
         isLoading = true
         await refreshPersistedTracks()
@@ -31,7 +35,7 @@ final class DownloadsViewModel {
 
     func reloadSort(_ newSort: DownloadManager.DownloadSort) async {
         sort = newSort
-        await load()
+        await refreshPersistedTracks()
     }
 
     func refreshPersistedTracks() async {
@@ -72,6 +76,7 @@ struct DownloadsView: View {
                 contentView
             }
         }
+        .background(Color(.systemGroupedBackground))
         .navigationTitle("Downloads")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { toolbarContent }
@@ -95,22 +100,13 @@ struct DownloadsView: View {
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         ToolbarItem(placement: .primaryAction) {
-            Menu {
-                Picker("Sort", selection: $viewModel.sort) {
-                    ForEach(DownloadManager.DownloadSort.allCases) { option in
-                        Text(option.displayName).tag(option)
-                    }
+            if !viewModel.tracks.isEmpty {
+                Button(role: .destructive) {
+                    showClearConfirmation = true
+                } label: {
+                    Image(systemName: "trash")
                 }
-                if !viewModel.tracks.isEmpty {
-                    Divider()
-                    Button(role: .destructive) {
-                        showClearConfirmation = true
-                    } label: {
-                        Label("Remove All", systemImage: "trash")
-                    }
-                }
-            } label: {
-                Image(systemName: "ellipsis.circle")
+                .accessibilityLabel("Remove all downloads")
             }
         }
         ToolbarItem(placement: .topBarLeading) {
@@ -139,7 +135,7 @@ struct DownloadsView: View {
         ContentUnavailableView {
             Label("No Downloads Yet", systemImage: "arrow.down.circle")
         } description: {
-            Text("Save songs for offline listening from the player menu or by liking tracks with auto-download enabled.")
+            Text("Save songs for offline listening from the player menu, or enable auto-download when you like a track.")
         } actions: {
             NavigationLink {
                 DownloadSettingsView()
@@ -154,69 +150,97 @@ struct DownloadsView: View {
     }
 
     private var contentView: some View {
-        VStack(spacing: 0) {
-            header
-                .padding(.bottom, 8)
+        List {
+            Section {
+                heroHeader
+                    .listRowInsets(EdgeInsets())
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+            }
 
             if !viewModel.activeDownloads.isEmpty {
-                activeDownloadsSection
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 16)
+                Section {
+                    ForEach(viewModel.activeDownloads, id: \.videoId) { item in
+                        ActiveDownloadRow(videoId: item.videoId, progress: item.progress)
+                            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
+                    }
+                } header: {
+                    sectionHeader("Downloading", systemImage: "arrow.down.circle")
+                }
             }
 
             if !viewModel.tracks.isEmpty {
-                songList
+                Section {
+                    ForEach(viewModel.tracks, id: \.id) { track in
+                        let song = SongItem(entity: track)
+                        DownloadedSongRow(
+                            song: song,
+                            downloadedAt: track.downloadedAt,
+                            onPlay: { playSong(song) },
+                            onNavigate: { pendingRoute = $0 }
+                        )
+                        .listRowInsets(EdgeInsets())
+                        .listRowSeparator(.hidden)
+                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                            Button(role: .destructive) {
+                                Task { await viewModel.delete(track) }
+                            } label: {
+                                Label("Remove", systemImage: "trash")
+                            }
+                        }
+                    }
+                } header: {
+                    VStack(alignment: .leading, spacing: 0) {
+                        sectionHeader("Your Library", systemImage: "internaldrive")
+                        sortBar
+                    }
+                }
             }
         }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
         .miniPlayerTracksScroll()
         .onChange(of: viewModel.sort) { _, newSort in
             Task { await viewModel.reloadSort(newSort) }
         }
     }
 
-    private var header: some View {
-        VStack(spacing: 14) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                settings.accentColor.opacity(0.85),
-                                settings.accentColor.opacity(0.45),
-                                Color.purple.opacity(0.55)
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .frame(width: 200, height: 200)
-                    .shadow(color: settings.accentColor.opacity(0.35), radius: 18, y: 8)
+    private func sectionHeader(_ title: String, systemImage: String) -> some View {
+        Label(title, systemImage: systemImage)
+            .font(.footnote.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .textCase(nil)
+            .padding(.leading, 4)
+            .padding(.bottom, 4)
+    }
 
-                VStack(spacing: 10) {
-                    Image(systemName: "arrow.down.circle.fill")
-                        .font(.system(size: 52, weight: .medium))
-                        .foregroundStyle(.white)
-                        .symbolRenderingMode(.hierarchical)
-
-                    Text("\(viewModel.tracks.count)")
-                        .font(.system(size: 34, weight: .bold, design: .rounded))
-                        .foregroundStyle(.white)
-                    Text(viewModel.tracks.count == 1 ? "song" : "songs")
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(.white.opacity(0.85))
-                }
+    private var sortBar: some View {
+        FilterChipBar(
+            items: DownloadManager.DownloadSort.allCases,
+            id: \.self,
+            title: \.displayName,
+            isSelected: { viewModel.sort == $0 },
+            onTap: { sort in
+                viewModel.sort = sort
             }
+        )
+        .padding(.horizontal, -16)
+    }
 
-            VStack(spacing: 4) {
-                Text("Offline Library")
+    private var heroHeader: some View {
+        VStack(spacing: 14) {
+            artworkHero
+
+            VStack(spacing: 6) {
+                Text("Downloads")
                     .font(.title2.weight(.bold))
-                HStack(spacing: 6) {
-                    Image(systemName: "internaldrive")
-                        .font(.caption.weight(.semibold))
-                    Text(storageLabel)
-                        .font(.subheadline)
-                }
-                .foregroundStyle(.secondary)
+
+                Text(metadataLine)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
             }
 
             if !viewModel.songs.isEmpty {
@@ -224,8 +248,9 @@ struct DownloadsView: View {
                     Button(action: shufflePlay) {
                         Image(systemName: "shuffle")
                             .font(.title3)
-                            .frame(width: 44, height: 44)
-                            .background(Circle().fill(Color(.systemGray6)))
+                            .foregroundStyle(.primary)
+                            .frame(width: 48, height: 48)
+                            .background(Circle().fill(Color(.secondarySystemGroupedBackground)))
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Shuffle")
@@ -234,64 +259,93 @@ struct DownloadsView: View {
                         Image(systemName: "play.fill")
                             .font(.title2)
                             .foregroundStyle(.white)
-                            .frame(width: 60, height: 60)
+                            .frame(width: 64, height: 64)
                             .background(Circle().fill(settings.accentColor))
-                            .shadow(color: settings.accentColor.opacity(0.35), radius: 8, y: 4)
+                            .shadow(color: settings.accentColor.opacity(0.4), radius: 10, y: 4)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Play all")
                 }
-                .padding(.top, 2)
+                .padding(.top, 4)
             }
         }
-        .padding(.vertical, 16)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 20)
+        .padding(.horizontal, 16)
     }
 
-    private var activeDownloadsSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label("Downloading", systemImage: "arrow.down.circle")
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .padding(.leading, 4)
-
-            VStack(spacing: 0) {
-                ForEach(viewModel.activeDownloads, id: \.videoId) { item in
-                    ActiveDownloadRow(videoId: item.videoId, progress: item.progress)
-                    if item.videoId != viewModel.activeDownloads.last?.videoId {
-                        Divider().padding(.leading, 56)
-                    }
+    @ViewBuilder
+    private var artworkHero: some View {
+        let thumbnails = viewModel.tracks.prefix(4).compactMap(\.thumbnailUrl)
+        if thumbnails.count >= 4 {
+            let columns = Array(repeating: GridItem(.flexible(), spacing: 3), count: 2)
+            LazyVGrid(columns: columns, spacing: 3) {
+                ForEach(Array(thumbnails.enumerated()), id: \.offset) { _, url in
+                    AsyncImageView(url: url)
+                        .aspectRatio(1, contentMode: .fill)
+                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                 }
             }
-            .background(
+            .frame(width: 200, height: 200)
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay {
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color(.secondarySystemGroupedBackground))
-            )
+                    .strokeBorder(.white.opacity(0.12), lineWidth: 1)
+            }
+            .shadow(color: .black.opacity(0.22), radius: 16, y: 6)
+        } else if let url = thumbnails.first {
+            AsyncImageView(url: url)
+                .frame(width: 200, height: 200)
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .shadow(color: .black.opacity(0.22), radius: 16, y: 6)
+                .overlay(alignment: .bottomTrailing) {
+                    offlineHeroBadge
+                        .padding(10)
+                }
+        } else {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            settings.accentColor.opacity(0.9),
+                            settings.accentColor.opacity(0.55),
+                            Color.teal.opacity(0.65)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .frame(width: 200, height: 200)
+                .overlay {
+                    Image(systemName: "arrow.down.circle.fill")
+                        .font(.system(size: 56, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.95))
+                        .symbolRenderingMode(.hierarchical)
+                }
+                .shadow(color: settings.accentColor.opacity(0.35), radius: 16, y: 6)
         }
     }
 
-    private var songList: some View {
-        List {
-            ForEach(viewModel.tracks, id: \.id) { track in
-                let song = SongItem(entity: track)
-                DownloadedSongRow(
-                    song: song,
-                    downloadedAt: track.downloadedAt,
-                    onPlay: { playSong(song) },
-                    onNavigate: { pendingRoute = $0 }
-                )
-                .listRowInsets(EdgeInsets())
-                .listRowSeparator(.hidden)
-                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                    Button(role: .destructive) {
-                        Task { await viewModel.delete(track) }
-                    } label: {
-                        Label("Remove", systemImage: "trash")
-                    }
-                }
-            }
+    private var offlineHeroBadge: some View {
+        Label("Offline", systemImage: "arrow.down.circle.fill")
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(Capsule().fill(.ultraThinMaterial))
+    }
+
+    private var metadataLine: String {
+        var parts: [String] = []
+        let count = viewModel.tracks.count
+        parts.append("\(count) \(count == 1 ? "song" : "songs")")
+        if viewModel.totalDuration > 0 {
+            parts.append(viewModel.totalDuration.formattedDuration)
         }
-        .listStyle(.plain)
-        .scrollDisabled(false)
+        if viewModel.storageBytes > 0 {
+            parts.append(storageLabel)
+        }
+        return parts.joined(separator: " · ")
     }
 
     private func playAll() {
@@ -328,28 +382,41 @@ private struct ActiveDownloadRow: View {
 
     @State private var title = "Downloading…"
     @State private var artist = ""
+    @State private var thumbnailUrl: String?
 
     var body: some View {
-        HStack(spacing: 12) {
-            ZStack {
-                Circle()
-                    .stroke(Color(.tertiarySystemFill), lineWidth: 3)
-                    .frame(width: 36, height: 36)
-                Circle()
-                    .trim(from: 0, to: progress)
-                    .stroke(settings.accentColor, style: StrokeStyle(lineWidth: 3, lineCap: .round))
-                    .rotationEffect(.degrees(-90))
-                    .frame(width: 36, height: 36)
-                Image(systemName: "arrow.down")
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(settings.accentColor)
+        HStack(spacing: 14) {
+            ZStack(alignment: .bottomTrailing) {
+                Group {
+                    if let thumbnailUrl {
+                        AsyncImageView(url: thumbnailUrl)
+                    } else {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(
+                                LinearGradient(
+                                    colors: [settings.accentColor.opacity(0.5), settings.accentColor.opacity(0.2)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .overlay {
+                                Image(systemName: "music.note")
+                                    .foregroundStyle(settings.accentColor.opacity(0.8))
+                            }
+                    }
+                }
+                .frame(width: 48, height: 48)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+                downloadRing
+                    .offset(x: 4, y: 4)
             }
 
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 5) {
                 Text(title)
                     .font(.subheadline.weight(.medium))
                     .lineLimit(1)
-                Text(artist.isEmpty ? "Fetching stream…" : artist)
+                Text(artist.isEmpty ? "Preparing download…" : artist)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -360,23 +427,45 @@ private struct ActiveDownloadRow: View {
             Spacer(minLength: 0)
 
             Text("\(Int(progress * 100))%")
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.secondary)
+                .font(.caption.weight(.semibold))
+                .monospacedDigit()
+                .foregroundStyle(settings.accentColor)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color(.secondarySystemGroupedBackground))
+        )
         .task { await loadMetadata() }
+    }
+
+    private var downloadRing: some View {
+        ZStack {
+            Circle()
+                .fill(Color(.systemBackground))
+                .frame(width: 22, height: 22)
+            Circle()
+                .trim(from: 0, to: progress)
+                .stroke(settings.accentColor, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+                .frame(width: 18, height: 18)
+            Image(systemName: "arrow.down")
+                .font(.system(size: 8, weight: .bold))
+                .foregroundStyle(settings.accentColor)
+        }
     }
 
     private func loadMetadata() async {
         if let entity = try? await DatabaseService.shared.fetchOne(SongEntity.self, key: videoId) {
             title = entity.title
             artist = entity.artistName ?? ""
+            thumbnailUrl = entity.thumbnailUrl
             return
         }
         if let entity = try? await DatabaseService.shared.fetchOne(DownloadedTrackEntity.self, key: videoId) {
             title = entity.title
             artist = entity.artist
+            thumbnailUrl = entity.thumbnailUrl
         }
     }
 }
@@ -388,10 +477,6 @@ private struct DownloadedSongRow: View {
     var onPlay: () -> Void
     var onNavigate: (DetailRoute) -> Void
 
-    private var downloadedLabel: String {
-        downloadedAt.formatted(.relative(presentation: .named))
-    }
-
     var body: some View {
         Button(action: onPlay) {
             HStack(spacing: 12) {
@@ -401,11 +486,11 @@ private struct DownloadedSongRow: View {
                         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
 
                     Image(systemName: "arrow.down.circle.fill")
-                        .font(.caption2)
+                        .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(.white)
-                        .padding(3)
+                        .padding(2)
                         .background(Circle().fill(settings.accentColor))
-                        .offset(x: 4, y: 4)
+                        .offset(x: 3, y: 3)
                 }
 
                 VStack(alignment: .leading, spacing: 3) {
@@ -424,10 +509,6 @@ private struct DownloadedSongRow: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-
-                    Text("Saved \(downloadedLabel)")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
                 }
 
                 Spacer(minLength: 0)
@@ -445,5 +526,6 @@ private struct DownloadedSongRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityHint("Saved \(downloadedAt.formatted(.relative(presentation: .named)))")
     }
 }

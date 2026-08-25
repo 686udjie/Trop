@@ -75,7 +75,7 @@ class DownloadManager: ObservableObject {
     }
 
     /// AAC transcode bitrate for the download quality preference.
-    static func transcodeBitrate(for quality: DownloadQuality) -> Int {
+    nonisolated static func transcodeBitrate(for quality: DownloadQuality) -> Int {
         switch quality {
         case .auto, .high: return 192_000
         case .standard: return 96_000

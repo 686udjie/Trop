@@ -329,12 +329,14 @@ struct LibraryView: View {
                 Image(systemName: info.icon)
                     .font(.largeTitle)
                     .foregroundColor(.white)
+                    .shadow(color: .black.opacity(0.2), radius: 2, y: 1)
             }
             .clipShape(RoundedRectangle(cornerRadius: 12))
+            .shadow(color: info.id == "downloads" ? settings.accentColor.opacity(0.25) : .clear, radius: 8, y: 3)
 
             Text(info.title)
                 .lineLimit(1)
-                .font(.callout)
+                .font(.callout.weight(info.id == "downloads" ? .semibold : .regular))
             if let subtitle = info.subtitle {
                 Text(subtitle)
                     .font(.caption)
