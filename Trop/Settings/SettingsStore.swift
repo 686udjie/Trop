@@ -121,11 +121,12 @@ struct AccentPreset: Identifiable, Hashable {
 
     var id: String { name }
 
-    /// The pre-baked alternate app icon set matching this accent, or nil when
+    /// The pre-baked alternate app icon matching this accent, or nil when
     /// the accent equals the default (the primary icon is already Default Blue).
+    /// Icons live in "App Icons/" and are named after the accent color.
     var alternateIconName: String? {
         guard name != "Default Blue" else { return nil }
-        return "AppIcon-\(name)"
+        return name
     }
 
     static let all: [AccentPreset] = [
