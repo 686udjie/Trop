@@ -148,6 +148,7 @@ actor PlaybackManager {
                     continue
                 }
 
+                await StreamCache.shared.set(videoId: videoId, result: result)
                 await PlayerController.shared.play(
                     url: result.streamUrl,
                     title: result.title,
