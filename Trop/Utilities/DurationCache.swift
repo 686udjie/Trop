@@ -14,6 +14,7 @@ extension Notification.Name {
 enum DurationCache {
     private static var cache: [String: Int] = [:]
     private static var pending: Set<String> = []
+    private static var inFlight: [String: Task<Int, Error>] = [:]
     private static let lock = NSLock()
 
     static func isPending(_ videoId: String) -> Bool {
@@ -32,7 +33,11 @@ enum DurationCache {
         pending.remove(videoId)
         lock.unlock()
         DispatchQueue.main.async {
-            NotificationCenter.default.post(name: .durationDidUpdate, object: nil, userInfo: ["videoId": videoId])
+            NotificationCenter.default.post(
+                name: .durationDidUpdate,
+                object: nil,
+                userInfo: ["videoId": videoId, "duration": duration]
+            )
         }
     }
 
@@ -44,5 +49,37 @@ enum DurationCache {
     static func clearPending(_ videoId: String) {
         lock.lock(); defer { lock.unlock() }
         pending.remove(videoId)
+    }
+
+    /// Deduplicates concurrent duration fetches for the same video ID.
+    static func resolve(
+        videoId: String,
+        fetch: @escaping @Sendable () async throws -> Int
+    ) async throws -> Int {
+        lock.lock()
+        if let cached = cache[videoId], cached > 0 {
+            lock.unlock()
+            return cached
+        }
+        if let existing = inFlight[videoId] {
+            lock.unlock()
+            return try await existing.value
+        }
+
+        let task = Task<Int, Error> {
+            try await fetch()
+        }
+        inFlight[videoId] = task
+        pending.insert(videoId)
+        lock.unlock()
+
+        defer {
+            lock.lock()
+            inFlight.removeValue(forKey: videoId)
+            pending.remove(videoId)
+            lock.unlock()
+        }
+
+        return try await task.value
     }
 }

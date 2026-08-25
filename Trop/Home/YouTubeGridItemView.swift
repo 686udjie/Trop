@@ -98,14 +98,12 @@ struct YouTubeGridItemView: View {
             resolvedDuration = cached
             return
         }
-        guard !DurationCache.isPending(vid) else { return }
-        DurationCache.markPending(vid)
         do {
-            let duration = try await InnerTube.shared.fetchDuration(videoId: vid)
+            let duration = try await DurationCache.resolve(videoId: vid) {
+                try await InnerTube.shared.fetchDuration(videoId: vid)
+            }
             resolvedDuration = duration
-        } catch {
-            DurationCache.clearPending(vid)
-        }
+        } catch {}
     }
 }
 
@@ -228,13 +226,11 @@ struct YouTubeListItemView: View {
             resolvedDuration = cached
             return
         }
-        guard !DurationCache.isPending(vid) else { return }
-        DurationCache.markPending(vid)
         do {
-            let duration = try await InnerTube.shared.fetchDuration(videoId: vid)
+            let duration = try await DurationCache.resolve(videoId: vid) {
+                try await InnerTube.shared.fetchDuration(videoId: vid)
+            }
             resolvedDuration = duration
-        } catch {
-            DurationCache.clearPending(vid)
-        }
+        } catch {}
     }
 }

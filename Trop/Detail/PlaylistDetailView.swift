@@ -176,25 +176,34 @@ final class PlaylistDetailViewModel {
             var songs = entities.map { SongItem(entity: $0) }
             Log.playlistDetail.debug("songs count=\(songs.count)")
 
-            // Resolve missing durations in background
+            // Resolve missing durations in background (bounded concurrency)
             let emptyDurationIds = songs.filter { $0.duration <= 0 }.map { $0.videoId }
             if !emptyDurationIds.isEmpty {
                 Log.playlistDetail.debug("Resolving durations for \(emptyDurationIds.count) songs")
+                let maxConcurrent = 4
                 await withTaskGroup(of: (String, Int).self) { group in
-                    for videoId in emptyDurationIds {
-                        guard !DurationCache.isPending(videoId) else { continue }
-                        if let cached = DurationCache.get(videoId), cached > 0 { continue }
-                        DurationCache.markPending(videoId)
+                    var remaining = emptyDurationIds.makeIterator()
+
+                    func addNext() {
+                        guard let videoId = remaining.next() else { return }
                         group.addTask {
                             do {
-                                let d = try await InnerTube.shared.fetchDuration(videoId: videoId)
-                                DurationCache.set(videoId, d)
-                                return (videoId, d)
+                                let duration = try await DurationCache.resolve(videoId: videoId) {
+                                    try await InnerTube.shared.fetchDuration(videoId: videoId)
+                                }
+                                return (videoId, duration)
                             } catch {
-                                DurationCache.clearPending(videoId)
                                 return (videoId, 0)
                             }
                         }
+                    }
+
+                    for _ in 0..<min(maxConcurrent, emptyDurationIds.count) {
+                        addNext()
+                    }
+
+                    for await _ in group {
+                        addNext()
                     }
                 }
                 for i in songs.indices where songs[i].duration <= 0 {
@@ -818,14 +827,12 @@ struct PlaylistSongRow: View {
             resolvedDuration = cached
             return
         }
-        guard !DurationCache.isPending(vid) else { return }
-        DurationCache.markPending(vid)
         do {
-            let duration = try await InnerTube.shared.fetchDuration(videoId: vid)
+            let duration = try await DurationCache.resolve(videoId: vid) {
+                try await InnerTube.shared.fetchDuration(videoId: vid)
+            }
             resolvedDuration = duration
-        } catch {
-            DurationCache.clearPending(vid)
-        }
+        } catch {}
     }
 }
 
