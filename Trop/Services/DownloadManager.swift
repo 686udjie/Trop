@@ -49,6 +49,7 @@ class DownloadManager: ObservableObject {
         URLSession(configuration: .default, delegate: downloadDelegate, delegateQueue: nil)
     }()
     private let downloadDelegate = DownloadSessionDelegate()
+    private var downloadedVideoIds: Set<String> = []
     private var downloadsDir: URL {
         let base = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first
             ?? fileManager.temporaryDirectory
@@ -62,6 +63,7 @@ class DownloadManager: ObservableObject {
             }
         }
         pathMonitor.start(queue: DispatchQueue(label: "com.trop.network"))
+        Task { await refreshDownloadedCache() }
     }
 
     private var isOnWiFi: Bool {
@@ -79,6 +81,11 @@ class DownloadManager: ObservableObject {
 
     func download(song: SongItem) async {
         let videoId = song.videoId
+        if case .downloading = downloads[videoId] {
+            Log.downloadManager.debug("Download already in progress for \(videoId)")
+            return
+        }
+
         let artist = song.artists.map(\.name).joined(separator: ", ")
         Log.downloadManager.debug("Starting download: \(artist) - \(song.title) (\(videoId))")
         setProgress(0.02, for: videoId)
@@ -97,10 +104,8 @@ class DownloadManager: ObservableObject {
                 try? fileManager.removeItem(at: fileURL)
             }
 
-            // Prefetch artwork while resolving the stream and downloading audio.
             async let artworkData = prefetchArtwork(from: song.thumbnailUrl)
 
-            // Always resolve fresh for downloads so we pick AAC instead of a cached Opus stream.
             setProgress(0.05, for: videoId)
             let result = try await PlaybackManager.shared.resolve(
                 videoId: videoId,
@@ -117,7 +122,13 @@ class DownloadManager: ObservableObject {
 
             let tempDownload = fileManager.temporaryDirectory
                 .appendingPathComponent("\(UUID().uuidString).\(isAACStream ? "m4a" : "webm")")
-            try await downloadToFile(from: url, to: tempDownload, videoId: videoId)
+            let expectedBytes = await expectedDownloadSize(for: videoId, result: result, song: song)
+            try await downloadToFile(
+                from: url,
+                to: tempDownload,
+                videoId: videoId,
+                expectedBytes: expectedBytes
+            )
             let artwork = await artworkData
             Log.downloadManager.debug("Fetched stream file for \(videoId)")
 
@@ -153,15 +164,48 @@ class DownloadManager: ObservableObject {
                 downloadedAt: Date()
             )
             try await DatabaseService.shared.insertOrReplace(entity)
+            downloadedVideoIds.insert(videoId)
 
             downloads[videoId] = .completed
             Log.downloadManager.debug("Completed download: \(artist) - \(song.title) -> \(fileURL.path)")
             objectWillChange.send()
         } catch {
-            downloads[videoId] = .failed(error.localizedDescription)
+            downloads[videoId] = .failed(userFacingDownloadError(error))
             Log.downloadManager.error("Failed download \(videoId): \(error.localizedDescription)")
             objectWillChange.send()
         }
+    }
+
+    private func expectedDownloadSize(for videoId: String, result: PlaybackResult, song: SongItem) async -> Int64? {
+        if let format = try? await DatabaseService.shared.fetchOne(FormatEntity.self, key: videoId),
+           format.contentLength > 0 {
+            return format.contentLength
+        }
+        if song.duration > 0, result.bitrate > 0 {
+            return Int64(song.duration) * Int64(result.bitrate) / 8
+        }
+        return nil
+    }
+
+    private func userFacingDownloadError(_ error: Error) -> String {
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .notConnectedToInternet, .networkConnectionLost:
+                return "No internet connection."
+            case .timedOut:
+                return "The download timed out."
+            default:
+                break
+            }
+        }
+        if let downloadError = error as? DownloadError {
+            return downloadError.errorDescription ?? "Download failed. Try again."
+        }
+        return "Download failed. Try again."
+    }
+
+    private func refreshDownloadedCache() async {
+        downloadedVideoIds = Set((await fetchAll()).map(\.id))
     }
 
     private func setProgress(_ fraction: Double, for videoId: String) {
@@ -175,15 +219,20 @@ class DownloadManager: ObservableObject {
         return image.jpegData(compressionQuality: 0.9)
     }
 
-    private func downloadToFile(from url: URL, to destination: URL, videoId: String) async throws {
+    private func downloadToFile(
+        from url: URL,
+        to destination: URL,
+        videoId: String,
+        expectedBytes: Int64?
+    ) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             let task = downloadSession.downloadTask(with: url)
             downloadDelegate.register(
                 task: task,
                 destination: destination,
+                expectedBytes: expectedBytes,
                 onProgress: { [weak self] fraction in
                     Task { @MainActor in
-                        // 10–85% of overall progress is the network transfer.
                         self?.setProgress(0.10 + fraction * 0.75, for: videoId)
                     }
                 },
@@ -202,6 +251,7 @@ class DownloadManager: ObservableObject {
 
     func delete(videoId: String) async {
         downloads[videoId] = .notStarted
+        downloadedVideoIds.remove(videoId)
         if let entity = try? await DatabaseService.shared.fetchOne(DownloadedTrackEntity.self, key: videoId) {
             try? fileManager.removeItem(atPath: entity.localPath)
             _ = try? await DatabaseService.shared.delete(entity)
@@ -267,6 +317,7 @@ class DownloadManager: ObservableObject {
             _ = try? await DatabaseService.shared.delete(track)
         }
         downloads.removeAll()
+        downloadedVideoIds.removeAll()
         objectWillChange.send()
     }
 
@@ -274,7 +325,7 @@ class DownloadManager: ObservableObject {
         if let state = downloads[videoId], state != .notStarted {
             return state
         }
-        return isDownloaded(videoId: videoId) ? .completed : .notStarted
+        return downloadedVideoIds.contains(videoId) ? .completed : .notStarted
     }
 
     @discardableResult
@@ -372,8 +423,7 @@ class DownloadManager: ObservableObject {
         let metadata = buildMetadata(title: title, artist: artist, artworkData: artworkData)
 
         guard let audioTrack = try await asset.loadTracks(withMediaType: .audio).first else {
-            try fileManager.copyItem(at: inputURL, to: outputURL)
-            return outputURL
+            throw DownloadError.transcodeFailed
         }
 
         let reader = try AVAssetReader(asset: asset)
@@ -485,7 +535,16 @@ class DownloadManager: ObservableObject {
 
 enum DownloadError: Error, LocalizedError {
     case invalidStreamURL
-    var errorDescription: String? { "The stream URL returned by the server was invalid" }
+    case transcodeFailed
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidStreamURL:
+            return "The stream URL returned by the server was invalid"
+        case .transcodeFailed:
+            return "Could not convert this track for offline playback."
+        }
+    }
 }
 
 // MARK: - Streaming download delegate
@@ -494,6 +553,7 @@ private final class DownloadSessionDelegate: NSObject, URLSessionDownloadDelegat
     struct Context {
         let destination: URL
         var stagingURL: URL?
+        var expectedBytes: Int64?
         var onProgress: (@Sendable (Double) -> Void)?
         var completion: (@Sendable (Result<Void, Error>) -> Void)?
         var didFinish = false
@@ -505,6 +565,7 @@ private final class DownloadSessionDelegate: NSObject, URLSessionDownloadDelegat
     func register(
         task: URLSessionDownloadTask,
         destination: URL,
+        expectedBytes: Int64?,
         onProgress: (@Sendable (Double) -> Void)?,
         completion: @escaping @Sendable (Result<Void, Error>) -> Void
     ) {
@@ -512,6 +573,7 @@ private final class DownloadSessionDelegate: NSObject, URLSessionDownloadDelegat
         contexts[task.taskIdentifier] = Context(
             destination: destination,
             stagingURL: nil,
+            expectedBytes: expectedBytes,
             onProgress: onProgress,
             completion: completion,
             didFinish: false
@@ -527,10 +589,17 @@ private final class DownloadSessionDelegate: NSObject, URLSessionDownloadDelegat
         totalBytesExpectedToWrite: Int64
     ) {
         lock.lock()
-        let onProgress = contexts[downloadTask.taskIdentifier]?.onProgress
+        let context = contexts[downloadTask.taskIdentifier]
         lock.unlock()
-        guard totalBytesExpectedToWrite > 0, let onProgress else { return }
-        onProgress(Double(totalBytesWritten) / Double(totalBytesExpectedToWrite))
+        guard let onProgress = context?.onProgress else { return }
+
+        if totalBytesExpectedToWrite > 0 {
+            onProgress(Double(totalBytesWritten) / Double(totalBytesExpectedToWrite))
+            return
+        }
+        if let expected = context?.expectedBytes, expected > 0 {
+            onProgress(min(1.0, Double(totalBytesWritten) / Double(expected)))
+        }
     }
 
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
@@ -549,6 +618,7 @@ private final class DownloadSessionDelegate: NSObject, URLSessionDownloadDelegat
             context.stagingURL = staging
             contexts[downloadTask.taskIdentifier] = context
         } catch {
+            context.didFinish = true
             contexts.removeValue(forKey: downloadTask.taskIdentifier)
             lock.unlock()
             context.completion?(.failure(error))

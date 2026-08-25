@@ -755,6 +755,7 @@ struct PlaylistDetailView: View {
 // MARK: - Song Row
 
 struct PlaylistSongRow: View {
+    @Environment(SettingsStore.self) private var settings
     let song: SongItem
     var onPlay: (() -> Void)?
     var onNavigate: ((DetailRoute) -> Void)?
@@ -778,7 +779,7 @@ struct PlaylistSongRow: View {
                         .font(.system(size: 10))
                         .foregroundStyle(.white)
                         .padding(2)
-                        .background(Circle().fill(Color.accentColor))
+                        .background(Circle().fill(settings.accentColor))
                         .offset(x: 3, y: 3)
                 }
             }

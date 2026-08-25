@@ -148,20 +148,18 @@ struct DownloadsView: View {
     }
 
     private var contentView: some View {
-        ScrollView {
-            LazyVStack(spacing: 0) {
-                header
-                    .padding(.bottom, 8)
+        VStack(spacing: 0) {
+            header
+                .padding(.bottom, 8)
 
-                if !viewModel.activeDownloads.isEmpty {
-                    activeDownloadsSection
-                        .padding(.horizontal, 16)
-                        .padding(.bottom, 16)
-                }
+            if !viewModel.activeDownloads.isEmpty {
+                activeDownloadsSection
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 16)
+            }
 
-                if !viewModel.tracks.isEmpty {
-                    songList
-                }
+            if !viewModel.tracks.isEmpty {
+                songList
             }
         }
         .miniPlayerTracksScroll()
@@ -266,7 +264,7 @@ struct DownloadsView: View {
     }
 
     private var songList: some View {
-        LazyVStack(spacing: 0) {
+        List {
             ForEach(viewModel.tracks, id: \.id) { track in
                 let song = SongItem(entity: track)
                 DownloadedSongRow(
@@ -275,6 +273,8 @@ struct DownloadsView: View {
                     onPlay: { playSong(song) },
                     onNavigate: { pendingRoute = $0 }
                 )
+                .listRowInsets(EdgeInsets())
+                .listRowSeparator(.hidden)
                 .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                     Button(role: .destructive) {
                         Task { await viewModel.delete(track) }
@@ -284,6 +284,8 @@ struct DownloadsView: View {
                 }
             }
         }
+        .listStyle(.plain)
+        .scrollDisabled(false)
     }
 
     private func playAll() {

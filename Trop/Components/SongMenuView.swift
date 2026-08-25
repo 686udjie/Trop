@@ -67,16 +67,12 @@ struct SongMenuView: View {
                 Label("Remove Download", systemImage: "trash")
             }
 
-        case .failed(let message):
+        case .failed:
             Button {
                 Task { await downloadManager.download(song: songItem) }
             } label: {
                 Label("Retry Download", systemImage: "arrow.clockwise")
             }
-            Button {} label: {
-                Label(message, systemImage: "exclamationmark.triangle")
-            }
-            .disabled(true)
 
         case .notStarted:
             Button {
