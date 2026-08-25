@@ -31,6 +31,10 @@ The latest ipa file is available from the [releases page](../../releases). Night
 - [zemer-cipher](https://github.com/ZemerTeam/zemer-cipher) — YouTube cipher deobfuscation and PoToken generation
 - [Metrolist](https://github.com/MetrolistGroup/Metrolist) — YouTube Music client for Android
 
+## Community
+
+Join the [Discord server](https://discord.gg/QrMwZAfU97) for support and discussion.
+
 ## License
 
 This repo is licensed under [GPLv3](LICENSE.txt). Trop is not affiliated with, endorsed, or sponsored by Google or YouTube.
