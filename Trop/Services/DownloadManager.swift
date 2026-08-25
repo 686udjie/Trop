@@ -88,23 +88,12 @@ class DownloadManager: ObservableObject {
                 || result.mimeType.lowercased().contains("aac")
             Log.downloadManager.debug("Resolved stream: codec=\(result.mimeType) isAAC=\(isAACStream)")
 
-            // Stream the response in chunks (avoids per-byte copies and
-            // per-byte @Published notifications, which were the main slowdown).
             guard let url = URL(string: streamURL) else {
                 throw DownloadError.invalidStreamURL
             }
-            let (bytes, response) = try await URLSession.shared.bytes(from: url)
-            let expected = (response as? HTTPURLResponse)?.expectedContentLength ?? -1
-            var data = Data()
-            if expected > 0 { data.reserveCapacity(Int(expected)) }
-            var received: Int64 = 0
-            for try await chunk in bytes.chunks(ofCount: 64 * 1024) {
-                data.append(contentsOf: chunk)
-                received += Int64(chunk.count)
-                if expected > 0 {
-                    downloads[videoId] = .downloading(0.2 + 0.4 * (Double(received) / Double(expected)))
-                }
-            }
+            downloads[videoId] = .downloading(0.2)
+            let (data, _) = try await URLSession.shared.data(from: url)
+            downloads[videoId] = .downloading(0.6)
             Log.downloadManager.debug("Fetched \(data.count) bytes for \(videoId)")
 
             ensureDirectories()
