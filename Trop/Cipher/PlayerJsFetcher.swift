@@ -16,7 +16,7 @@ actor PlayerJsFetcher {
 
     private var cacheDir: URL? {
         let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
-        return documents?.appendingPathComponent("Trop/Player", isDirectory: true)
+        return documents?.appendingPathComponent("Player", isDirectory: true)
     }
 
     private init() {}

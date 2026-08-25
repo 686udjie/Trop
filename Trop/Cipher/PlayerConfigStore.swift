@@ -308,7 +308,7 @@ actor PlayerConfigStore {
 
     private var storeDir: URL? {
         let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
-        let dir = documents?.appendingPathComponent("Trop/Player", isDirectory: true)
+        let dir = documents?.appendingPathComponent("Player", isDirectory: true)
         // Deliberately not prefixed "player_" — PlayerJsFetcher purges player_* files here.
         return dir
     }

@@ -194,6 +194,7 @@ final class NowPlaying {
 
     func playNext(automatic: Bool = false) {
         guard hasNext else { return }
+        guard !isResolvingNext else { return }
         if !automatic { lastManualSkipTime = Date() }
         isResolvingNext = true
         queueIndex += 1
@@ -216,7 +217,9 @@ final class NowPlaying {
 
     func playPrevious() {
         guard hasPrevious else { return }
+        guard !isResolvingNext else { return }
         lastManualSkipTime = Date()
+        isResolvingNext = true
         queueIndex -= 1
         let song = queueSongs[queueIndex]
         let displayArtist = song.artists.map(\.name).joined(separator: ", ")
@@ -228,6 +231,7 @@ final class NowPlaying {
             } catch {
                 Log.nowPlaying.error("playPrevious failed: \(error)")
             }
+            isResolvingNext = false
         }
     }
 
@@ -396,7 +400,6 @@ final class NowPlaying {
             return
         }
 
-        thumbnailUIImage = nil
         thumbnailImage = nil
         Task {
             do {

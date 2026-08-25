@@ -214,6 +214,10 @@ final class PlayerController {
             mpv_set_option_string(mpv, "cache-secs", "120")
             mpv_set_option_string(mpv, "demuxer-max-bytes", "200M")
             mpv_set_option_string(mpv, "gapless-audio", "yes")
+            // Prevent mpv's ao_audiounit from setting AVAudioSessionCategoryOptionMixWithOthers,
+            // which causes iOS to treat the app as a secondary audio source and fade the
+            // lock-screen / Control Center media controls.
+            mpv_set_option_string(mpv, "audio-exclusive", "yes")
             // Scale the decoded frame across the full drawable. Black padding
             // inside a source video must not shrink the player viewport.
             mpv_set_option_string(mpv, "background", "0x00000000")
@@ -265,6 +269,10 @@ final class PlayerController {
                 mpv_get_property(mpv, "pause", MPV_FORMAT_FLAG, &pauseFlag)
                 let actuallyPlaying = pauseFlag == 0
                 Log.player.debug("TRANSITION FILE_LOADED videoId=\(self.pendingVideoId ?? "nil") playing=\(actuallyPlaying)")
+                let aoPtr = mpv_get_property_string(mpv, "current-ao")
+                let aoName = aoPtr.map { String(cString: $0) } ?? "nil"
+                if let aoPtr { mpv_free(aoPtr) }
+                Log.player.info("MPV_AO current-ao=\(aoName)")
                 DispatchQueue.main.async {
                     self.playState.send(actuallyPlaying ? .playing : .paused)
                     NowPlaying.shared.isPlaying = actuallyPlaying
@@ -272,6 +280,11 @@ final class PlayerController {
                     self.assertAudioSession()
                     self.setNowPlayingMetadata()
                     self.applyPendingResumeIfNeeded()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                        guard self?.currentVideoId == self?.pendingVideoId else { return }
+                        self?.updateNowPlayingArtwork()
+                        self?.updateNowPlayingProgress()
+                    }
                 }
             case MPV_EVENT_PROPERTY_CHANGE:
                 if let prop = event.pointee.data?.load(as: mpv_event_property.self),
@@ -617,16 +630,32 @@ extension PlayerController {
     // MARK: - Audio Session
 
     func assertAudioSession() {
+        let session = AVAudioSession.sharedInstance()
         do {
-            try AVAudioSession.sharedInstance().setCategory(
+            try session.setCategory(
                 .playback,
                 mode: .default,
                 policy: .longFormAudio
             )
-            try AVAudioSession.sharedInstance().setActive(true)
+            try session.setActive(true)
+            Log.player.info("""
+            AUDIO_SESSION category=\(session.category.rawValue) active=\(session.isOtherAudioPlaying ? "yes(otherPlaying)" : "yes") \
+            outputs=\(session.currentRoute.outputs.map(\.portName).joined(separator: ","))
+            """)
         } catch {
             Log.player.error("Failed to assert audio session: \(error)")
         }
+    }
+
+    private func logBackgroundSnapshot(_ phase: String) {
+        let session = AVAudioSession.sharedInstance()
+        let info = MPNowPlayingInfoCenter.default().nowPlayingInfo
+        Log.player.info("""
+        BG_SNAPSHOT[\(phase)] state=\(playState.value) \
+        title=\(nowPlayingInfo[MPMediaItemPropertyTitle] ?? "-") \
+        infoKeys=\(info?.keys.count ?? 0) rate=\(info?[MPNowPlayingInfoPropertyPlaybackRate] ?? "-") \
+        category=\(session.category.rawValue)
+        """)
     }
 
     private func observeInterruptions() {
@@ -649,12 +678,14 @@ extension PlayerController {
               let typeValue = userInfo[AVAudioSessionInterruptionTypeKey] as? UInt,
               let type = AVAudioSession.InterruptionType(rawValue: typeValue) else { return }
 
+        Log.player.info("AUDIO_INTERRUPTION began")
         switch type {
         case .began:
             if playState.value == .playing {
                 Task { @MainActor in self.togglePlayPause() }
             }
         case .ended:
+            Log.player.info("AUDIO_INTERRUPTION ended")
             if let optionsValue = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt {
                 let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue)
                 if options.contains(.shouldResume) {
@@ -674,6 +705,7 @@ extension PlayerController {
               let reasonValue = userInfo[AVAudioSessionRouteChangeReasonKey] as? UInt,
               let reason = AVAudioSession.RouteChangeReason(rawValue: reasonValue) else { return }
 
+        Log.player.info("ROUTE_CHANGE reason=\(reason.rawValue)")
         if reason == .oldDeviceUnavailable {
             if playState.value == .playing {
                 Task { @MainActor in self.togglePlayPause() }
@@ -702,6 +734,7 @@ extension PlayerController {
         nowPlayingInfo[MPMediaItemPropertyAlbumTitle] = np.albumTitle
         nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] = np.isPlaying ? 1 : 0
         nowPlayingInfo[MPNowPlayingInfoPropertyMediaType] = MPNowPlayingInfoMediaType.audio.rawValue
+        nowPlayingInfo[MPNowPlayingInfoPropertyDefaultPlaybackRate] = 1
         if duration > 0 {
             nowPlayingInfo[MPMediaItemPropertyPlaybackDuration] = duration
         }
@@ -710,10 +743,13 @@ extension PlayerController {
         nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackQueueCount] = np.queueSongs.count
         if let image = np.thumbnailUIImage {
             nowPlayingInfo[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
-        } else {
-            nowPlayingInfo[MPMediaItemPropertyArtwork] = nil
         }
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
+        Log.player.info("""
+        NOW_PLAYING_PUBLISH title='\(np.title)' artist='\(np.artist ?? "-")' \
+        duration=\(duration) rate=\(nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] ?? 0) \
+        artwork=\(np.thumbnailUIImage != nil) keys=\(nowPlayingInfo.keys.count)
+        """)
     }
 
     @MainActor
@@ -721,8 +757,6 @@ extension PlayerController {
         let np = NowPlaying.shared
         if let image = np.thumbnailUIImage {
             nowPlayingInfo[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
-        } else {
-            nowPlayingInfo[MPMediaItemPropertyArtwork] = nil
         }
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
     }
@@ -736,7 +770,7 @@ extension PlayerController {
         mpv_get_property(mpv, "duration", MPV_FORMAT_DOUBLE, &dur)
         guard dur > 0 else { return }
 
-        var info = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? nowPlayingInfo
+        var info = nowPlayingInfo
         info[MPMediaItemPropertyPlaybackDuration] = dur
         np.duration = dur
 
@@ -750,33 +784,70 @@ extension PlayerController {
         info[MPNowPlayingInfoPropertyPlaybackQueueCount] = np.queueSongs.count
         nowPlayingInfo = info
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+
+        // While backgrounded, periodically prove what the system should be
+        // seeing. Silence here means the progress timer died with the app
+        // suspended — itself a diagnostic.
+        if UIApplication.shared.applicationState != .active,
+           Date().timeIntervalSince(Self.lastBackgroundHeartbeat) > 2 {
+            Self.lastBackgroundHeartbeat = Date()
+            Log.player.info("""
+            BG_HEARTBEAT appState=\(UIApplication.shared.applicationState.rawValue) \
+            playing=\(np.isPlaying) pos=\(pos) keys=\(info.keys.count)
+            """)
+        }
     }
+
+    private static var lastBackgroundHeartbeat = Date.distantPast
 
     // MARK: - Remote Commands
 
+    /// Registered at app launch rather than first playback: iOS decides
+    /// whether an app may host lock-screen controls partly on remote-event
+    /// reception being enabled before backgrounding ever happens.
+    static func registerRemoteControlSupport() {
+        DispatchQueue.main.async {
+            UIApplication.shared.beginReceivingRemoteControlEvents()
+            Log.player.info("REMOTE_COMMANDS launch-time beginReceivingRemoteControlEvents")
+        }
+    }
+
     private func setupRemoteCommands() {
+        // Must run after the audio session is configured, or iOS never
+        // registers this app as the Now Playing app: audio keeps playing in
+        // the background but lock-screen / Control Center controls never
+        // appear.
+        DispatchQueue.main.async {
+            UIApplication.shared.beginReceivingRemoteControlEvents()
+            Log.player.info("REMOTE_COMMANDS beginReceivingRemoteControlEvents called")
+        }
+
         let center = MPRemoteCommandCenter.shared()
 
         center.playCommand.isEnabled = true
         center.playCommand.addTarget { [weak self] _ in
+            Log.player.info("REMOTE_COMMAND play fired")
             Task { @MainActor [weak self] in self?.togglePlayPause() }
             return .success
         }
 
         center.pauseCommand.isEnabled = true
         center.pauseCommand.addTarget { [weak self] _ in
+            Log.player.info("REMOTE_COMMAND pause fired")
             Task { @MainActor [weak self] in self?.togglePlayPause() }
             return .success
         }
 
         center.nextTrackCommand.isEnabled = true
         center.nextTrackCommand.addTarget { _ in
+            Log.player.info("REMOTE_COMMAND next fired")
             Task { @MainActor in NowPlaying.shared.playNext() }
             return .success
         }
 
         center.previousTrackCommand.isEnabled = true
         center.previousTrackCommand.addTarget { _ in
+            Log.player.info("REMOTE_COMMAND previous fired")
             Task { @MainActor in NowPlaying.shared.playPrevious() }
             return .success
         }
@@ -787,11 +858,43 @@ extension PlayerController {
                 return .commandFailed
             }
             let position = event.positionTime
+            Log.player.info("REMOTE_COMMAND seek fired to=\(position)")
             Task { @MainActor [weak self] in
                 self?.seek(to: position)
                 self?.updateNowPlayingProgress()
             }
             return .success
         }
+
+        // Correlate lock/unlock with what the system should be seeing.
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.willResignActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in self?.logBackgroundSnapshot("resignActive") }
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.didEnterBackgroundNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            self.logBackgroundSnapshot("enterBackground")
+            // Some iOS builds drop Now Playing info that was published shortly
+            // before backgrounding; republish while we are guaranteed alive.
+            for delaySeconds in [0.6, 3] as [Double] {
+                Task { @MainActor [weak self] in
+                    try? await Task.sleep(nanoseconds: UInt64(delaySeconds * 1_000_000_000))
+                    guard let self, UIApplication.shared.applicationState != .active else { return }
+                    self.setNowPlayingMetadata()
+                    self.updateNowPlayingProgress()
+                    Log.player.info("BG_REPUBLISH after=\(delaySeconds)s")
+                }
+            }
+        }
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in self?.logBackgroundSnapshot("becomeActive") }
     }
 }

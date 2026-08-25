@@ -32,7 +32,7 @@ class DownloadManager: ObservableObject {
     private var downloadsDir: URL {
         let base = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first
             ?? fileManager.temporaryDirectory
-        return base.appendingPathComponent("Trop/Downloads")
+        return base.appendingPathComponent("Downloads")
     }
 
     private init() {
