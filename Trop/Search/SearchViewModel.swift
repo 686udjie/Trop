@@ -75,6 +75,7 @@ final class SearchViewModel {
 
     private var suggestionsTask: Task<Void, Never>?
     private var localSearchTask: Task<Void, Never>?
+    private var fetchTask: Task<Void, Never>?
 
     private static let historyKey = "Search.history"
     private static let historyNewestFirstKey = "Search.historyNewestFirst"
@@ -141,7 +142,7 @@ final class SearchViewModel {
         updateHistory(query: query)
         cancelTasks()
 
-        Task { [weak self] in
+        fetchTask = Task { [weak self] in
             await self?.fetchResults(for: query)
         }
     }
@@ -150,6 +151,7 @@ final class SearchViewModel {
         do {
             async let localResults = try? SearchService.shared.localSearch(query: query)
             let searchRaw = try await SearchService.shared.search(query: query)
+            guard query == submittedQuery else { return }
 
             if let local = await localResults {
                 localSongs = local.songs
@@ -163,6 +165,7 @@ final class SearchViewModel {
             isShowingLibrary = false
             phase = results.isEmpty ? .noResults : .results
         } catch {
+            guard query == submittedQuery else { return }
             if !Self.isCancellation(error) {
                 Log.search.error("Submit failed: \(error)")
                 self.error = error
@@ -292,6 +295,7 @@ final class SearchViewModel {
     private func cancelTasks() {
         suggestionsTask?.cancel()
         localSearchTask?.cancel()
+        fetchTask?.cancel()
     }
 
     private func clearTypingData() {

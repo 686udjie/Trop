@@ -278,7 +278,7 @@ final class NowPlaying {
         }
         urls.append(contentsOf: neighborIds.compactMap { URL(string: Self.artworkURL(for: $0)) })
         guard !urls.isEmpty else { return }
-        Task { await ImagePreloader.shared.preload(urls) }
+        Task { await ImagePreloader.shared.append(urls) }
     }
 
     /// Artist string from `artists`, falling back to `artist`.
