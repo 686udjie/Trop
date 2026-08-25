@@ -15,7 +15,6 @@ struct LibraryView: View {
     @State private var albums: [AlbumEntity] = []
     @State private var podcasts: [PodcastEntity] = []
     @State private var likedSongCount = 0
-    @State private var downloadedSongCount = 0
     @State private var isLoading = true
     @State private var selectedFilter: LibraryFilter?
     @State private var showCreateDialog = false
@@ -41,7 +40,9 @@ struct LibraryView: View {
     }
 
     private var downloadsSubtitle: String {
-        downloadedSongCount == 0 ? "Offline" : "\(downloadedSongCount) songs"
+        downloadManager.persistedDownloadCount == 0
+            ? "Offline"
+            : "\(downloadManager.persistedDownloadCount) songs"
     }
 
     enum LibraryFilter: String, CaseIterable {
@@ -137,11 +138,6 @@ struct LibraryView: View {
             .refreshable {
                 await IncrementalSyncService.shared.forceFullSync()
                 await loadContent()
-            }
-            .onChange(of: downloadManager.downloads) { _, _ in
-                Task {
-                    downloadedSongCount = (await DownloadManager.shared.fetchAll()).count
-                }
             }
             .alert("Delete Playlist", isPresented: .init(
                 get: { playlistToDelete != nil },
@@ -400,13 +396,11 @@ struct LibraryView: View {
             async let albumsFetch = DatabaseService.shared.fetchAllAlbums()
             async let podcastsFetch = DatabaseService.shared.fetchAllPodcasts()
             async let countFetch = DatabaseService.shared.fetchAllLikedSongCount()
-            async let downloadsFetch = DownloadManager.shared.fetchAll()
             artists = try await artistsFetch
             playlists = try await playlistsFetch
             albums = try await albumsFetch
             podcasts = try await podcastsFetch
             likedSongCount = try await countFetch
-            downloadedSongCount = (await downloadsFetch).count
 
             let rows: [(String, Int)] = try await DatabaseService.shared.read { db in
                 try Row.fetchAll(db, sql: "SELECT playlist_id, COUNT(*) as cnt FROM playlist_song_map GROUP BY playlist_id")

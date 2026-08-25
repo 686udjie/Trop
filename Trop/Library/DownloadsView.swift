@@ -25,8 +25,7 @@ final class DownloadsViewModel {
 
     func load() async {
         isLoading = true
-        tracks = await downloadManager.fetchAllSorted(by: sort)
-        storageBytes = downloadManager.totalStorageBytes()
+        await refreshPersistedTracks()
         isLoading = false
     }
 
@@ -35,14 +34,20 @@ final class DownloadsViewModel {
         await load()
     }
 
+    func refreshPersistedTracks() async {
+        tracks = await downloadManager.fetchAllSorted(by: sort)
+        storageBytes = downloadManager.totalStorageBytes()
+    }
+
     func delete(_ track: DownloadedTrackEntity) async {
         await downloadManager.delete(videoId: track.id)
-        await load()
+        await refreshPersistedTracks()
+        Log.downloadsView.debug("Removed download \(track.id)")
     }
 
     func deleteAll() async {
         await downloadManager.deleteAll()
-        await load()
+        await refreshPersistedTracks()
     }
 }
 
@@ -72,8 +77,9 @@ struct DownloadsView: View {
         .toolbar { toolbarContent }
         .refreshable { await viewModel.load() }
         .task { await viewModel.load() }
-        .onChange(of: downloadManager.downloads) { _, _ in
-            Task { await viewModel.load() }
+        .onChange(of: downloadManager.downloads) { old, new in
+            guard DownloadManager.shouldRefreshPersistedLibrary(old: old, new: new) else { return }
+            Task { await viewModel.refreshPersistedTracks() }
         }
         .alert("Remove All Downloads?", isPresented: $showClearConfirmation) {
             Button("Cancel", role: .cancel) {}

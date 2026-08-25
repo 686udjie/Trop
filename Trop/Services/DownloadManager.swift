@@ -18,6 +18,7 @@ class DownloadManager: ObservableObject {
     static let shared = DownloadManager()
 
     @Published private(set) var downloads: [String: DownloadState] = [:]
+    @Published private(set) var persistedDownloadCount: Int = 0
 
     enum DownloadState: Equatable {
         case notStarted
@@ -50,6 +51,8 @@ class DownloadManager: ObservableObject {
     }()
     private let downloadDelegate = DownloadSessionDelegate()
     private var downloadedVideoIds: Set<String> = []
+    private var activeDownloadTasks: [String: URLSessionDownloadTask] = [:]
+    private var cancelledDownloadIds: Set<String> = []
     private var downloadsDir: URL {
         let base = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first
             ?? fileManager.temporaryDirectory
@@ -86,6 +89,7 @@ class DownloadManager: ObservableObject {
             return
         }
 
+        cancelledDownloadIds.remove(videoId)
         let artist = song.artists.map(\.name).joined(separator: ", ")
         Log.downloadManager.debug("Starting download: \(artist) - \(song.title) (\(videoId))")
         setProgress(0.02, for: videoId)
@@ -154,6 +158,14 @@ class DownloadManager: ObservableObject {
             }
             try? fileManager.removeItem(at: tempDownload)
 
+            if cancelledDownloadIds.contains(videoId) {
+                cancelledDownloadIds.remove(videoId)
+                try? fileManager.removeItem(at: fileURL)
+                downloads[videoId] = .notStarted
+                objectWillChange.send()
+                return
+            }
+
             let entity = DownloadedTrackEntity(
                 id: videoId,
                 title: song.title,
@@ -165,11 +177,18 @@ class DownloadManager: ObservableObject {
             )
             try await DatabaseService.shared.insertOrReplace(entity)
             downloadedVideoIds.insert(videoId)
+            persistedDownloadCount = downloadedVideoIds.count
 
             downloads[videoId] = .completed
             Log.downloadManager.debug("Completed download: \(artist) - \(song.title) -> \(fileURL.path)")
             objectWillChange.send()
         } catch {
+            if cancelledDownloadIds.contains(videoId) || (error as? URLError)?.code == .cancelled {
+                cancelledDownloadIds.remove(videoId)
+                downloads[videoId] = .notStarted
+                objectWillChange.send()
+                return
+            }
             downloads[videoId] = .failed(userFacingDownloadError(error))
             Log.downloadManager.error("Failed download \(videoId): \(error.localizedDescription)")
             objectWillChange.send()
@@ -206,6 +225,43 @@ class DownloadManager: ObservableObject {
 
     private func refreshDownloadedCache() async {
         downloadedVideoIds = Set((await fetchAll()).map(\.id))
+        persistedDownloadCount = downloadedVideoIds.count
+    }
+
+    static func shouldRefreshPersistedLibrary(
+        old: [String: DownloadState],
+        new: [String: DownloadState]
+    ) -> Bool {
+        for (videoId, newState) in new {
+            let oldState = old[videoId] ?? .notStarted
+            if oldState == newState { continue }
+            switch (oldState, newState) {
+            case (.downloading, .completed), (.downloading, .failed),
+                 (.completed, .notStarted), (.failed, .notStarted),
+                 (.notStarted, .completed):
+                return true
+            default:
+                continue
+            }
+        }
+        for (videoId, oldState) in old where new[videoId] == nil {
+            if case .completed = oldState { return true }
+        }
+        return false
+    }
+
+    private func cancelActiveDownload(videoId: String) {
+        cancelledDownloadIds.insert(videoId)
+        activeDownloadTasks[videoId]?.cancel()
+        activeDownloadTasks.removeValue(forKey: videoId)
+    }
+
+    private func cancelAllActiveDownloads() {
+        for videoId in activeDownloadTasks.keys {
+            cancelledDownloadIds.insert(videoId)
+            activeDownloadTasks[videoId]?.cancel()
+        }
+        activeDownloadTasks.removeAll()
     }
 
     private func setProgress(_ fraction: Double, for videoId: String) {
@@ -227,6 +283,7 @@ class DownloadManager: ObservableObject {
     ) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             let task = downloadSession.downloadTask(with: url)
+            activeDownloadTasks[videoId] = task
             downloadDelegate.register(
                 task: task,
                 destination: destination,
@@ -247,11 +304,14 @@ class DownloadManager: ObservableObject {
             )
             task.resume()
         }
+        activeDownloadTasks.removeValue(forKey: videoId)
     }
 
     func delete(videoId: String) async {
+        cancelActiveDownload(videoId: videoId)
         downloads[videoId] = .notStarted
         downloadedVideoIds.remove(videoId)
+        persistedDownloadCount = downloadedVideoIds.count
         if let entity = try? await DatabaseService.shared.fetchOne(DownloadedTrackEntity.self, key: videoId) {
             try? fileManager.removeItem(atPath: entity.localPath)
             _ = try? await DatabaseService.shared.delete(entity)
@@ -268,7 +328,7 @@ class DownloadManager: ObservableObject {
     }
 
     func isDownloaded(videoId: String) -> Bool {
-        localURL(for: videoId) != nil
+        downloadedVideoIds.contains(videoId)
     }
 
     func fetchAll() async -> [DownloadedTrackEntity] {
@@ -311,6 +371,7 @@ class DownloadManager: ObservableObject {
     }
 
     func deleteAll() async {
+        cancelAllActiveDownloads()
         let tracks = await fetchAll()
         for track in tracks {
             try? fileManager.removeItem(atPath: track.localPath)
@@ -318,6 +379,8 @@ class DownloadManager: ObservableObject {
         }
         downloads.removeAll()
         downloadedVideoIds.removeAll()
+        persistedDownloadCount = 0
+        cancelledDownloadIds.removeAll()
         objectWillChange.send()
     }
 

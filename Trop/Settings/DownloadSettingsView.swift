@@ -71,7 +71,11 @@ struct DownloadSettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .miniPlayerTracksScroll()
         .task { await refreshStats() }
-        .onChange(of: downloadManager.downloads) { _, _ in
+        .onChange(of: downloadManager.persistedDownloadCount) { _, _ in
+            Task { await refreshStats() }
+        }
+        .onChange(of: downloadManager.downloads) { old, new in
+            guard DownloadManager.shouldRefreshPersistedLibrary(old: old, new: new) else { return }
             Task { await refreshStats() }
         }
         .alert("Remove All Downloads?", isPresented: $showClearConfirmation) {
@@ -89,6 +93,6 @@ struct DownloadSettingsView: View {
 
     private func refreshStats() async {
         storageBytes = downloadManager.totalStorageBytes()
-        trackCount = await downloadManager.fetchAll().count
+        trackCount = downloadManager.persistedDownloadCount
     }
 }
