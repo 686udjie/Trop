@@ -30,4 +30,18 @@ enum ClientFallbackChain {
         FallbackClient(client: .mobile, skipValidation: false),
         FallbackClient(client: .webRemix, skipValidation: true)
     ]
+
+    /// Faster resolve path for offline downloads: iOS/Android clients first for AAC
+    /// streams, and skip HEAD validation (the transfer itself proves the URL works).
+    static let forDownload: [FallbackClient] = [
+        FallbackClient(client: .iOS, skipValidation: true),
+        FallbackClient(client: .androidVr1_65_10, skipValidation: true),
+        FallbackClient(client: .androidVr1_61_48, skipValidation: true),
+        FallbackClient(client: .androidVr1_43_32, skipValidation: true),
+        FallbackClient(client: .visionOS, skipValidation: true),
+        FallbackClient(client: .tvHtml5SimplyEmbedded, skipValidation: true),
+        FallbackClient(client: .tvHtml5, skipValidation: true),
+        FallbackClient(client: .mobile, skipValidation: true),
+        FallbackClient(client: .webRemix, skipValidation: true)
+    ]
 }

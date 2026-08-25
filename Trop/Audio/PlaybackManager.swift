@@ -311,18 +311,22 @@ actor PlaybackManager {
     }
 
     private func resolveFromNetwork(videoId: String, preferredFormat: Format?, forDownload: Bool) async throws -> PlaybackResult {
-        let poTokenTask = Task { try? await generatePoToken(videoId: videoId) }
-        defer { poTokenTask.cancel() }
+        var poTokenTask: Task<PoTokenResult?, Never>?
+        defer { poTokenTask?.cancel() }
 
         var lastError: Error?
+        let clients = forDownload ? ClientFallbackChain.forDownload : ClientFallbackChain.preferred
 
-        for fb in ClientFallbackChain.preferred {
+        for fb in clients {
             var playerPoToken: String?
             var streamPoToken: String?
 
             if fb.client.useWebPoTokens {
-                playerPoToken = await poTokenTask.value?.playerRequestPoToken
-                streamPoToken = await poTokenTask.value?.streamingDataPoToken
+                if poTokenTask == nil {
+                    poTokenTask = Task { try? await generatePoToken(videoId: videoId) }
+                }
+                playerPoToken = await poTokenTask?.value?.playerRequestPoToken
+                streamPoToken = await poTokenTask?.value?.streamingDataPoToken
             }
 
             do {
@@ -335,7 +339,7 @@ actor PlaybackManager {
                     forDownload: forDownload
                 )
 
-                if fb.skipValidation {
+                if fb.skipValidation || forDownload {
                     if !forDownload {
                         await StreamCache.shared.set(videoId: videoId, result: result)
                     }

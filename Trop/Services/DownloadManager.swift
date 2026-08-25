@@ -47,12 +47,17 @@ class DownloadManager: ObservableObject {
     private let pathMonitor = NWPathMonitor()
     private var currentPath: NWPath?
     private lazy var downloadSession: URLSession = {
-        URLSession(configuration: .default, delegate: downloadDelegate, delegateQueue: nil)
+        let config = URLSessionConfiguration.default
+        config.httpMaximumConnectionsPerHost = 4
+        config.timeoutIntervalForResource = 7_200
+        config.waitsForConnectivity = false
+        return URLSession(configuration: config, delegate: downloadDelegate, delegateQueue: nil)
     }()
     private let downloadDelegate = DownloadSessionDelegate()
     private var downloadedVideoIds: Set<String> = []
     private var activeDownloadTasks: [String: URLSessionDownloadTask] = [:]
     private var cancelledDownloadIds: Set<String> = []
+    private var lastReportedProgress: [String: Double] = [:]
     private var downloadsDir: URL {
         let base = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first
             ?? fileManager.temporaryDirectory
@@ -141,12 +146,14 @@ class DownloadManager: ObservableObject {
             if isAACStream {
                 Log.downloadManager.debug("AAC stream detected — saving directly (no transcode)")
                 try fileManager.copyItem(at: tempDownload, to: fileURL)
-                try await attachMetadata(
-                    to: fileURL,
-                    title: song.title,
-                    artist: artist,
-                    artworkData: artwork
-                )
+                if artwork != nil {
+                    try await attachMetadata(
+                        to: fileURL,
+                        title: song.title,
+                        artist: artist,
+                        artworkData: artwork
+                    )
+                }
             } else {
                 _ = try await processAudio(
                     inputURL: tempDownload,
@@ -160,6 +167,7 @@ class DownloadManager: ObservableObject {
 
             if cancelledDownloadIds.contains(videoId) {
                 cancelledDownloadIds.remove(videoId)
+                lastReportedProgress.removeValue(forKey: videoId)
                 try? fileManager.removeItem(at: fileURL)
                 downloads[videoId] = .notStarted
                 objectWillChange.send()
@@ -180,16 +188,19 @@ class DownloadManager: ObservableObject {
             persistedDownloadCount = downloadedVideoIds.count
 
             downloads[videoId] = .completed
+            lastReportedProgress.removeValue(forKey: videoId)
             Log.downloadManager.debug("Completed download: \(artist) - \(song.title) -> \(fileURL.path)")
             objectWillChange.send()
         } catch {
             if cancelledDownloadIds.contains(videoId) || (error as? URLError)?.code == .cancelled {
                 cancelledDownloadIds.remove(videoId)
+                lastReportedProgress.removeValue(forKey: videoId)
                 downloads[videoId] = .notStarted
                 objectWillChange.send()
                 return
             }
             downloads[videoId] = .failed(userFacingDownloadError(error))
+            lastReportedProgress.removeValue(forKey: videoId)
             Log.downloadManager.error("Failed download \(videoId): \(error.localizedDescription)")
             objectWillChange.send()
         }
@@ -265,8 +276,11 @@ class DownloadManager: ObservableObject {
     }
 
     private func setProgress(_ fraction: Double, for videoId: String) {
-        downloads[videoId] = .downloading(min(0.99, max(0, fraction)))
-        objectWillChange.send()
+        let clamped = min(0.99, max(0, fraction))
+        let last = lastReportedProgress[videoId] ?? -1
+        guard clamped >= 0.99 || last < 0 || clamped - last >= 0.02 else { return }
+        lastReportedProgress[videoId] = clamped
+        downloads[videoId] = .downloading(clamped)
     }
 
     private func prefetchArtwork(from thumbnailUrl: String?) async -> Data? {
@@ -309,6 +323,7 @@ class DownloadManager: ObservableObject {
 
     func delete(videoId: String) async {
         cancelActiveDownload(videoId: videoId)
+        lastReportedProgress.removeValue(forKey: videoId)
         downloads[videoId] = .notStarted
         downloadedVideoIds.remove(videoId)
         persistedDownloadCount = downloadedVideoIds.count
@@ -336,19 +351,19 @@ class DownloadManager: ObservableObject {
     }
 
     func fetchAllSorted(by sort: DownloadSort) async -> [DownloadedTrackEntity] {
-        let tracks = await fetchAll()
+        let orderClause: String
         switch sort {
         case .recent:
-            return tracks.sorted { $0.downloadedAt > $1.downloadedAt }
+            orderClause = "ORDER BY downloaded_at DESC"
         case .title:
-            return tracks.sorted {
-                $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
-            }
+            orderClause = "ORDER BY title COLLATE NOCASE ASC"
         case .artist:
-            return tracks.sorted {
-                $0.artist.localizedCaseInsensitiveCompare($1.artist) == .orderedAscending
-            }
+            orderClause = "ORDER BY artist COLLATE NOCASE ASC, title COLLATE NOCASE ASC"
         }
+        return (try? await DatabaseService.shared.fetchAll(
+            DownloadedTrackEntity.self,
+            sql: "SELECT * FROM downloaded_track \(orderClause)"
+        )) ?? []
     }
 
     var activeDownloads: [(videoId: String, progress: Double)] {
@@ -381,6 +396,7 @@ class DownloadManager: ObservableObject {
         downloadedVideoIds.removeAll()
         persistedDownloadCount = 0
         cancelledDownloadIds.removeAll()
+        lastReportedProgress.removeAll()
         objectWillChange.send()
     }
 
