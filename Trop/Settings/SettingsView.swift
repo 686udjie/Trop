@@ -31,6 +31,14 @@ struct SettingsView: View {
             } header: {
                 Text("Player & Content")
             }
+
+            Section {
+                SettingsNavigationRow("About", icon: "info.circle") {
+                    AboutSettingsView()
+                }
+            } header: {
+                Text("About")
+            }
         }
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
