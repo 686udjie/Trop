@@ -7,19 +7,35 @@
 
 import Foundation
 
-/// Arabic → Latin, harakat-aware: fatha/damma/kasra, tanwin, shadda
-/// doubling, sun/moon letters, ta marbuta word-final "a"
+/// Arabic → Latin.
+/// Pointed text uses harakat: fatha/damma/kasra, tanwin, shadda doubling,
+/// sun/moon letters, ta marbuta word-final "a".
+/// Unpointed lyrics get inferred vowels from matres (ا = a, medial و = u,
+/// non-initial ي = i) plus an epenthetic "a" between consonants, because
+/// consonant-only output is unreadable (مرحبا → marhaba, not mrhba).
 extension LyricsRomanizer {
     static func romanizeArabic(_ text: String) -> String {
         let scalars = Array(text.unicodeScalars)
-        var out = ""
+        var phonemes: [Phoneme] = []
+        var startsWord: [Bool] = []
+        var pendingWordStart = true
+        var hasAnyPoints = false
         var i = 0
+        /// The previous letter carried tanwin — a following bare alif is just
+        /// its seat (شُكْرًا → "shukran", not "shukrana").
+        var previousHadTanwin = false
+
+        func endsVowel(_ character: String?) -> Bool {
+            guard let last = character?.last else { return false }
+            return "aeiou".contains(last)
+        }
 
         while i < scalars.count {
             let value = scalars[i].value
 
             guard isArabicBase(value) else {
-                out.unicodeScalars.append(scalars[i])
+                if !isArabicPoint(value) { pendingWordStart = true }
+                previousHadTanwin = false
                 i += 1
                 continue
             }
@@ -28,6 +44,7 @@ extension LyricsRomanizer {
             var haraka: String?
             var shadda = false
             while j < scalars.count, isArabicPoint(scalars[j].value) {
+                hasAnyPoints = true
                 switch scalars[j].value {
                 case 0x064B: haraka = "an"                  // fathatan
                 case 0x064C: haraka = "un"                  // dammatan
@@ -42,38 +59,119 @@ extension LyricsRomanizer {
                 j += 1
             }
 
-            var consonant = arabicConsonant(value)
+            // Bare alif right after a tanwin only seats the mark.
+            if value == 0x0627 && haraka == nil && previousHadTanwin {
+                previousHadTanwin = false
+                i = j
+                continue
+            }
+
+            // Silent lengthening matres: bare waw after a "u" phoneme and
+            // bare yāʾ after an "i" phoneme just prolong the vowel.
+            func lengtheningMatre(_ code: UInt32, _ suffix: String) -> Bool {
+                haraka == nil && !shadda && value == code
+                    && phonemes.last?.text.hasSuffix(suffix) == true
+            }
+            if lengtheningMatre(0x0648, "u") || lengtheningMatre(0x064A, "i") {
+                previousHadTanwin = false
+                i = j
+                continue
+            }
+
+            var sound = arabicSound(value)
+
+            // Sun-letter assimilation: the article's lām is silent before
+            // a sun letter (الشمس → ash-shams). Pointed text demands a
+            // shadda on the sun letter; unpointed lyrics accept an
+            // alif+lām prefix as proof of the article.
+            if value == 0x0644 && haraka == nil && !shadda,
+               j < scalars.count, isArabicBase(scalars[j].value),
+               isSunLetter(scalars[j].value) {
+                let pointedAssimilation = nextHasShadda(scalars, j)
+                let articlePrefix = i > 0
+                    && scalars[i - 1].value == 0x0627
+                    && isFirstBase(scalars, i - 1)
+                if pointedAssimilation || (!hasAnyPoints && articlePrefix) {
+                    i = j
+                    continue
+                }
+            }
 
             // Word-final ta marbuta sounds "a"; alif carries a lengthening.
             if value == 0x0629 {
                 var k = j
                 while k < scalars.count, isArabicPoint(scalars[k].value) { k += 1 }
-                consonant = (k < scalars.count && (isArabicBase(scalars[k].value) || scalars[k].value == 0x0640)) ? "t" : "a"
+                sound = (k < scalars.count && (isArabicBase(scalars[k].value) || scalars[k].value == 0x0640)) ? "t" : "a"
             }
             if value == 0x0622 { haraka = haraka ?? "" }    // already "aa"
 
-            if shadda, !consonant.isEmpty {
-                out += consonant + consonant
-            } else {
-                out += consonant
+            // Unpointed matres carry vowels: ا أ إ آ ى ٱ map to vowel strings
+            // in arabicConsonants; و and ي inflect by position.
+            if haraka == nil && !shadda && !endsVowel(sound) {
+                if value == 0x0648 {
+                    sound = isFirstBase(scalars, i) ? "w" : "u"
+                } else if value == 0x064A {
+                    sound = isFirstBase(scalars, i) ? "y" : "i"
+                }
             }
-            if value != 0x0622, let haraka {
-                out += haraka
-            }
+
+            let isVowelPhoneme = haraka != nil || shadda || endsVowel(sound)
+            let emitted = sound + (haraka ?? "")
+            let doubled = shadda && !sound.isEmpty ? sound + emitted : emitted
+            phonemes.append((doubled, isVowelPhoneme))
+            startsWord.append(pendingWordStart)
+            pendingWordStart = false
+
+            previousHadTanwin = haraka == "an" || haraka == "un" || haraka == "in"
             i = j
         }
-        return out
+
+        let finalPhonemes = hasAnyPoints
+            ? phonemes
+            : insertEpenthetic(in: phonemes, vowel: "a", startsWord: startsWord)
+        return finalPhonemes.map(\.text).joined()
+    }
+
+    /// Whether the base letter at `index` is the word's first — a preceding
+    /// base would exist otherwise.
+    private static func isFirstBase(_ scalars: [Unicode.Scalar], _ index: Int) -> Bool {
+        guard index > 0 else { return true }
+        var k = index - 1
+        while k >= 0, isArabicPoint(scalars[k].value) { k -= 1 }
+        return k < 0 || !isArabicBase(scalars[k].value)
     }
 
     private static func isArabicBase(_ value: UInt32) -> Bool {
-        (0x0621...0x064A).contains(value)
+        (0x0621...0x064A).contains(value) || value == 0x0671
     }
 
     private static func isArabicPoint(_ value: UInt32) -> Bool {
         (0x064B...0x065F).contains(value) || value == 0x0670
     }
 
-    private static let arabicConsonants: [UInt32: String] = [
+    /// Whether the base letter at `baseIndex` carries a shadda.
+    private static func nextHasShadda(_ scalars: [Unicode.Scalar], _ baseIndex: Int) -> Bool {
+        var k = baseIndex + 1
+        while k < scalars.count, isArabicPoint(scalars[k].value) {
+            if scalars[k].value == 0x0651 { return true }
+            k += 1
+        }
+        return false
+    }
+
+    /// The 14 sun letters assimilate the definite article's lām.
+    private static func isSunLetter(_ value: UInt32) -> Bool {
+        switch value {
+        case 0x062A, 0x062B, 0x062F, 0x0630, 0x0631, 0x0632, 0x0633, 0x0634,
+             0x0635, 0x0636, 0x0637, 0x0638, 0x0644, 0x0646:
+            return true
+        default:
+            return false
+        }
+    }
+
+        /// Letter sounds; matres and hamza carriers map to their vowel strings.
+    private static let arabicSounds: [UInt32: String] = [
         0x0621: "'",                                  // ء
         0x0622: "aa",                                 // آ
         0x0623: "a",                                  // أ
@@ -98,7 +196,7 @@ extension LyricsRomanizer {
         0x0636: "d",
         0x0637: "t",
         0x0638: "z",
-        0x0639: "'",                                  // ع
+        0x0639: "a",                                  // ع
         0x063A: "gh",
         0x0641: "f",
         0x0642: "q",
@@ -109,10 +207,11 @@ extension LyricsRomanizer {
         0x0647: "h",
         0x0648: "w",
         0x0649: "a",
-        0x064A: "y"
+        0x064A: "y",
+        0x0671: "a"                                   // ٮ alef wasla
     ]
 
-    private static func arabicConsonant(_ value: UInt32) -> String {
-        arabicConsonants[value] ?? ""
+    private static func arabicSound(_ value: UInt32) -> String {
+        arabicSounds[value] ?? ""
     }
 }

@@ -13,36 +13,64 @@ extension LyricsRomanizer {
         let scalars = Array(text.unicodeScalars)
         var out = ""
         var i = 0
+        var atWordStart = true
+
         while i < scalars.count {
             let char = Character(scalars[i])
             let lower = char.lowercased()
+            let isLetter = greekMap[lower] != nil
 
             // Common digraphs first.
             if i + 1 < scalars.count {
-                let pair = String(char).lowercased() + String(Character(scalars[i + 1])).lowercased()
+                let pair = lower + String(Character(scalars[i + 1])).lowercased()
                 switch pair {
                 case "ου":
                     out += char.isUppercase ? "OU" : "ou"
+                    atWordStart = false
                     i += 2
                     continue
                 case "αυ":
                     out += char.isUppercase ? "Av" : "av"
+                    atWordStart = false
                     i += 2
                     continue
                 case "ευ":
                     out += char.isUppercase ? "Ev" : "ev"
+                    atWordStart = false
                     i += 2
                     continue
                 case "μπ":
                     out += char.isUppercase ? "B" : "b"
+                    atWordStart = false
                     i += 2
                     continue
                 case "ντ":
                     out += char.isUppercase ? "D" : "d"
+                    atWordStart = false
                     i += 2
                     continue
-                case "γκ", "γγ":
-                    out += char.isUppercase ? "G" : "g"
+                case "γγ":
+                    // Double gamma is always the nasal [ŋɡ].
+                    out += char.isUppercase ? "Ng" : "ng"
+                    atWordStart = false
+                    i += 2
+                    continue
+                case "γκ":
+                    // Hard g word-initially, nasal cluster medially.
+                    out += char.isUppercase
+                        ? (atWordStart ? "G" : "Ng")
+                        : (atWordStart ? "g" : "ng")
+                    atWordStart = false
+                    i += 2
+                    continue
+                case "γχ":
+                    out += char.isUppercase ? "Nch" : "nch"
+                    atWordStart = false
+                    i += 2
+                    continue
+                case "γξ":
+                    out += char.isUppercase ? "Nx" : "nx"
+                    atWordStart = false
                     i += 2
                     continue
                 default:
@@ -55,6 +83,7 @@ extension LyricsRomanizer {
             } else {
                 out.append(char)
             }
+            atWordStart = !isLetter
             i += 1
         }
         return out

@@ -26,6 +26,34 @@ enum LyricsRomanizer {
         }
     }
 
+    /// Shared phoneme buffer entry: emitted text plus whether it carries a
+    /// vowel sound.
+    typealias Phoneme = (text: String, isVowel: Bool)
+
+    /// Interleaves an epenthetic vowel between adjacent consonant phonemes
+    /// so unvowelled words stay pronounceable (Arabic mrhba → marhaba,
+    /// Hebrew mshchr → meshecher).
+    static func insertEpenthetic(
+        in phonemes: [Phoneme],
+        vowel: String,
+        startsWord: [Bool] = []
+    ) -> [Phoneme] {
+        var fixed: [Phoneme] = []
+        for (index, phoneme) in phonemes.enumerated() {
+            let beginsWord = index < startsWord.count ? startsWord[index] : false
+            if index > 0,
+               !beginsWord,
+               !phonemes[index - 1].isVowel,
+               !phoneme.isVowel,
+               !phonemes[index - 1].text.isEmpty,
+               !phoneme.text.isEmpty {
+                fixed.append((vowel, true))
+            }
+            fixed.append(phoneme)
+        }
+        return fixed
+    }
+
     // MARK: - Detection
 
     private enum Script {
@@ -46,7 +74,7 @@ enum LyricsRomanizer {
             switch scalar.value {
             case 0x3040...0x30FF, 0x31F0...0x31FF:
                 consider(.kana, rank: 50)
-            case 0xAC00...0xD7AF, 0x1100...0x11FF:
+            case 0xAC00...0xD7AF, 0x1100...0x11FF, 0x3130...0x318F:
                 consider(.hangul, rank: 40)
             case 0x3400...0x4DBF, 0x4E00...0x9FFF, 0xF900...0xFAFF:
                 consider(.han, rank: 30)
@@ -62,7 +90,7 @@ enum LyricsRomanizer {
                 consider(.hebrew, rank: 14)
             case 0x0600...0x06FF, 0x0750...0x077F:
                 consider(.arabic, rank: 12)
-            case 0x10A0...0x10FF:
+            case 0x10A0...0x10FF, 0x1C90...0x1CBF:
                 consider(.georgian, rank: 10)
             case 0x0530...0x058F:
                 consider(.armenian, rank: 8)

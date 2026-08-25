@@ -119,8 +119,8 @@ extension LyricsRomanizer {
         case 0x0942: return "uu"
         case 0x0943: return "ri"
         case 0x0944: return "rii"
-        case 0x0945, 0x0946: return "e"
-        case 0x0947, 0x0948: return "ai"
+        case 0x0945, 0x0946, 0x0947: return "e"
+        case 0x0948: return "ai"
         case 0x0949, 0x094A: return "o"
         case 0x094B, 0x094C: return "au"
         default: return nil
@@ -146,7 +146,9 @@ extension LyricsRomanizer {
     }
 
     private static func isDevanagariSign(_ value: UInt32) -> Bool {
-        (0x0900...0x094D).contains(value) && !isDevanagariConsonant(value)
-            || (0x093C...0x094D).contains(value)
+        // Independent vowels terminate a consonant's point run — they are
+        // syllables of their own, never attachments.
+        guard !(0x0904...0x0914).contains(value) else { return false }
+        return (0x0900...0x094D).contains(value) && !isDevanagariConsonant(value)
     }
 }

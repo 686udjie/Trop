@@ -32,11 +32,11 @@ extension LyricsRomanizer {
                 continue
             }
 
-            // Sokuon doubles the next consonant.
+            // Sokuon doubles the next consonant (one extra copy — the
+            // following reading supplies its own).
             if raw == "っ" || katakanaToHiragana(raw) == "っ" {
                 if let next = reading(in: chars, at: i + 1), let first = next.romaji.first {
                     appendReading(String(first))
-                    if first != "n" { out.append(first) }
                 }
                 i += 1
                 continue
@@ -92,7 +92,9 @@ extension LyricsRomanizer {
         "ぴゃ": "pya", "ぴゅ": "pyu", "ぴょ": "pyo",
         "ふぁ": "fa", "ふぃ": "fi", "ふぇ": "fe", "ふぉ": "fo",
         "てぃ": "ti", "でぃ": "di", "とぅ": "tu",
-        "うぇ": "we", "うぃ": "wi", "ヴぁ": "va", "ヴぉ": "vo"
+        "うぇ": "we", "うぃ": "wi", "うぉ": "wo", "いぇ": "ye",
+        "ゔぁ": "va", "ゔぃ": "vi", "ゔぇ": "ve", "ゔぉ": "vo",
+        "ぢゃ": "ja", "ぢゅ": "ju", "ぢょ": "jo"
     ]
 
     /// Maps a katakana character onto its hiragana counterpart (same gojūon grid).
