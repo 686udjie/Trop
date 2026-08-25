@@ -13,6 +13,10 @@ actor PlaybackManager {
 
     private var inflightResolutions: [String: Task<PlaybackResult, Error>] = [:]
 
+    private func resolutionKey(videoId: String, forDownload: Bool) -> String {
+        forDownload ? "\(videoId):download" : videoId
+    }
+
     private init() {}
 
     /// Resolve a video and start playback. Returns the result used, or throws.
@@ -84,7 +88,7 @@ actor PlaybackManager {
             try await resolveAndPlayFromNetwork(videoId: videoId)
         }
         inflightResolutions[videoId] = task
-        defer { clearInflight(videoId: videoId) }
+        defer { clearInflight(key: videoId) }
         return try await task.value
     }
 
@@ -181,8 +185,8 @@ actor PlaybackManager {
         throw lastError ?? StreamError.allClientsFailed
     }
 
-    private func clearInflight(videoId: String) {
-        inflightResolutions.removeValue(forKey: videoId)
+    private func clearInflight(key: String) {
+        inflightResolutions.removeValue(forKey: key)
     }
 
     /// Retrieves all artists for the current video to preserve metadata accuracy.
@@ -289,19 +293,20 @@ actor PlaybackManager {
     }
     /// Resolve a video without playing. Useful for previews / testing.
     func resolve(videoId: String, preferredFormat: Format? = nil, forDownload: Bool = false) async throws -> PlaybackResult {
-        if let cached = await StreamCache.shared.get(videoId: videoId) {
+        if !forDownload, let cached = await StreamCache.shared.get(videoId: videoId) {
             return cached
         }
 
-        if let existing = inflightResolutions[videoId] {
+        let key = resolutionKey(videoId: videoId, forDownload: forDownload)
+        if let existing = inflightResolutions[key] {
             return try await existing.value
         }
 
         let task = Task { [self] in
             try await resolveFromNetwork(videoId: videoId, preferredFormat: preferredFormat, forDownload: forDownload)
         }
-        inflightResolutions[videoId] = task
-        defer { clearInflight(videoId: videoId) }
+        inflightResolutions[key] = task
+        defer { clearInflight(key: key) }
         return try await task.value
     }
 
@@ -331,7 +336,9 @@ actor PlaybackManager {
                 )
 
                 if fb.skipValidation {
-                    await StreamCache.shared.set(videoId: videoId, result: result)
+                    if !forDownload {
+                        await StreamCache.shared.set(videoId: videoId, result: result)
+                    }
                     return result
                 }
 
@@ -340,7 +347,9 @@ actor PlaybackManager {
                     continue
                 }
 
-                await StreamCache.shared.set(videoId: videoId, result: result)
+                if !forDownload {
+                    await StreamCache.shared.set(videoId: videoId, result: result)
+                }
                 return result
 
             } catch {

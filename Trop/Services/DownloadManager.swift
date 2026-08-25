@@ -45,6 +45,10 @@ class DownloadManager: ObservableObject {
     private let fileManager = FileManager.default
     private let pathMonitor = NWPathMonitor()
     private var currentPath: NWPath?
+    private lazy var downloadSession: URLSession = {
+        URLSession(configuration: .default, delegate: downloadDelegate, delegateQueue: nil)
+    }()
+    private let downloadDelegate = DownloadSessionDelegate()
     private var downloadsDir: URL {
         let base = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first
             ?? fileManager.temporaryDirectory
@@ -77,7 +81,7 @@ class DownloadManager: ObservableObject {
         let videoId = song.videoId
         let artist = song.artists.map(\.name).joined(separator: ", ")
         Log.downloadManager.debug("Starting download: \(artist) - \(song.title) (\(videoId))")
-        downloads[videoId] = .downloading(0)
+        setProgress(0.02, for: videoId)
 
         if SettingsStore.shared.wifiOnlyDownloads, !isOnWiFi {
             downloads[videoId] = .failed("Wi-Fi Only is enabled and you are not on Wi-Fi.")
@@ -93,8 +97,11 @@ class DownloadManager: ObservableObject {
                 try? fileManager.removeItem(at: fileURL)
             }
 
-            // Prefer an AAC/MP4 stream so the bytes can be saved directly
-            // without a slow Opus→AAC re-encode (Metrolist-style fast path).
+            // Prefetch artwork while resolving the stream and downloading audio.
+            async let artworkData = prefetchArtwork(from: song.thumbnailUrl)
+
+            // Always resolve fresh for downloads so we pick AAC instead of a cached Opus stream.
+            setProgress(0.05, for: videoId)
             let result = try await PlaybackManager.shared.resolve(
                 videoId: videoId,
                 forDownload: true
@@ -107,26 +114,34 @@ class DownloadManager: ObservableObject {
             guard let url = URL(string: streamURL) else {
                 throw DownloadError.invalidStreamURL
             }
-            downloads[videoId] = .downloading(0.2)
-            let (data, _) = try await URLSession.shared.data(from: url)
-            downloads[videoId] = .downloading(0.6)
-            Log.downloadManager.debug("Fetched \(data.count) bytes for \(videoId)")
+
+            let tempDownload = fileManager.temporaryDirectory
+                .appendingPathComponent("\(UUID().uuidString).\(isAACStream ? "m4a" : "webm")")
+            try await downloadToFile(from: url, to: tempDownload, videoId: videoId)
+            let artwork = await artworkData
+            Log.downloadManager.debug("Fetched stream file for \(videoId)")
 
             ensureDirectories()
+            setProgress(0.88, for: videoId)
             if isAACStream {
-                // Fast path: write AAC bytes directly, then re-mux to attach metadata.
                 Log.downloadManager.debug("AAC stream detected — saving directly (no transcode)")
-                try data.write(to: fileURL)
-                try await attachMetadata(to: fileURL, title: song.title, artist: artist, thumbnailUrl: song.thumbnailUrl)
+                try fileManager.copyItem(at: tempDownload, to: fileURL)
+                try await attachMetadata(
+                    to: fileURL,
+                    title: song.title,
+                    artist: artist,
+                    artworkData: artwork
+                )
             } else {
                 _ = try await processAudio(
-                    data: data,
+                    inputURL: tempDownload,
                     outputURL: fileURL,
                     title: song.title,
                     artist: artist,
-                    thumbnailUrl: song.thumbnailUrl
+                    artworkData: artwork
                 )
             }
+            try? fileManager.removeItem(at: tempDownload)
 
             let entity = DownloadedTrackEntity(
                 id: videoId,
@@ -146,6 +161,42 @@ class DownloadManager: ObservableObject {
             downloads[videoId] = .failed(error.localizedDescription)
             Log.downloadManager.error("Failed download \(videoId): \(error.localizedDescription)")
             objectWillChange.send()
+        }
+    }
+
+    private func setProgress(_ fraction: Double, for videoId: String) {
+        downloads[videoId] = .downloading(min(0.99, max(0, fraction)))
+        objectWillChange.send()
+    }
+
+    private func prefetchArtwork(from thumbnailUrl: String?) async -> Data? {
+        guard let thumbUrl = thumbnailUrl, let url = URL(string: thumbUrl) else { return nil }
+        guard let image = try? await ImagePipeline.shared.image(for: url) else { return nil }
+        return image.jpegData(compressionQuality: 0.9)
+    }
+
+    private func downloadToFile(from url: URL, to destination: URL, videoId: String) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            let task = downloadSession.downloadTask(with: url)
+            downloadDelegate.register(
+                task: task,
+                destination: destination,
+                onProgress: { [weak self] fraction in
+                    Task { @MainActor in
+                        // 10–85% of overall progress is the network transfer.
+                        self?.setProgress(0.10 + fraction * 0.75, for: videoId)
+                    }
+                },
+                completion: { result in
+                    switch result {
+                    case .success:
+                        continuation.resume()
+                    case .failure(let error):
+                        continuation.resume(throwing: error)
+                    }
+                }
+            )
+            task.resume()
         }
     }
 
@@ -232,7 +283,7 @@ class DownloadManager: ObservableObject {
         return true
     }
 
-    private func buildMetadata(title: String, artist: String, thumbnailUrl: String?) async -> [AVMetadataItem] {
+    private func buildMetadata(title: String, artist: String, artworkData: Data?) -> [AVMetadataItem] {
         var metadata: [AVMetadataItem] = []
 
         let titleItem = AVMutableMetadataItem()
@@ -247,15 +298,12 @@ class DownloadManager: ObservableObject {
         artistItem.extendedLanguageTag = "und"
         metadata.append(artistItem)
 
-        if let thumbUrl = thumbnailUrl, let url = URL(string: thumbUrl) {
-            if let image = try? await ImagePipeline.shared.image(for: url),
-               let imageData = image.jpegData(compressionQuality: 0.9) {
-                let artworkItem = AVMutableMetadataItem()
-                artworkItem.identifier = .commonIdentifierArtwork
-                artworkItem.value = imageData as NSData
-                artworkItem.dataType = kCMMetadataBaseDataType_JPEG as String
-                metadata.append(artworkItem)
-            }
+        if let imageData = artworkData {
+            let artworkItem = AVMutableMetadataItem()
+            artworkItem.identifier = .commonIdentifierArtwork
+            artworkItem.value = imageData as NSData
+            artworkItem.dataType = kCMMetadataBaseDataType_JPEG as String
+            metadata.append(artworkItem)
         }
 
         return metadata
@@ -265,9 +313,9 @@ class DownloadManager: ObservableObject {
     /// embed title/artist/artwork metadata. `AVAssetWriter.metadata` reliably
     /// writes the `covr` atom the iOS Files app previewer reads; the audio is
     /// copied without re-encoding (passthrough), so this stays a fast path.
-    private func attachMetadata(to fileURL: URL, title: String, artist: String, thumbnailUrl: String?) async throws {
+    private func attachMetadata(to fileURL: URL, title: String, artist: String, artworkData: Data?) async throws {
         let asset = AVURLAsset(url: fileURL)
-        let metadata = await buildMetadata(title: title, artist: artist, thumbnailUrl: thumbnailUrl)
+        let metadata = buildMetadata(title: title, artist: artist, artworkData: artworkData)
         let tempOutput = fileManager.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).m4a")
 
         guard let audioTrack = try await asset.loadTracks(withMediaType: .audio).first else {
@@ -311,26 +359,20 @@ class DownloadManager: ObservableObject {
     }
 
     private func processAudio(
-        data: Data,
+        inputURL: URL,
         outputURL: URL,
         title: String,
         artist: String,
-        thumbnailUrl: String?
+        artworkData: Data?
     ) async throws -> URL {
         let tempDir = fileManager.temporaryDirectory
-        let tempInput = tempDir.appendingPathComponent("\(UUID().uuidString).webm")
         let tempOutput = tempDir.appendingPathComponent("\(UUID().uuidString).m4a")
-        try data.write(to: tempInput)
 
-        let asset = AVURLAsset(url: tempInput)
-        let metadata = await buildMetadata(title: title, artist: artist, thumbnailUrl: thumbnailUrl)
+        let asset = AVURLAsset(url: inputURL)
+        let metadata = buildMetadata(title: title, artist: artist, artworkData: artworkData)
 
         guard let audioTrack = try await asset.loadTracks(withMediaType: .audio).first else {
-            // No decodable audio track: keep raw data but with a neutral extension
-            try data.write(to: tempOutput)
-            try? fileManager.removeItem(at: tempInput)
-            try? fileManager.removeItem(at: outputURL)
-            try? fileManager.moveItem(at: tempOutput, to: outputURL)
+            try fileManager.copyItem(at: inputURL, to: outputURL)
             return outputURL
         }
 
@@ -366,8 +408,6 @@ class DownloadManager: ObservableObject {
         writer.startSession(atSourceTime: .zero)
 
         try await transcode(reader: reader, readerOutput: readerOutput, writer: writer, writerInput: writerInput)
-
-        try? fileManager.removeItem(at: tempInput)
 
         if writer.status == .completed {
             try? fileManager.removeItem(at: outputURL)
@@ -446,4 +486,110 @@ class DownloadManager: ObservableObject {
 enum DownloadError: Error, LocalizedError {
     case invalidStreamURL
     var errorDescription: String? { "The stream URL returned by the server was invalid" }
+}
+
+// MARK: - Streaming download delegate
+
+private final class DownloadSessionDelegate: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
+    struct Context {
+        let destination: URL
+        var stagingURL: URL?
+        var onProgress: (@Sendable (Double) -> Void)?
+        var completion: (@Sendable (Result<Void, Error>) -> Void)?
+        var didFinish = false
+    }
+
+    private var contexts: [Int: Context] = [:]
+    private let lock = NSLock()
+
+    func register(
+        task: URLSessionDownloadTask,
+        destination: URL,
+        onProgress: (@Sendable (Double) -> Void)?,
+        completion: @escaping @Sendable (Result<Void, Error>) -> Void
+    ) {
+        lock.lock()
+        contexts[task.taskIdentifier] = Context(
+            destination: destination,
+            stagingURL: nil,
+            onProgress: onProgress,
+            completion: completion,
+            didFinish: false
+        )
+        lock.unlock()
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        downloadTask: URLSessionDownloadTask,
+        didWriteData bytesWritten: Int64,
+        totalBytesWritten: Int64,
+        totalBytesExpectedToWrite: Int64
+    ) {
+        lock.lock()
+        let onProgress = contexts[downloadTask.taskIdentifier]?.onProgress
+        lock.unlock()
+        guard totalBytesExpectedToWrite > 0, let onProgress else { return }
+        onProgress(Double(totalBytesWritten) / Double(totalBytesExpectedToWrite))
+    }
+
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
+        lock.lock()
+        guard var context = contexts[downloadTask.taskIdentifier] else {
+            lock.unlock()
+            return
+        }
+        let staging = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(UUID().uuidString).download")
+        do {
+            if FileManager.default.fileExists(atPath: staging.path) {
+                try FileManager.default.removeItem(at: staging)
+            }
+            try FileManager.default.copyItem(at: location, to: staging)
+            context.stagingURL = staging
+            contexts[downloadTask.taskIdentifier] = context
+        } catch {
+            contexts.removeValue(forKey: downloadTask.taskIdentifier)
+            lock.unlock()
+            context.completion?(.failure(error))
+            return
+        }
+        lock.unlock()
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        lock.lock()
+        guard var context = contexts.removeValue(forKey: task.taskIdentifier), !context.didFinish else {
+            lock.unlock()
+            return
+        }
+        context.didFinish = true
+        let completion = context.completion
+        lock.unlock()
+        guard let completion else { return }
+
+        if let error {
+            if let staging = context.stagingURL {
+                try? FileManager.default.removeItem(at: staging)
+            }
+            completion(.failure(error))
+            return
+        }
+
+        guard let staging = context.stagingURL else {
+            completion(.failure(DownloadError.invalidStreamURL))
+            return
+        }
+
+        do {
+            if FileManager.default.fileExists(atPath: context.destination.path) {
+                try FileManager.default.removeItem(at: context.destination)
+            }
+            try FileManager.default.moveItem(at: staging, to: context.destination)
+            completion(.success(()))
+        } catch {
+            try? FileManager.default.removeItem(at: staging)
+            completion(.failure(error))
+        }
+    }
 }
