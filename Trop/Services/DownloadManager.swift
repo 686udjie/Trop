@@ -98,20 +98,13 @@ class DownloadManager: ObservableObject {
             var data = Data()
             if expected > 0 { data.reserveCapacity(Int(expected)) }
             var received: Int64 = 0
-            var chunk = Data()
-            chunk.reserveCapacity(64 * 1024)
-            for try await byte in bytes {
-                chunk.append(byte)
-                received += 1
-                if chunk.count >= 64 * 1024 {
-                    data.append(chunk)
-                    chunk.removeAll(keepingCapacity: true)
-                    if expected > 0 {
-                        downloads[videoId] = .downloading(0.2 + 0.4 * (Double(received) / Double(expected)))
-                    }
+            for try await chunk in bytes.chunks(ofCount: 64 * 1024) {
+                data.append(contentsOf: chunk)
+                received += Int64(chunk.count)
+                if expected > 0 {
+                    downloads[videoId] = .downloading(0.2 + 0.4 * (Double(received) / Double(expected)))
                 }
             }
-            if !chunk.isEmpty { data.append(chunk) }
             Log.downloadManager.debug("Fetched \(data.count) bytes for \(videoId)")
 
             ensureDirectories()
