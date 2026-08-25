@@ -759,6 +759,7 @@ struct PlaylistSongRow: View {
     var onPlay: (() -> Void)?
     var onNavigate: ((DetailRoute) -> Void)?
 
+    @ObservedObject private var downloadManager = DownloadManager.shared
     @State private var resolvedDuration: Int = 0
 
     private var effectiveDuration: Int {
@@ -767,9 +768,20 @@ struct PlaylistSongRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            AsyncImageView(url: song.thumbnailUrl)
-                .frame(width: 40, height: 40)
-                .clipShape(RoundedRectangle(cornerRadius: 4))
+            ZStack(alignment: .bottomTrailing) {
+                AsyncImageView(url: song.thumbnailUrl)
+                    .frame(width: 40, height: 40)
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
+
+                if downloadManager.isDownloaded(videoId: song.videoId) {
+                    Image(systemName: "arrow.down.circle.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.white)
+                        .padding(2)
+                        .background(Circle().fill(Color.accentColor))
+                        .offset(x: 3, y: 3)
+                }
+            }
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(song.title)

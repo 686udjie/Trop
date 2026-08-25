@@ -239,6 +239,29 @@ struct PlayerMenuSheet: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
 
+        case .failed(let message):
+            VStack(spacing: 0) {
+                simpleRow(icon: "arrow.clockwise", title: "Retry Download") {
+                    Task {
+                        await downloadManager.download(song: song)
+                    }
+                }
+                Divider()
+                HStack(spacing: 14) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 18))
+                        .foregroundStyle(.orange)
+                        .frame(width: 26)
+                    Text(message)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+            }
+
         case .completed:
             simpleRow(icon: "trash", title: "Remove Download") {
                 Task {
@@ -313,10 +336,7 @@ struct PlayerMenuSheet: View {
     // MARK: - State
 
     private var downloadState: DownloadManager.DownloadState {
-        if let state = downloadManager.downloads[song.videoId], state != .notStarted {
-            return state
-        }
-        return downloadManager.isDownloaded(videoId: song.videoId) ? .completed : .notStarted
+        downloadManager.state(for: song.videoId)
     }
 
     private func loadStates() async {

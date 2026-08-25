@@ -20,6 +20,7 @@ enum DetailRoute: Hashable, Identifiable {
         case .autoPlaylist(let route): return "autoPlaylist_\(String(describing: route))"
         case .history: return "history"
         case .settings: return "settings"
+        case .downloads: return "downloads"
         }
     }
 
@@ -30,6 +31,7 @@ enum DetailRoute: Hashable, Identifiable {
     case autoPlaylist(AutoPlaylistRoute)
     case history
     case settings
+    case downloads
 }
 
 /// Shared view resolving a `DetailRoute` to its target destination view.
@@ -52,6 +54,8 @@ struct DetailRouteDestinationView: View {
             HistoryScreenView()
         case .settings:
             SettingsView()
+        case .downloads:
+            DownloadsView()
         }
     }
 }

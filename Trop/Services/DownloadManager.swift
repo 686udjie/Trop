@@ -26,6 +26,22 @@ class DownloadManager: ObservableObject {
         case failed(String)
     }
 
+    enum DownloadSort: String, CaseIterable, Identifiable {
+        case recent
+        case title
+        case artist
+
+        var id: String { rawValue }
+
+        var displayName: String {
+            switch self {
+            case .recent: return "Recent"
+            case .title: return "Title"
+            case .artist: return "Artist"
+            }
+        }
+    }
+
     private let fileManager = FileManager.default
     private let pathMonitor = NWPathMonitor()
     private var currentPath: NWPath?
@@ -156,6 +172,58 @@ class DownloadManager: ObservableObject {
 
     func fetchAll() async -> [DownloadedTrackEntity] {
         (try? await DatabaseService.shared.fetchAll(DownloadedTrackEntity.self)) ?? []
+    }
+
+    func fetchAllSorted(by sort: DownloadSort) async -> [DownloadedTrackEntity] {
+        let tracks = await fetchAll()
+        switch sort {
+        case .recent:
+            return tracks.sorted { $0.downloadedAt > $1.downloadedAt }
+        case .title:
+            return tracks.sorted {
+                $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
+            }
+        case .artist:
+            return tracks.sorted {
+                $0.artist.localizedCaseInsensitiveCompare($1.artist) == .orderedAscending
+            }
+        }
+    }
+
+    var activeDownloads: [(videoId: String, progress: Double)] {
+        downloads.compactMap { videoId, state in
+            if case .downloading(let progress) = state {
+                return (videoId, progress)
+            }
+            return nil
+        }
+        .sorted { $0.progress > $1.progress }
+    }
+
+    func totalStorageBytes() -> Int64 {
+        let keys = fileManager.enumerator(at: downloadsDir, includingPropertiesForKeys: [.fileSizeKey])?
+            .compactMap { $0 as? URL } ?? []
+        return keys.reduce(0) { total, url in
+            let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+            return total + Int64(size)
+        }
+    }
+
+    func deleteAll() async {
+        let tracks = await fetchAll()
+        for track in tracks {
+            try? fileManager.removeItem(atPath: track.localPath)
+            _ = try? await DatabaseService.shared.delete(track)
+        }
+        downloads.removeAll()
+        objectWillChange.send()
+    }
+
+    func state(for videoId: String) -> DownloadState {
+        if let state = downloads[videoId], state != .notStarted {
+            return state
+        }
+        return isDownloaded(videoId: videoId) ? .completed : .notStarted
     }
 
     @discardableResult

@@ -15,6 +15,7 @@ struct LibraryView: View {
     @State private var albums: [AlbumEntity] = []
     @State private var podcasts: [PodcastEntity] = []
     @State private var likedSongCount = 0
+    @State private var downloadedSongCount = 0
     @State private var isLoading = true
     @State private var selectedFilter: LibraryFilter?
     @State private var showCreateDialog = false
@@ -23,6 +24,7 @@ struct LibraryView: View {
 
     @StateObject private var loginModel = LoginViewModel()
     @ObservedObject private var router = AppRouter.shared
+    @ObservedObject private var downloadManager = DownloadManager.shared
 
     @State private var accountName = "Guest"
     @State private var accountImageUrl: String?
@@ -33,8 +35,13 @@ struct LibraryView: View {
     private var autoPlaylists: [AutoPlaylistInfo] {
         [
             AutoPlaylistInfo(id: "liked", title: "Liked Songs", icon: "heart.fill", subtitle: "\(likedSongCount) songs", route: .likedSongs),
+            AutoPlaylistInfo(id: "downloads", title: "Downloads", icon: "arrow.down.circle.fill", subtitle: downloadsSubtitle, route: nil, detailRoute: .downloads),
             AutoPlaylistInfo(id: "top100", title: "My Top 100", icon: "trophy.fill", subtitle: "Top 100", route: .topSongs(limit: 100))
         ]
+    }
+
+    private var downloadsSubtitle: String {
+        downloadedSongCount == 0 ? "Offline" : "\(downloadedSongCount) songs"
     }
 
     enum LibraryFilter: String, CaseIterable {
@@ -131,6 +138,11 @@ struct LibraryView: View {
                 await IncrementalSyncService.shared.forceFullSync()
                 await loadContent()
             }
+            .onChange(of: downloadManager.downloads) { _, _ in
+                Task {
+                    downloadedSongCount = (await DownloadManager.shared.fetchAll()).count
+                }
+            }
             .alert("Delete Playlist", isPresented: .init(
                 get: { playlistToDelete != nil },
                 set: { if !$0 { playlistToDelete = nil } }
@@ -195,10 +207,17 @@ struct LibraryView: View {
     private var playlistsSection: some View {
         LazyVGrid(columns: gridColumns, spacing: 16) {
             ForEach(autoPlaylists) { info in
-                NavigationLink(value: DetailRoute.autoPlaylist(info.route)) {
-                    autoPlaylistCell(info: info)
+                if let detailRoute = info.detailRoute {
+                    NavigationLink(value: detailRoute) {
+                        autoPlaylistCell(info: info)
+                    }
+                    .buttonStyle(.plain)
+                } else if let route = info.route {
+                    NavigationLink(value: DetailRoute.autoPlaylist(route)) {
+                        autoPlaylistCell(info: info)
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
             }
 
             ForEach(playlists, id: \.id) { playlist in
@@ -309,7 +328,7 @@ struct LibraryView: View {
         VStack(alignment: .leading, spacing: 6) {
             ZStack {
                 RoundedRectangle(cornerRadius: 12)
-                    .fill(LinearGradient(colors: [.blue, .purple], startPoint: .topLeading, endPoint: .bottomTrailing))
+                    .fill(autoPlaylistGradient(for: info.id))
                     .aspectRatio(1, contentMode: .fill)
                 Image(systemName: info.icon)
                     .font(.largeTitle)
@@ -325,6 +344,19 @@ struct LibraryView: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
+        }
+    }
+
+    private func autoPlaylistGradient(for id: String) -> LinearGradient {
+        switch id {
+        case "downloads":
+            return LinearGradient(
+                colors: [settings.accentColor.opacity(0.9), Color.teal.opacity(0.75)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        default:
+            return LinearGradient(colors: [.blue, .purple], startPoint: .topLeading, endPoint: .bottomTrailing)
         }
     }
 
@@ -368,11 +400,13 @@ struct LibraryView: View {
             async let albumsFetch = DatabaseService.shared.fetchAllAlbums()
             async let podcastsFetch = DatabaseService.shared.fetchAllPodcasts()
             async let countFetch = DatabaseService.shared.fetchAllLikedSongCount()
+            async let downloadsFetch = DownloadManager.shared.fetchAll()
             artists = try await artistsFetch
             playlists = try await playlistsFetch
             albums = try await albumsFetch
             podcasts = try await podcastsFetch
             likedSongCount = try await countFetch
+            downloadedSongCount = (await downloadsFetch).count
 
             let rows: [(String, Int)] = try await DatabaseService.shared.read { db in
                 try Row.fetchAll(db, sql: "SELECT playlist_id, COUNT(*) as cnt FROM playlist_song_map GROUP BY playlist_id")
@@ -604,5 +638,6 @@ struct AutoPlaylistInfo: Identifiable {
     let title: String
     let icon: String
     let subtitle: String?
-    let route: AutoPlaylistRoute
+    let route: AutoPlaylistRoute?
+    var detailRoute: DetailRoute?
 }

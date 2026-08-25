@@ -150,6 +150,7 @@ enum Log {
     static let search = AppLogger(logger: Logger(subsystem: subsystem, category: "Search"), category: "search")
     static let searchView = AppLogger(logger: Logger(subsystem: subsystem, category: "SearchView"), category: "searchView")
     static let downloadManager = AppLogger(logger: Logger(subsystem: subsystem, category: "DownloadManager"), category: "downloadManager")
+    static let downloadsView = AppLogger(logger: Logger(subsystem: subsystem, category: "DownloadsView"), category: "downloadsView")
     static let sync = AppLogger(logger: Logger(subsystem: subsystem, category: "Sync"), category: "sync")
     static let addSong = AppLogger(logger: Logger(subsystem: subsystem, category: "AddSong"), category: "addSong")
     static let settings = AppLogger(logger: Logger(subsystem: subsystem, category: "Settings"), category: "settings")
