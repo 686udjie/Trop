@@ -713,6 +713,7 @@ struct PlaylistDetailView: View {
             do {
                 try await PlaybackManager.shared.resolveAndPlay(videoId: first.videoId)
             } catch {
+                Log.playlistDetail.error("playAll failed: \(error)")
             }
         }
     }
@@ -726,6 +727,7 @@ struct PlaylistDetailView: View {
             do {
                 try await PlaybackManager.shared.resolveAndPlay(videoId: first.videoId)
             } catch {
+                Log.playlistDetail.error("shufflePlay failed: \(error)")
             }
         }
     }
@@ -737,6 +739,7 @@ struct PlaylistDetailView: View {
             do {
                 try await PlaybackManager.shared.resolveAndPlay(videoId: song.videoId)
             } catch {
+                Log.playlistDetail.error("playSong failed: \(error)")
             }
         }
     }
@@ -762,6 +765,7 @@ struct PlaylistSongRow: View {
 
     @ObservedObject private var downloadManager = DownloadManager.shared
     @State private var resolvedDuration: Int = 0
+    @State private var showSongMenu = false
 
     private var effectiveDuration: Int {
         song.duration > 0 ? song.duration : resolvedDuration
@@ -803,13 +807,19 @@ struct PlaylistSongRow: View {
 
             Spacer()
 
-            SongMenuView(
-                songItem: song,
-                webUrl: song.webUrl,
-                artistBrowseId: song.firstArtistBrowseId,
-                albumBrowseId: song.firstAlbumBrowseId,
-                onNavigate: { onNavigate?($0) }
-            )
+            Button {
+                showSongMenu = true
+            } label: {
+                Text("\u{22EE}")
+                    .font(.body.weight(.black))
+                    .foregroundStyle(Color.accentColor)
+            }
+            .sheet(isPresented: $showSongMenu) {
+                SongMenuSheet(
+                    song: song,
+                    onNavigate: { onNavigate?($0) }
+                )
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 6)

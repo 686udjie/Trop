@@ -102,12 +102,18 @@ enum FormatSelector {
             return nil
         }
 
-        let aacFormats = audioFormats.filter { format in
+        // Prefer formats we can actually fetch (direct URL or cipher).
+        let fetchable = audioFormats.filter {
+            ($0.url?.isEmpty == false) || $0.signatureCipher != nil || $0.cipher != nil
+        }
+        let candidates = fetchable.isEmpty ? audioFormats : fetchable
+
+        let aacFormats = candidates.filter { format in
             let c = format.codec.lowercased()
             return c.contains("mp4a") || c.contains("aac")
         }
 
-        var pool = aacFormats.isEmpty ? audioFormats : aacFormats
+        var pool = aacFormats.isEmpty ? candidates : aacFormats
         Log.formatSelector.debug(
             "Download pool: \(pool.count) format(s)\(aacFormats.isEmpty ? " (no AAC, falling back to Opus)" : " (AAC preferred)")"
         )

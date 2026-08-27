@@ -75,8 +75,10 @@ class DownloadManager: ObservableObject {
     }
 
     private var isOnWiFi: Bool {
-        currentPath?.usesInterfaceType(.wifi) == true
-            || currentPath?.usesInterfaceType(.wiredEthernet) == true
+        // Until the first path update arrives, don't block downloads.
+        guard let currentPath else { return true }
+        return currentPath.usesInterfaceType(.wifi) == true
+            || currentPath.usesInterfaceType(.wiredEthernet) == true
     }
 
     /// AAC transcode bitrate for the download quality preference.
@@ -95,15 +97,17 @@ class DownloadManager: ObservableObject {
         }
 
         cancelledDownloadIds.remove(videoId)
+        lastReportedProgress.removeValue(forKey: videoId)
         let artist = song.artists.map(\.name).joined(separator: ", ")
         Log.downloadManager.debug("Starting download: \(artist) - \(song.title) (\(videoId))")
-        setProgress(0.02, for: videoId)
 
         if SettingsStore.shared.wifiOnlyDownloads, !isOnWiFi {
             downloads[videoId] = .failed("Wi-Fi Only is enabled and you are not on Wi-Fi.")
             objectWillChange.send()
             return
         }
+
+        setProgress(0.02, for: videoId)
 
         do {
             let fileURL = downloadsDir.appendingPathComponent(
@@ -138,6 +142,7 @@ class DownloadManager: ObservableObject {
                 videoId: videoId,
                 expectedBytes: expectedBytes
             )
+            try validateDownloadedFile(at: tempDownload)
             let artwork = await artworkData
             Log.downloadManager.debug("Fetched stream file for \(videoId)")
 
@@ -147,12 +152,17 @@ class DownloadManager: ObservableObject {
                 Log.downloadManager.debug("AAC stream detected — saving directly (no transcode)")
                 try fileManager.copyItem(at: tempDownload, to: fileURL)
                 if artwork != nil {
-                    try await attachMetadata(
-                        to: fileURL,
-                        title: song.title,
-                        artist: artist,
-                        artworkData: artwork
-                    )
+                    do {
+                        try await attachMetadata(
+                            to: fileURL,
+                            title: song.title,
+                            artist: artist,
+                            artworkData: artwork
+                        )
+                    } catch {
+                        // Keep the playable AAC file even if remux/metadata fails.
+                        Log.downloadManager.error("Metadata attach skipped: \(error.localizedDescription)")
+                    }
                 }
             } else {
                 _ = try await processAudio(
@@ -217,6 +227,16 @@ class DownloadManager: ObservableObject {
         return nil
     }
 
+    private func validateDownloadedFile(at url: URL) throws {
+        let values = try url.resourceValues(forKeys: [.fileSizeKey])
+        let size = values.fileSize ?? 0
+        // Real audio streams are well above this; error/HTML bodies are not.
+        guard size >= 8_192 else {
+            Log.downloadManager.error("Downloaded file too small (\(size) bytes) — likely a dead stream URL")
+            throw DownloadError.invalidStreamURL
+        }
+    }
+
     private func userFacingDownloadError(_ error: Error) -> String {
         if let urlError = error as? URLError {
             switch urlError.code {
@@ -230,6 +250,10 @@ class DownloadManager: ObservableObject {
         }
         if let downloadError = error as? DownloadError {
             return downloadError.errorDescription ?? "Download failed. Try again."
+        }
+        let nsError = error as NSError
+        if nsError.domain == AVFoundationErrorDomain {
+            return "Could not process this track for offline playback. Try again."
         }
         return "Download failed. Try again."
     }
@@ -501,7 +525,14 @@ class DownloadManager: ObservableObject {
         let asset = AVURLAsset(url: inputURL)
         let metadata = buildMetadata(title: title, artist: artist, artworkData: artworkData)
 
-        guard let audioTrack = try await asset.loadTracks(withMediaType: .audio).first else {
+        let audioTracks: [AVAssetTrack]
+        do {
+            audioTracks = try await asset.loadTracks(withMediaType: .audio)
+        } catch {
+            Log.downloadManager.error("Cannot open downloaded audio for transcode: \(error.localizedDescription)")
+            throw DownloadError.transcodeFailed
+        }
+        guard let audioTrack = audioTracks.first else {
             throw DownloadError.transcodeFailed
         }
 
@@ -615,6 +646,7 @@ class DownloadManager: ObservableObject {
 enum DownloadError: Error, LocalizedError {
     case invalidStreamURL
     case transcodeFailed
+    case httpStatus(Int)
 
     var errorDescription: String? {
         switch self {
@@ -622,6 +654,8 @@ enum DownloadError: Error, LocalizedError {
             return "The stream URL returned by the server was invalid"
         case .transcodeFailed:
             return "Could not convert this track for offline playback."
+        case .httpStatus(let code):
+            return "Download failed (HTTP \(code)). Try again."
         }
     }
 }
@@ -687,6 +721,16 @@ private final class DownloadSessionDelegate: NSObject, URLSessionDownloadDelegat
             lock.unlock()
             return
         }
+
+        if let http = downloadTask.response as? HTTPURLResponse,
+           !(200...299).contains(http.statusCode) {
+            context.didFinish = true
+            contexts.removeValue(forKey: downloadTask.taskIdentifier)
+            lock.unlock()
+            context.completion?(.failure(DownloadError.httpStatus(http.statusCode)))
+            return
+        }
+
         let staging = FileManager.default.temporaryDirectory
             .appendingPathComponent("\(UUID().uuidString).download")
         do {

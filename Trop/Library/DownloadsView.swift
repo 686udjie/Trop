@@ -477,55 +477,61 @@ private struct DownloadedSongRow: View {
     var onPlay: () -> Void
     var onNavigate: (DetailRoute) -> Void
 
+    @State private var showSongMenu = false
+
     var body: some View {
-        Button(action: onPlay) {
-            HStack(spacing: 12) {
-                ZStack(alignment: .bottomTrailing) {
-                    AsyncImageView(url: song.thumbnailUrl)
-                        .frame(width: 48, height: 48)
-                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        HStack(spacing: 12) {
+            ZStack(alignment: .bottomTrailing) {
+                AsyncImageView(url: song.thumbnailUrl)
+                    .frame(width: 48, height: 48)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
 
-                    Image(systemName: "arrow.down.circle.fill")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .padding(2)
-                        .background(Circle().fill(settings.accentColor))
-                        .offset(x: 3, y: 3)
-                }
+                Image(systemName: "arrow.down.circle.fill")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(2)
+                    .background(Circle().fill(settings.accentColor))
+                    .offset(x: 3, y: 3)
+            }
 
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(song.title)
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-
-                    HStack(spacing: 4) {
-                        Text(song.artistNamesDisplay)
-                        if song.duration > 0 {
-                            Text("•")
-                            Text(song.duration.formattedDuration)
-                        }
-                    }
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(song.title)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.primary)
                     .lineLimit(1)
+
+                HStack(spacing: 4) {
+                    Text(song.artistNamesDisplay)
+                    if song.duration > 0 {
+                        Text("•")
+                        Text(song.duration.formattedDuration)
+                    }
                 }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            }
 
-                Spacer(minLength: 0)
+            Spacer(minLength: 0)
 
-                SongMenuView(
-                    songItem: song,
-                    webUrl: song.webUrl,
-                    artistBrowseId: song.firstArtistBrowseId,
-                    albumBrowseId: song.firstAlbumBrowseId,
+            Button {
+                showSongMenu = true
+            } label: {
+                Text("\u{22EE}")
+                    .font(.body.weight(.black))
+                    .foregroundStyle(settings.accentColor)
+            }
+            .sheet(isPresented: $showSongMenu) {
+                SongMenuSheet(
+                    song: song,
                     onNavigate: onNavigate
                 )
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onPlay)
         .accessibilityHint("Saved \(downloadedAt.formatted(.relative(presentation: .named)))")
     }
 }

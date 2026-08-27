@@ -315,6 +315,7 @@ actor PlaybackManager {
         defer { poTokenTask?.cancel() }
 
         var lastError: Error?
+        var nonAACFallback: PlaybackResult?
         let clients = forDownload ? ClientFallbackChain.forDownload : ClientFallbackChain.preferred
 
         for fb in clients {
@@ -339,19 +340,27 @@ actor PlaybackManager {
                     forDownload: forDownload
                 )
 
-                if fb.skipValidation || forDownload {
-                    if !forDownload {
-                        await StreamCache.shared.set(videoId: videoId, result: result)
+                if !fb.skipValidation {
+                    guard await StreamResolver.validateStream(url: result.streamUrl) else {
+                        lastError = StreamError.validationFailed(result.clientName)
+                        Log.playbackManager.debug("\(result.clientName) HEAD validation failed, trying next")
+                        continue
                     }
-                    return result
                 }
 
-                guard await StreamResolver.validateStream(url: result.streamUrl) else {
-                    lastError = StreamError.validationFailed(result.clientName)
-                    continue
-                }
-
-                if !forDownload {
+                // Downloads remux/transcode with AVFoundation; prefer AAC so we
+                // can skip Opus→AAC (unreliable in Simulator / some devices).
+                if forDownload {
+                    let mime = result.mimeType.lowercased()
+                    let isAAC = mime.contains("mp4a") || mime.contains("aac")
+                    if !isAAC {
+                        Log.playbackManager.debug(
+                            "\(result.clientName) returned non-AAC (\(result.mimeType)); looking for AAC client"
+                        )
+                        nonAACFallback = result
+                        continue
+                    }
+                } else {
                     await StreamCache.shared.set(videoId: videoId, result: result)
                 }
                 return result
@@ -360,6 +369,11 @@ actor PlaybackManager {
                 lastError = error
                 Log.playbackManager.error("\(fb.client.clientName) failed: \(error.localizedDescription)")
             }
+        }
+
+        if forDownload, let fallback = nonAACFallback {
+            Log.playbackManager.debug("No AAC stream found — falling back to \(fallback.mimeType)")
+            return fallback
         }
 
         throw lastError ?? StreamError.allClientsFailed
