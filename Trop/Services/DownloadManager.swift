@@ -142,7 +142,7 @@ class DownloadManager: ObservableObject {
                 videoId: videoId,
                 expectedBytes: expectedBytes
             )
-            try validateDownloadedFile(at: tempDownload)
+            try await validateDownloadedFile(at: tempDownload)
             let artwork = await artworkData
             Log.downloadManager.debug("Fetched stream file for \(videoId)")
 
@@ -227,12 +227,25 @@ class DownloadManager: ObservableObject {
         return nil
     }
 
-    private func validateDownloadedFile(at url: URL) throws {
+    private func validateDownloadedFile(at url: URL) async throws {
         let values = try url.resourceValues(forKeys: [.fileSizeKey])
         let size = values.fileSize ?? 0
         // Real audio streams are well above this; error/HTML bodies are not.
         guard size >= 8_192 else {
             Log.downloadManager.error("Downloaded file too small (\(size) bytes) — likely a dead stream URL")
+            throw DownloadError.invalidStreamURL
+        }
+
+        let asset = AVURLAsset(url: url)
+        let audioTracks: [AVAssetTrack]
+        do {
+            audioTracks = try await asset.loadTracks(withMediaType: .audio)
+        } catch {
+            Log.downloadManager.error("Cannot open downloaded file as audio: \(error.localizedDescription)")
+            throw DownloadError.invalidStreamURL
+        }
+        guard !audioTracks.isEmpty else {
+            Log.downloadManager.error("Downloaded file has no audio track — rejecting as invalid stream")
             throw DownloadError.invalidStreamURL
         }
     }

@@ -213,8 +213,8 @@ struct SongMenuSheet: View {
                 Task { await downloadManager.delete(videoId: song.videoId) }
             }
 
-        case .failed:
-            menuRow(icon: "arrow.clockwise", title: "Retry Download") {
+        case .failed(let message):
+            menuRow(icon: "arrow.clockwise", title: "Retry Download", subtitle: message) {
                 Task { await downloadManager.download(song: song) }
             }
 
