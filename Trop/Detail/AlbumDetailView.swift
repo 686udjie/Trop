@@ -424,46 +424,13 @@ struct AlbumDetailView: View {
     private func songList(for album: AlbumDetailInfo) -> some View {
         VStack(spacing: 0) {
             ForEach(Array(album.songs.enumerated()), id: \.offset) { index, song in
-                HStack(spacing: 12) {
-                    // Song thumbnail
-                    AsyncImageView(url: song.thumbnailUrl)
-                        .frame(width: 40, height: 40)
-                        .clipShape(RoundedRectangle(cornerRadius: 4))
-
-                    // Title and subtitle (artists • duration)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(song.title)
-                            .font(.subheadline)
-                            .fontWeight(.medium)
-                            .foregroundColor(.primary)
-                            .lineLimit(1)
-
-                        let artistStr = song.artists.map(\.name).joined(separator: ", ")
-                        let durationStr = song.duration.formattedDuration
-                        let subtitleText = artistStr.isEmpty ? durationStr : (durationStr.isEmpty ? artistStr : "\(artistStr) • \(durationStr)")
-
-                        Text(subtitleText)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
-                    }
-
-                    Spacer()
-
-                    SongMenuView(
-                        songItem: song,
-                        webUrl: song.webUrl,
-                        artistBrowseId: song.firstArtistBrowseId,
-                        albumBrowseId: song.firstAlbumBrowseId,
-                        onNavigate: { pendingRoute = $0 }
-                    )
-                }
+                AlbumSongRow(
+                    song: song,
+                    onPlay: { playSong(song, in: album) },
+                    onNavigate: { pendingRoute = $0 }
+                )
                 .padding(.horizontal, 16)
                 .padding(.vertical, 6)
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    playSong(song, in: album)
-                }
 
                 if index < album.songs.count - 1 {
                     Divider()
@@ -570,5 +537,86 @@ enum DetailParser {
         guard parts.count == 2 || parts.count == 3 else { return 0 }
         if parts.count == 2 { return parts[0] * 60 + parts[1] }
         return parts[0] * 3600 + parts[1] * 60 + parts[2]
+    }
+}
+
+// MARK: - Album Song Row
+
+struct AlbumSongRow: View {
+    let song: SongItem
+    var onPlay: (() -> Void)?
+    var onNavigate: ((DetailRoute) -> Void)?
+
+    @State private var showSongMenu = false
+    @State private var resolvedDuration: Int = 0
+
+    private var effectiveDuration: Int {
+        song.duration > 0 ? song.duration : resolvedDuration
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            AsyncImageView(url: song.thumbnailUrl)
+                .frame(width: 40, height: 40)
+                .clipShape(RoundedRectangle(cornerRadius: 4))
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(song.title)
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+
+                let artistStr = song.artists.map(\.name).joined(separator: ", ")
+                let durationStr = effectiveDuration.formattedDuration
+                let subtitleText = artistStr.isEmpty ? durationStr : (durationStr.isEmpty ? artistStr : "\(artistStr) • \(durationStr)")
+
+                Text(subtitleText)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            Button {
+                showSongMenu = true
+            } label: {
+                Text("\u{22EE}")
+                    .font(.body.weight(.black))
+                    .foregroundStyle(Color.accentColor)
+            }
+            .sheet(isPresented: $showSongMenu) {
+                SongMenuSheet(
+                    song: song,
+                    onNavigate: { onNavigate?($0) }
+                )
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onPlay?()
+        }
+        .task { await resolveDuration() }
+        .onReceive(NotificationCenter.default.publisher(for: .durationDidUpdate)) { notification in
+            guard let vid = notification.userInfo?["videoId"] as? String, vid == song.videoId else { return }
+            resolvedDuration = DurationCache.get(vid) ?? 0
+        }
+    }
+
+    private func resolveDuration() async {
+        guard song.duration <= 0 else { return }
+        let vid = song.videoId
+        if let cached = DurationCache.get(vid), cached > 0 {
+            resolvedDuration = cached
+            return
+        }
+        guard !DurationCache.isPending(vid) else { return }
+        DurationCache.markPending(vid)
+        do {
+            resolvedDuration = try await InnerTube.shared.fetchDuration(videoId: vid)
+        } catch {
+            DurationCache.clearPending(vid)
+        }
     }
 }
