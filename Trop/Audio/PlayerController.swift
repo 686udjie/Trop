@@ -24,11 +24,15 @@ final class PlayerController {
     private var lastDetectedCrop: String?
     private var detectedCropRepeatCount = 0
     private var currentLoudnessDb: Double?
+    /// URL stored when play() is called before mpv_initialize() completes.
+    /// Drained by the event loop on its first iteration.
+    private var pendingURL: String?
 
     /// Metal layer mpv renders into; created up-front so `wid` is valid at init.
     /// `contentsScale` is set from the window's screen when hosted (MpvVideoUIView).
     var videoLayer: CAMetalLayer = {
         let layer = CAMetalLayer()
+        layer.device = MTLCreateSystemDefaultDevice()
         layer.framebufferOnly = true
         layer.isOpaque = false
         layer.contentsScale = 1
@@ -139,7 +143,10 @@ final class PlayerController {
         }
 
         guard let mpv = self.mpv else {
-            Log.player.error("mpv not ready")
+            // mpv_initialize hasn't finished yet — park the URL so the event
+            // loop loads it on its first wake.
+            Log.player.info("mpv not ready yet, parking URL for deferred load")
+            pendingURL = url.absoluteString
             return
         }
 
@@ -153,10 +160,11 @@ final class PlayerController {
         setVideoCrop(.none)
 
         pendingVideoId = videoId
-        Log.player.debug(
+        Log.player.info(
             "TRANSITION play videoId=\(videoId ?? "nil") isNewSong=\(isNewSong) muxedActive=\(muxedActive) url=\(url.absoluteString.prefix(80))"
         )
-        _ = ["loadfile", url.absoluteString, "replace"].withUnsafeCArg { mpv_command(mpv, $0) }
+        let cmdResult = ["loadfile", url.absoluteString, "replace"].withUnsafeCArg { mpv_command(mpv, $0) }
+        Log.player.info("mpv_command loadfile result=\(cmdResult)")
         NowPlaying.shared.isPlaying = true
         NowPlaying.shared.currentTime = 0
         if let duration, duration > 0 {
@@ -186,51 +194,68 @@ final class PlayerController {
                 Log.player.error("mpv_create failed")
                 return
             }
-            self.mpv = mpv
+            // NOTE: self.mpv is intentionally NOT set here.
+            // It is only assigned after mpv_initialize() succeeds so that
+            // play() cannot call mpv C functions on an uninitialized handle,
+            // which would race with mpv_initialize() and crash.
 
-            // gpu-next + MoltenVK (Vulkan-on-Metal), rendering into our CAMetalLayer.
-            mpv_set_option_string(mpv, "vo", "gpu-next")
-            mpv_set_option_string(mpv, "gpu-api", "vulkan")
-            mpv_set_option_string(mpv, "gpu-context", "moltenvk")
-            // Keep the Vulkan VO/device resident for the whole process. Without
-            // this, mpv lazily tears down the renderer (VkDevice+VkInstance)
-            // when a video-mode file is replaced by an audio-only one, and
-            // recreates it on the next video load. That create/destroy churn
-            // races MoltenVK/CAMetalLayer and is the source of the
-            // notifyExternalReferencesNonZeroOnDealloc crash.
-            mpv_set_option_string(mpv, "force-window", "yes")
-            var wid = unsafeBitCast(self.videoLayer, to: Int64.self)
-            mpv_set_option(mpv, "wid", MPV_FORMAT_INT64, &wid)
-            // Start with video track disabled; enabled when entering video mode.
+            // Enable log output before anything else so we capture init errors.
+            mpv_request_log_messages(mpv, "warn")
+
+            // Audio-only startup: vo=null avoids spinning up MoltenVK/Vulkan during
+            // mpv_initialize, which crashes on the simulator and is wasted work
+            // for pure audio streams. Video renderer is switched in lazily via
+            // setVideoTrack() when the user enters video mode.
+            mpv_set_option_string(mpv, "vo", "null")
             mpv_set_option_string(mpv, "vid", "no")
+            mpv_set_option_string(mpv, "force-window", "no")
+
             // Simulator can't use VideoToolbox hwdec; real devices can.
             #if targetEnvironment(simulator)
             mpv_set_option_string(mpv, "hwdec", "no")
+            // audio-exclusive mode crashes on the simulator (AudioUnit exclusive
+            // routing requires a real audio output device). Disable it.
+            mpv_set_option_string(mpv, "audio-exclusive", "no")
             #else
             mpv_set_option_string(mpv, "hwdec", "videotoolbox")
+            // Prevent mpv's ao_audiounit from setting MixWithOthers, which causes
+            // iOS to fade lock-screen / Control Center media controls.
+            mpv_set_option_string(mpv, "audio-exclusive", "yes")
             #endif
+
             mpv_set_option_string(mpv, "keep-open", "no")
             mpv_set_option_string(mpv, "cache", "yes")
             mpv_set_option_string(mpv, "cache-secs", "120")
             mpv_set_option_string(mpv, "demuxer-max-bytes", "200M")
             mpv_set_option_string(mpv, "gapless-audio", "yes")
-            // Prevent mpv's ao_audiounit from setting AVAudioSessionCategoryOptionMixWithOthers,
-            // which causes iOS to treat the app as a secondary audio source and fade the
-            // lock-screen / Control Center media controls.
-            mpv_set_option_string(mpv, "audio-exclusive", "yes")
-            // Scale the decoded frame across the full drawable. Black padding
-            // inside a source video must not shrink the player viewport.
-            mpv_set_option_string(mpv, "background", "0x00000000")
-            mpv_set_option_string(mpv, "video-unscaled", "no")
-            mpv_set_option_string(mpv, "keepaspect", "no")
-            mpv_request_log_messages(mpv, "info")
 
-            if mpv_initialize(mpv) < 0 {
-                Log.player.error("mpv_initialize failed")
+            Log.player.info("mpv initializing...")
+            let initResult = mpv_initialize(mpv)
+            guard initResult >= 0 else {
+                let errStr = String(cString: mpv_error_string(initResult))
+                Log.player.error("mpv_initialize failed: \(initResult) (\(errStr))")
                 mpv_destroy(mpv)
                 self.mpv = nil
                 return
             }
+            Log.player.info("mpv initialized successfully")
+
+            // Post-init runtime properties (safe to set after mpv_initialize).
+            if let caPath = Bundle.main.path(forResource: "cacert", ofType: "pem") {
+                mpv_set_property_string(mpv, "tls-ca-file", caPath)
+                Log.player.info("mpv tls-ca-file set: \(caPath)")
+            } else {
+                Log.player.warning("mpv cacert.pem not found in main bundle")
+            }
+            mpv_set_property_string(
+                mpv,
+                "user-agent",
+                "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
+            )
+            // Video display options — harmless with vo=null, take effect when vo switches.
+            mpv_set_property_string(mpv, "background", "0x00000000")
+            mpv_set_property_string(mpv, "video-unscaled", "no")
+            mpv_set_property_string(mpv, "keepaspect", "no")
 
             mpv_observe_property(mpv, 0, "duration", MPV_FORMAT_DOUBLE)
             // First decoded frame size; > 0 means the video is actually
@@ -238,7 +263,19 @@ final class PlayerController {
             // show a real frame instead of a blank square.
             mpv_observe_property(mpv, 1, "video-params/w", MPV_FORMAT_INT64)
 
+            // Publish the handle only after successful initialization so play()
+            // never sees a partially-initialized mpv instance.
+            self.mpv = mpv
+            Log.player.info("mpv handle published — event loop starting")
+
             self.applyPlaybackSettings()
+
+            // Drain any URL that was queued while mpv was initializing.
+            if let url = self.pendingURL {
+                self.pendingURL = nil
+                Log.player.info("mpv ready: loading deferred URL \(url.prefix(80))")
+                ["loadfile", url, "replace"].withUnsafeCArg { mpv_command(mpv, $0) }
+            }
 
             self.isRunning = true
             self.eventLoop(mpv)
@@ -255,9 +292,12 @@ final class PlayerController {
                 if let prop = event.pointee.data?.load(as: mpv_event_log_message.self),
                    let textPtr = prop.text {
                     let text = String(cString: textPtr)
-                    if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        Log.mpv.debug("\(text)")
-                        if let crop = self.detectedCrop(from: text) {
+                    let prefix = prop.prefix.map { String(cString: $0) } ?? ""
+                    let level = prop.level.map { String(cString: $0) } ?? ""
+                    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !trimmed.isEmpty {
+                        Log.mpv.debug("[\(prefix)] [\(level)] \(trimmed)")
+                        if let crop = self.detectedCrop(from: trimmed) {
                             DispatchQueue.main.async {
                                 self.applyDetectedCrop(crop)
                             }
@@ -329,6 +369,8 @@ final class PlayerController {
                 let stoppedVideoId = self.currentVideoId
                 let endFile = event.pointee.data?.load(as: mpv_event_end_file.self)
                 let reason = endFile?.reason ?? MPV_END_FILE_REASON_EOF
+                let errCode = endFile?.error ?? 0
+                let errStr = mpv_error_string(errCode).map { String(cString: $0) } ?? "unknown"
                 let isEof = reason == MPV_END_FILE_REASON_EOF
                 // reason==STOP fires whenever we intentionally replace the current
                 // file (entering video mode, next/prev, mid-play re-resolve).
@@ -336,7 +378,7 @@ final class PlayerController {
                 // out of video mode. Only genuine errors run failure recovery.
                 let isFailure = reason == MPV_END_FILE_REASON_ERROR
                 Log.player.debug(
-                    "TRANSITION END_FILE reason=\(reason) isEof=\(isEof) isFailure=\(isFailure) stoppedVideoId=\(stoppedVideoId ?? "nil")"
+                    "TRANSITION END_FILE reason=\(reason) error=\(errCode)(\(errStr)) isEof=\(isEof) isFailure=\(isFailure) stoppedVideoId=\(stoppedVideoId ?? "nil")"
                 )
                 // Only a genuine end-of-file or error stops tracking; an
                 // intentional replace (STOP) must not kill the NEW song's
@@ -528,6 +570,11 @@ final class PlayerController {
         guard let mpv else { return }
         lastDetectedCrop = nil
         detectedCropRepeatCount = 0
+        mpv_set_property_string(mpv, "vo", "gpu-next")
+        mpv_set_property_string(mpv, "gpu-api", "vulkan")
+        mpv_set_property_string(mpv, "gpu-context", "moltenvk")
+        var wid = unsafeBitCast(self.videoLayer, to: Int64.self)
+        mpv_set_property(mpv, "wid", MPV_FORMAT_INT64, &wid)
         mpv_set_property_string(mpv, "vid", "auto")
         setVideoCrop(.none)
     }

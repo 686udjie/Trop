@@ -97,6 +97,15 @@ struct AppLogger {
         }
     }
 
+    func warning(_ message: String) {
+        emit("WARNING", message)
+        if redact {
+            logger.warning("\(message, privacy: .private)")
+        } else {
+            logger.warning("\(message)")
+        }
+    }
+
     func error(_ message: String) {
         emit("ERROR", message)
         if redact {

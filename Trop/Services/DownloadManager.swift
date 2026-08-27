@@ -12,6 +12,7 @@ import GRDB
 import Network
 import Nuke
 import UIKit
+import ffmpegkit
 
 @MainActor
 class DownloadManager: ObservableObject {
@@ -46,16 +47,7 @@ class DownloadManager: ObservableObject {
     private let fileManager = FileManager.default
     private let pathMonitor = NWPathMonitor()
     private var currentPath: NWPath?
-    private lazy var downloadSession: URLSession = {
-        let config = URLSessionConfiguration.default
-        config.httpMaximumConnectionsPerHost = 4
-        config.timeoutIntervalForResource = 7_200
-        config.waitsForConnectivity = false
-        return URLSession(configuration: config, delegate: downloadDelegate, delegateQueue: nil)
-    }()
-    private let downloadDelegate = DownloadSessionDelegate()
     private var downloadedVideoIds: Set<String> = []
-    private var activeDownloadTasks: [String: URLSessionDownloadTask] = [:]
     private var cancelledDownloadIds: Set<String> = []
     private var lastReportedProgress: [String: Double] = [:]
     private var downloadsDir: URL {
@@ -99,6 +91,7 @@ class DownloadManager: ObservableObject {
         cancelledDownloadIds.remove(videoId)
         lastReportedProgress.removeValue(forKey: videoId)
         let artist = song.artists.map(\.name).joined(separator: ", ")
+        let downloadStart = CFAbsoluteTimeGetCurrent()
         Log.downloadManager.debug("Starting download: \(artist) - \(song.title) (\(videoId))")
 
         if SettingsStore.shared.wifiOnlyDownloads, !isOnWiFi {
@@ -120,14 +113,16 @@ class DownloadManager: ObservableObject {
             async let artworkData = prefetchArtwork(from: song.thumbnailUrl)
 
             setProgress(0.05, for: videoId)
+            let resolveStart = CFAbsoluteTimeGetCurrent()
             let result = try await PlaybackManager.shared.resolve(
                 videoId: videoId,
                 forDownload: true
             )
+            let resolveElapsed = CFAbsoluteTimeGetCurrent() - resolveStart
             let streamURL = result.streamUrl
             let isAACStream = result.mimeType.lowercased().contains("mp4a")
                 || result.mimeType.lowercased().contains("aac")
-            Log.downloadManager.debug("Resolved stream: codec=\(result.mimeType) isAAC=\(isAACStream)")
+            Log.downloadManager.debug("RESOLVE \(String(format: "%.1f", resolveElapsed))s codec=\(result.mimeType) isAAC=\(isAACStream)")
 
             guard let url = URL(string: streamURL) else {
                 throw DownloadError.invalidStreamURL
@@ -136,37 +131,37 @@ class DownloadManager: ObservableObject {
             let tempDownload = fileManager.temporaryDirectory
                 .appendingPathComponent("\(UUID().uuidString).\(isAACStream ? "m4a" : "webm")")
             defer { try? fileManager.removeItem(at: tempDownload) }
-            let expectedBytes = await expectedDownloadSize(for: videoId, result: result, song: song)
+            let dlStart = CFAbsoluteTimeGetCurrent()
             try await downloadToFile(
                 from: url,
                 to: tempDownload,
-                videoId: videoId,
-                expectedBytes: expectedBytes
+                videoId: videoId
             )
+            let dlElapsed = CFAbsoluteTimeGetCurrent() - dlStart
+            let dlSize = (try? tempDownload.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+            Log.downloadManager.debug("DOWNLOAD \(String(format: "%.1f", dlElapsed))s \(dlSize / 1024)KB")
+
+            let validateStart = CFAbsoluteTimeGetCurrent()
             try await validateDownloadedFile(at: tempDownload)
+            Log.downloadManager.debug("VALIDATE \(String(format: "%.1f", CFAbsoluteTimeGetCurrent() - validateStart))s")
+
             let artwork = await artworkData
-            Log.downloadManager.debug("Fetched stream file for \(videoId)")
 
             ensureDirectories()
             setProgress(0.88, for: videoId)
+            let ffmpegStart = CFAbsoluteTimeGetCurrent()
             if isAACStream {
-                Log.downloadManager.debug("AAC stream detected — saving directly (no transcode)")
-                try fileManager.copyItem(at: tempDownload, to: fileURL)
-                if artwork != nil {
-                    do {
-                        try await attachMetadata(
-                            to: fileURL,
-                            title: song.title,
-                            artist: artist,
-                            artworkData: artwork
-                        )
-                    } catch {
-                        // Keep the playable AAC file even if remux/metadata fails.
-                        Log.downloadManager.error("Metadata attach skipped: \(error.localizedDescription)")
-                    }
-                }
+                Log.downloadManager.debug("FFMPEG remux (AAC passthrough)...")
+                try await attachMetadata(
+                    to: tempDownload,
+                    title: song.title,
+                    artist: artist,
+                    artworkData: artwork
+                )
+                try? fileManager.moveItem(at: tempDownload, to: fileURL)
             } else {
-                _ = try await processAudio(
+                Log.downloadManager.debug("FFMPEG transcode (Opus -> AAC)...")
+                try await processAudio(
                     inputURL: tempDownload,
                     outputURL: fileURL,
                     title: song.title,
@@ -174,6 +169,7 @@ class DownloadManager: ObservableObject {
                     artworkData: artwork
                 )
             }
+            Log.downloadManager.debug("FFMPEG \(String(format: "%.1f", CFAbsoluteTimeGetCurrent() - ffmpegStart))s")
 
             if cancelledDownloadIds.contains(videoId) {
                 cancelledDownloadIds.remove(videoId)
@@ -199,7 +195,8 @@ class DownloadManager: ObservableObject {
 
             downloads[videoId] = .completed
             lastReportedProgress.removeValue(forKey: videoId)
-            Log.downloadManager.debug("Completed download: \(artist) - \(song.title) -> \(fileURL.path)")
+            let totalElapsed = CFAbsoluteTimeGetCurrent() - downloadStart
+            Log.downloadManager.debug("DONE \(String(format: "%.1f", totalElapsed))s total: \(artist) - \(song.title)")
             objectWillChange.send()
         } catch {
             if cancelledDownloadIds.contains(videoId) || (error as? URLError)?.code == .cancelled {
@@ -214,17 +211,6 @@ class DownloadManager: ObservableObject {
             Log.downloadManager.error("Failed download \(videoId): \(error.localizedDescription)")
             objectWillChange.send()
         }
-    }
-
-    private func expectedDownloadSize(for videoId: String, result: PlaybackResult, song: SongItem) async -> Int64? {
-        if let format = try? await DatabaseService.shared.fetchOne(FormatEntity.self, key: videoId),
-           format.contentLength > 0 {
-            return format.contentLength
-        }
-        if song.duration > 0, result.bitrate > 0 {
-            return Int64(song.duration) * Int64(result.bitrate) / 8
-        }
-        return nil
     }
 
     private func validateDownloadedFile(at url: URL) async throws {
@@ -298,18 +284,8 @@ class DownloadManager: ObservableObject {
         return false
     }
 
-    private func cancelActiveDownload(videoId: String) {
-        cancelledDownloadIds.insert(videoId)
-        activeDownloadTasks[videoId]?.cancel()
-        activeDownloadTasks.removeValue(forKey: videoId)
-    }
-
     private func cancelAllActiveDownloads() {
-        for videoId in activeDownloadTasks.keys {
-            cancelledDownloadIds.insert(videoId)
-            activeDownloadTasks[videoId]?.cancel()
-        }
-        activeDownloadTasks.removeAll()
+        cancelledDownloadIds.removeAll()
     }
 
     private func setProgress(_ fraction: Double, for videoId: String) {
@@ -329,37 +305,32 @@ class DownloadManager: ObservableObject {
     private func downloadToFile(
         from url: URL,
         to destination: URL,
-        videoId: String,
-        expectedBytes: Int64?
+        videoId: String
     ) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            let task = downloadSession.downloadTask(with: url)
-            activeDownloadTasks[videoId] = task
-            downloadDelegate.register(
-                task: task,
-                destination: destination,
-                expectedBytes: expectedBytes,
-                onProgress: { [weak self] fraction in
-                    Task { @MainActor in
-                        self?.setProgress(0.10 + fraction * 0.75, for: videoId)
-                    }
-                },
-                completion: { result in
-                    switch result {
-                    case .success:
-                        continuation.resume()
-                    case .failure(let error):
-                        continuation.resume(throwing: error)
-                    }
-                }
-            )
-            task.resume()
+        guard let caPath = Bundle.main.path(forResource: "cacert", ofType: "pem") else {
+            throw NSError(domain: "DownloadManager", code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "CA certificate bundle not found"])
         }
-        activeDownloadTasks.removeValue(forKey: videoId)
+
+        let args = [
+            "-y",
+            "-cafile", caPath,
+            "-headers", "User-Agent: Mozilla/5.0\r\n",
+            "-i", url.absoluteString,
+            "-c", "copy",
+            destination.path
+        ]
+
+        let session = FFmpegKit.execute(withArguments: args)
+        let rc = session?.getReturnCode() ?? ReturnCode(1)
+
+        guard ReturnCode.isSuccess(rc) else {
+            throw NSError(domain: "DownloadManager", code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "FFmpeg download failed: \(session?.getOutput() ?? "")"])
+        }
     }
 
     func delete(videoId: String) async {
-        cancelActiveDownload(videoId: videoId)
         lastReportedProgress.removeValue(forKey: videoId)
         downloads[videoId] = .notStarted
         downloadedVideoIds.remove(videoId)
@@ -450,81 +421,30 @@ class DownloadManager: ObservableObject {
         return true
     }
 
-    private func buildMetadata(title: String, artist: String, artworkData: Data?) -> [AVMetadataItem] {
-        var metadata: [AVMetadataItem] = []
-
-        let titleItem = AVMutableMetadataItem()
-        titleItem.identifier = .commonIdentifierTitle
-        titleItem.value = title as NSString
-        titleItem.extendedLanguageTag = "und"
-        metadata.append(titleItem)
-
-        let artistItem = AVMutableMetadataItem()
-        artistItem.identifier = .commonIdentifierArtist
-        artistItem.value = artist as NSString
-        artistItem.extendedLanguageTag = "und"
-        metadata.append(artistItem)
-
-        if let imageData = artworkData {
-            let artworkItem = AVMutableMetadataItem()
-            artworkItem.identifier = .commonIdentifierArtwork
-            artworkItem.value = imageData as NSData
-            artworkItem.dataType = kCMMetadataBaseDataType_JPEG as String
-            metadata.append(artworkItem)
-        }
-
-        return metadata
+    private func ffmpegMetadataArgs(title: String, artist: String) -> [String] {
+        ["-metadata", "title=\(title)", "-metadata", "artist=\(artist)"]
     }
 
-    /// Re-muxes an existing AAC/M4A file through AVAssetReader/AVAssetWriter to
-    /// embed title/artist/artwork metadata. `AVAssetWriter.metadata` reliably
-    /// writes the `covr` atom the iOS Files app previewer reads; the audio is
-    /// copied without re-encoding (passthrough), so this stays a fast path.
+    /// Uses ffmpeg to remux an existing AAC file with metadata (title/artist/artwork).
+    /// `-c copy` avoids re-encoding — just copies the audio stream and injects metadata atoms.
     private func attachMetadata(to fileURL: URL, title: String, artist: String, artworkData: Data?) async throws {
-        let asset = AVURLAsset(url: fileURL)
-        let metadata = buildMetadata(title: title, artist: artist, artworkData: artworkData)
         let tempOutput = fileManager.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).m4a")
+        var args = ["-y", "-i", fileURL.path, "-c", "copy"]
+        args += ffmpegMetadataArgs(title: title, artist: artist)
+        args.append(tempOutput.path)
 
-        guard let audioTrack = try await asset.loadTracks(withMediaType: .audio).first else {
-            // No decodable audio track: leave the file untouched.
-            return
-        }
+        let session = FFmpegKit.execute(withArguments: args)
+        let rc = session?.getReturnCode() ?? ReturnCode(1)
+        try? fileManager.removeItem(at: fileURL)
 
-        let reader = try AVAssetReader(asset: asset)
-        let readerOutput = AVAssetReaderTrackOutput(track: audioTrack, outputSettings: nil)
-        reader.add(readerOutput)
-
-        let writer = try AVAssetWriter(outputURL: tempOutput, fileType: .m4a)
-        writer.metadata = metadata
-
-        // Passthrough requires a source format hint describing the audio format.
-        let sourceFormat = try? await audioTrack.load(.formatDescriptions).first
-        let writerInput = AVAssetWriterInput(
-            mediaType: .audio,
-            outputSettings: nil,
-            sourceFormatHint: sourceFormat
-        )
-        writer.add(writerInput)
-
-        writer.startWriting()
-        reader.startReading()
-        writer.startSession(atSourceTime: .zero)
-
-        try await transcode(reader: reader, readerOutput: readerOutput, writer: writer, writerInput: writerInput)
-
-        if writer.status == .completed {
-            try? fileManager.removeItem(at: fileURL)
-            try fileManager.moveItem(at: tempOutput, to: fileURL)
-        } else {
+        guard ReturnCode.isSuccess(rc) else {
             try? fileManager.removeItem(at: tempOutput)
-            throw writer.error ?? NSError(
-                domain: "DownloadManager",
-                code: -1,
-                userInfo: [NSLocalizedDescriptionKey: "Failed to attach metadata"]
-            )
+            throw NSError(domain: "DownloadManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "Metadata attach failed: \(session?.getOutput() ?? "")"])
         }
+        try fileManager.moveItem(at: tempOutput, to: fileURL)
     }
 
+    /// Transcodes a non-AAC stream (Opus, etc.) to AAC with metadata using ffmpeg.
     private func processAudio(
         inputURL: URL,
         outputURL: URL,
@@ -532,121 +452,22 @@ class DownloadManager: ObservableObject {
         artist: String,
         artworkData: Data?
     ) async throws -> URL {
-        let tempDir = fileManager.temporaryDirectory
-        let tempOutput = tempDir.appendingPathComponent("\(UUID().uuidString).m4a")
-
-        let asset = AVURLAsset(url: inputURL)
-        let metadata = buildMetadata(title: title, artist: artist, artworkData: artworkData)
-
-        let audioTracks: [AVAssetTrack]
-        do {
-            audioTracks = try await asset.loadTracks(withMediaType: .audio)
-        } catch {
-            Log.downloadManager.error("Cannot open downloaded audio for transcode: \(error.localizedDescription)")
-            throw DownloadError.transcodeFailed
-        }
-        guard let audioTrack = audioTracks.first else {
-            throw DownloadError.transcodeFailed
-        }
-
-        let reader = try AVAssetReader(asset: asset)
-        let readerOutput = AVAssetReaderTrackOutput(track: audioTrack, outputSettings: nil)
-        reader.add(readerOutput)
-
-        let writer = try AVAssetWriter(outputURL: tempOutput, fileType: .m4a)
-        writer.metadata = metadata
-
-        let sourceFormat = try? await audioTrack.load(.formatDescriptions).first
-        let sourceASBD = sourceFormat.flatMap {
-            CMAudioFormatDescriptionGetStreamBasicDescription($0)?.pointee
-        }
-        let sampleRate = sourceASBD?.mSampleRate ?? 48000
-        let channels = Int(sourceASBD?.mChannelsPerFrame ?? 2)
-
-        // Passthrough when the source is already AAC (no re-encode needed);
-        // otherwise transcode Opus/other → AAC.
-        let isAAC = (sourceFormat?.mediaSubType.rawValue == kAudioFormatMPEG4AAC)
         let bitrate = Self.transcodeBitrate(for: SettingsStore.shared.downloadQuality)
-        let audioSettings: [String: Any]? = isAAC ? nil : [
-            AVFormatIDKey: kAudioFormatMPEG4AAC,
-            AVSampleRateKey: sampleRate,
-            AVNumberOfChannelsKey: channels,
-            AVEncoderBitRateKey: bitrate
-        ]
-        let writerInput = AVAssetWriterInput(mediaType: .audio, outputSettings: audioSettings)
-        writer.add(writerInput)
+        let tempOutput = fileManager.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).m4a")
+        var args = ["-y", "-i", inputURL.path, "-c:a", "aac", "-b:a", "\(bitrate)"]
+        args += ffmpegMetadataArgs(title: title, artist: artist)
+        args.append(tempOutput.path)
 
-        writer.startWriting()
-        reader.startReading()
-        writer.startSession(atSourceTime: .zero)
+        let session = FFmpegKit.execute(withArguments: args)
+        let rc = session?.getReturnCode() ?? ReturnCode(1)
 
-        try await transcode(reader: reader, readerOutput: readerOutput, writer: writer, writerInput: writerInput)
-
-        if writer.status == .completed {
-            try? fileManager.removeItem(at: outputURL)
-            try fileManager.moveItem(at: tempOutput, to: outputURL)
-            return outputURL
-        } else {
+        guard ReturnCode.isSuccess(rc) else {
             try? fileManager.removeItem(at: tempOutput)
-            throw writer.error ?? NSError(
-                domain: "DownloadManager",
-                code: -1,
-                userInfo: [NSLocalizedDescriptionKey: "Audio transcode failed"]
-            )
+            throw NSError(domain: "DownloadManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "Audio transcode failed: \(session?.getOutput() ?? "")"])
         }
-    }
-
-    /// Copies audio samples from `reader` into `writer` (optionally re-encoding
-    /// via `writerInput`'s output settings) and finishes the writer. Shared by
-    /// the metadata re-mux and the Opus→AAC transcode.
-    private func transcode(
-        reader: AVAssetReader,
-        readerOutput: AVAssetReaderTrackOutput,
-        writer: AVAssetWriter,
-        writerInput: AVAssetWriterInput
-    ) async throws {
-        let session = TranscodeSession(
-            reader: reader,
-            readerOutput: readerOutput,
-            writer: writer,
-            writerInput: writerInput
-        )
-        try await withCheckedThrowingContinuation { continuation in
-            session.run(continuation: continuation)
-        }
-    }
-
-    /// Wraps the non-Sendable AVFoundation objects so they can be captured by the
-    /// `@Sendable` `requestMediaDataWhenReady` callback without warnings.
-    private struct TranscodeSession: @unchecked Sendable {
-        let reader: AVAssetReader
-        let readerOutput: AVAssetReaderTrackOutput
-        let writer: AVAssetWriter
-        let writerInput: AVAssetWriterInput
-
-        func run(continuation: CheckedContinuation<Void, Error>) {
-            var didFinish = false
-            writerInput.requestMediaDataWhenReady(on: DispatchQueue(label: "com.trop.audio")) { [self] in
-                guard !didFinish else { return }
-                while writerInput.isReadyForMoreMediaData {
-                    if let sampleBuffer = readerOutput.copyNextSampleBuffer() {
-                        writerInput.append(sampleBuffer)
-                    } else {
-                        didFinish = true
-                        writerInput.markAsFinished()
-                        if reader.status == .reading { reader.cancelReading() }
-                        writer.finishWriting {
-                            if let error = writer.error {
-                                continuation.resume(throwing: error)
-                            } else {
-                                continuation.resume()
-                            }
-                        }
-                        return
-                    }
-                }
-            }
-        }
+        try? fileManager.removeItem(at: outputURL)
+        try fileManager.moveItem(at: tempOutput, to: outputURL)
+        return outputURL
     }
 
     private func sanitizedFileName(_ s: String) -> String {
@@ -659,7 +480,6 @@ class DownloadManager: ObservableObject {
 enum DownloadError: Error, LocalizedError {
     case invalidStreamURL
     case transcodeFailed
-    case httpStatus(Int)
 
     var errorDescription: String? {
         switch self {
@@ -667,135 +487,6 @@ enum DownloadError: Error, LocalizedError {
             return "The stream URL returned by the server was invalid"
         case .transcodeFailed:
             return "Could not convert this track for offline playback."
-        case .httpStatus(let code):
-            return "Download failed (HTTP \(code)). Try again."
-        }
-    }
-}
-
-// MARK: - Streaming download delegate
-
-private final class DownloadSessionDelegate: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
-    struct Context {
-        let destination: URL
-        var stagingURL: URL?
-        var expectedBytes: Int64?
-        var onProgress: (@Sendable (Double) -> Void)?
-        var completion: (@Sendable (Result<Void, Error>) -> Void)?
-        var didFinish = false
-    }
-
-    private var contexts: [Int: Context] = [:]
-    private let lock = NSLock()
-
-    func register(
-        task: URLSessionDownloadTask,
-        destination: URL,
-        expectedBytes: Int64?,
-        onProgress: (@Sendable (Double) -> Void)?,
-        completion: @escaping @Sendable (Result<Void, Error>) -> Void
-    ) {
-        lock.lock()
-        contexts[task.taskIdentifier] = Context(
-            destination: destination,
-            stagingURL: nil,
-            expectedBytes: expectedBytes,
-            onProgress: onProgress,
-            completion: completion,
-            didFinish: false
-        )
-        lock.unlock()
-    }
-
-    func urlSession(
-        _ session: URLSession,
-        downloadTask: URLSessionDownloadTask,
-        didWriteData bytesWritten: Int64,
-        totalBytesWritten: Int64,
-        totalBytesExpectedToWrite: Int64
-    ) {
-        lock.lock()
-        let context = contexts[downloadTask.taskIdentifier]
-        lock.unlock()
-        guard let onProgress = context?.onProgress else { return }
-
-        if totalBytesExpectedToWrite > 0 {
-            onProgress(Double(totalBytesWritten) / Double(totalBytesExpectedToWrite))
-            return
-        }
-        if let expected = context?.expectedBytes, expected > 0 {
-            onProgress(min(1.0, Double(totalBytesWritten) / Double(expected)))
-        }
-    }
-
-    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
-        lock.lock()
-        guard var context = contexts[downloadTask.taskIdentifier] else {
-            lock.unlock()
-            return
-        }
-
-        if let http = downloadTask.response as? HTTPURLResponse,
-           !(200...299).contains(http.statusCode) {
-            context.didFinish = true
-            contexts.removeValue(forKey: downloadTask.taskIdentifier)
-            lock.unlock()
-            context.completion?(.failure(DownloadError.httpStatus(http.statusCode)))
-            return
-        }
-
-        let staging = FileManager.default.temporaryDirectory
-            .appendingPathComponent("\(UUID().uuidString).download")
-        do {
-            if FileManager.default.fileExists(atPath: staging.path) {
-                try FileManager.default.removeItem(at: staging)
-            }
-            try FileManager.default.copyItem(at: location, to: staging)
-            context.stagingURL = staging
-            contexts[downloadTask.taskIdentifier] = context
-        } catch {
-            context.didFinish = true
-            contexts.removeValue(forKey: downloadTask.taskIdentifier)
-            lock.unlock()
-            context.completion?(.failure(error))
-            return
-        }
-        lock.unlock()
-    }
-
-    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        lock.lock()
-        guard var context = contexts.removeValue(forKey: task.taskIdentifier), !context.didFinish else {
-            lock.unlock()
-            return
-        }
-        context.didFinish = true
-        let completion = context.completion
-        lock.unlock()
-        guard let completion else { return }
-
-        if let error {
-            if let staging = context.stagingURL {
-                try? FileManager.default.removeItem(at: staging)
-            }
-            completion(.failure(error))
-            return
-        }
-
-        guard let staging = context.stagingURL else {
-            completion(.failure(DownloadError.invalidStreamURL))
-            return
-        }
-
-        do {
-            if FileManager.default.fileExists(atPath: context.destination.path) {
-                try FileManager.default.removeItem(at: context.destination)
-            }
-            try FileManager.default.moveItem(at: staging, to: context.destination)
-            completion(.success(()))
-        } catch {
-            try? FileManager.default.removeItem(at: staging)
-            completion(.failure(error))
         }
     }
 }

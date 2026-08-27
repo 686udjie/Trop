@@ -10,8 +10,32 @@ DERIVED_DATA_PATH="$BUILD_DIR/DerivedDataApp"
 OUTPUT_APP_PATH="$BUILD_DIR/$APPLICATION_NAME.app"
 PAYLOAD_DIR="$BUILD_DIR/Payload"
 IPA_PATH="$BUILD_DIR/$APPLICATION_NAME.ipa"
+FFMPEG_KIT_DIR="$BUILD_DIR/ffmpeg-kit-next"
+FFMPEG_KIT_XCF="$BUILD_DIR/ffmpeg-kit-xcframeworks"
 
 mkdir -p "$BUILD_DIR"
+
+if [ ! -d "$FFMPEG_KIT_XCF" ]; then
+    echo "Building ffmpeg-kit-next..."
+    if [ ! -d "$FFMPEG_KIT_DIR" ]; then
+        echo "    Cloning ffmpeg-kit-next..."
+        git clone https://github.com/arthenica/ffmpeg-kit-next.git "$FFMPEG_KIT_DIR" --depth 1
+    fi
+    cd "$FFMPEG_KIT_DIR"
+    if ! command -v gsed >/dev/null 2>&1; then
+        echo "    Installing build dependencies..."
+        brew install gnu-sed pkg-config autoconf automake libtool
+    fi
+    echo "Building arm64 (device)..."
+    SED=gsed ./ios.sh -x --spm --arch=arm64 --disable-arch-arm64-simulator --enable-lib-openssl || { echo "    FAILED: arm64 build"; exit 1; }
+    echo "Building arm64 (simulator)..."
+    SED=gsed ./ios.sh -x --spm --arch=arm64-simulator --disable-arch-arm64 --enable-lib-openssl || { echo "    FAILED: arm64-simulator build"; exit 1; }
+    echo "Copying xcframeworks..."
+    cp -R "$FFMPEG_KIT_DIR/prebuilt/bundle-apple-xcframework-ios-12.1" "$FFMPEG_KIT_XCF"
+    echo "ffmpeg-kit-next build complete."
+    cd "$WORKING_LOCATION"
+fi
+
 cd "$BUILD_DIR"
 
 SKIP_SWIFTLINT=YES
