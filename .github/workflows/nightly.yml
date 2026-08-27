@@ -9,7 +9,7 @@ on:
       - main
 
 env:
-  FFMPEG_KIT_TAG: v8.1.1
+  FFMPEG_KIT_TAG: v9.0.0
 
 jobs:
   build-ios:

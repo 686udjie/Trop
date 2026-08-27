@@ -12,7 +12,8 @@ PAYLOAD_DIR="$BUILD_DIR/Payload"
 IPA_PATH="$BUILD_DIR/$APPLICATION_NAME.ipa"
 FFMPEG_KIT_DIR="$BUILD_DIR/ffmpeg-kit-next"
 FFMPEG_KIT_XCF="$BUILD_DIR/ffmpeg-kit-xcframeworks"
-FFMPEG_KIT_TAG="${FFMPEG_KIT_TAG:-v8.1.1}"
+# v8.1.x tags are Nix-only (no ios.sh). v9.0.0+ ships the classic ios.sh entrypoint.
+FFMPEG_KIT_TAG="${FFMPEG_KIT_TAG:-v9.0.0}"
 
 mkdir -p "$BUILD_DIR"
 
@@ -24,6 +25,11 @@ if [ ! -d "$FFMPEG_KIT_XCF" ]; then
             https://github.com/arthenica/ffmpeg-kit-next.git "$FFMPEG_KIT_DIR"
     fi
     cd "$FFMPEG_KIT_DIR"
+    if [ ! -f ./ios.sh ]; then
+        echo "    ERROR: ios.sh missing in ffmpeg-kit-next @$FFMPEG_KIT_TAG"
+        echo "    Use a tag that includes the classic build scripts (v9.0.0+), or nix-ios.sh."
+        exit 1
+    fi
     if ! command -v gsed >/dev/null 2>&1; then
         echo "    Installing build dependencies..."
         brew install gnu-sed pkg-config autoconf automake libtool
