@@ -1,0 +1,81 @@
+# CodeRabbit Configuration for Trop
+# Docs: https://docs.coderabbit.ai/getting-started/configure-coderabbit
+
+language: en-US
+
+reviews:
+  auto_review:
+    enabled: true
+    base_branches:
+      - main
+    drafts: false
+    path_instructions:
+      - path: "Trop/Audio/**"
+        instructions: |
+          Audio layer: PlayerController, NowPlaying, PlaybackManager, QueueView.
+          Use Log.player for logging. Guard against retain cycles with [weak self].
+          MPV callbacks run off-main — dispatch to @MainActor before UI updates.
+      - path: "Trop/Components/**"
+        instructions: |
+          Reusable SwiftUI views. Use @Observable for state, not ObservableObject.
+          Row views: .contentShape(Rectangle()) for tappable areas, .buttonStyle(.plain).
+          Extract complex sections as private var computed properties.
+      - path: "Trop/Detail/**"
+        instructions: |
+          Detail views (Album, Playlist, Podcast, Song). Use .task { } for async loading.
+          Duration resolution via DurationCache/InnerTube.shared.fetchDuration when song.duration == 0.
+      - path: "Trop/Services/**"
+        instructions: |
+          Service layer: DownloadManager, InnerTube API calls.
+          Use Log.<category> for error logging. try? for non-critical ops.
+      - path: "Trop/Settings/**"
+        instructions: |
+          Settings views. Use NavigationStack, .sheet for modals.
+      - path: "Trop/Home/**"
+        instructions: |
+          Home screen grid items. YouTubeListItemView uses SongMenuSheet for context menu.
+          Row views use .contentShape(Rectangle()) for tappable areas.
+
+  request_changes_workflow: true
+  collapse_walkthrough: true
+
+  path_filters:
+    - "!**/*.md"
+    - "!**/*.txt"
+    - "!**/*.plist"
+    - "!**/*.storyboard"
+    - "!**/*.xib"
+    - "!**/Podfile*"
+    - "!**/Package.resolved"
+    - "!**/*.xcassets/**"
+    - "!**/.swiftpm/**"
+
+  poem: false
+
+  tools:
+    swiftlint:
+      enabled: false
+
+tone_instructions: |
+  Review as a senior iOS/SwiftUI engineer. Be concise. Focus on correctness, not style nits (SwiftLint handles those). Flag bugs, retain cycles, missing error handling, and non-idiomatic patterns. Use the Trop style guide below for naming and architecture decisions.
+
+chat:
+  auto_reply: true
+  integrate_with_bitbucket: false
+
+finishing_touches:
+  custom:
+    - enabled: true
+      name: "trop style check"
+      instructions: |
+        Review all changed Swift files against the Trop Code Style Guide:
+        - Types: PascalCase, vars/funcs: camelCase, bools: is/has/show prefix
+        - @Observable not ObservableObject for new code
+        - .task { } not .onAppear for async loading
+        - [weak self] in closures
+        - guard + early return, no empty catch {} blocks
+        - Log errors via Log.<category>.error()
+        - // MARK: - sections in files >200 lines
+        - No force unwraps, no commented-out code, no public access control
+        - Row views: .contentShape(Rectangle())
+        - Extract complex sections as private var computed properties
