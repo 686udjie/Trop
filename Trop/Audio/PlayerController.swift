@@ -147,6 +147,7 @@ final class PlayerController {
             // loop loads it on its first wake.
             Log.player.info("mpv not ready yet, parking URL for deferred load")
             pendingURL = url.absoluteString
+            pendingVideoId = videoId
             return
         }
 

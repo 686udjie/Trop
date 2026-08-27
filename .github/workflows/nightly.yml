@@ -8,6 +8,9 @@ on:
     branches:
       - main
 
+env:
+  FFMPEG_KIT_TAG: v8.1.1
+
 jobs:
   build-ios:
     name: Build iOS IPA
@@ -21,11 +24,27 @@ jobs:
         with:
           xcode-version: latest-stable
 
+      - name: Cache ffmpeg-kit XCFrameworks
+        uses: actions/cache@v4
+        with:
+          path: build/ffmpeg-kit-xcframeworks
+          key: ffmpeg-kit-${{ env.FFMPEG_KIT_TAG }}-arm64+sim-openssl-${{ runner.os }}
+
+      - name: Cache DerivedData
+        uses: actions/cache@v4
+        with:
+          path: build/DerivedDataApp
+          key: trop-dd-${{ runner.os }}-${{ hashFiles('Trop.xcodeproj/**', '**/Package.resolved', 'Trop/**/*.swift') }}
+          restore-keys: |
+            trop-dd-${{ runner.os }}-
+
       - name: Make build script executable
         run: chmod +x ./build_ipa.sh
 
       - name: Build iOS IPA
         run: ./build_ipa.sh
+        env:
+          FFMPEG_KIT_TAG: ${{ env.FFMPEG_KIT_TAG }}
 
       - name: Upload iOS IPA artifact
         uses: actions/upload-artifact@v7.0.1

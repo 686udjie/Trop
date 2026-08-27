@@ -12,24 +12,32 @@ PAYLOAD_DIR="$BUILD_DIR/Payload"
 IPA_PATH="$BUILD_DIR/$APPLICATION_NAME.ipa"
 FFMPEG_KIT_DIR="$BUILD_DIR/ffmpeg-kit-next"
 FFMPEG_KIT_XCF="$BUILD_DIR/ffmpeg-kit-xcframeworks"
+FFMPEG_KIT_TAG="${FFMPEG_KIT_TAG:-v8.1.1}"
 
 mkdir -p "$BUILD_DIR"
 
 if [ ! -d "$FFMPEG_KIT_XCF" ]; then
-    echo "Building ffmpeg-kit-next..."
+    echo "Building ffmpeg-kit-next ($FFMPEG_KIT_TAG)..."
     if [ ! -d "$FFMPEG_KIT_DIR" ]; then
         echo "    Cloning ffmpeg-kit-next..."
-        git clone https://github.com/arthenica/ffmpeg-kit-next.git "$FFMPEG_KIT_DIR" --depth 1
+        git clone --depth 1 --branch "$FFMPEG_KIT_TAG" \
+            https://github.com/arthenica/ffmpeg-kit-next.git "$FFMPEG_KIT_DIR"
     fi
     cd "$FFMPEG_KIT_DIR"
     if ! command -v gsed >/dev/null 2>&1; then
         echo "    Installing build dependencies..."
         brew install gnu-sed pkg-config autoconf automake libtool
     fi
-    echo "Building arm64 (device)..."
-    SED=gsed ./ios.sh -x --spm --arch=arm64 --disable-arch-arm64-simulator --enable-lib-openssl || { echo "    FAILED: arm64 build"; exit 1; }
-    echo "Building arm64 (simulator)..."
-    SED=gsed ./ios.sh -x --spm --arch=arm64-simulator --disable-arch-arm64 --enable-lib-openssl || { echo "    FAILED: arm64-simulator build"; exit 1; }
+    # One -x invocation builds device + simulator into a single XCFramework.
+    # Separate ios.sh runs recreate the output directory and drop the earlier
+    # slice, which breaks device IPA linking. Disable unused default arches.
+    echo "Building arm64 device + simulator XCFrameworks..."
+    SED=gsed ./ios.sh -x --spm --enable-lib-openssl \
+        --disable-arm64e \
+        --disable-arm64-mac-catalyst \
+        --disable-x86-64 \
+        --disable-x86-64-mac-catalyst \
+        || { echo "    FAILED: ffmpeg-kit XCFramework build"; exit 1; }
     echo "Copying xcframeworks..."
     cp -R "$FFMPEG_KIT_DIR/prebuilt/bundle-apple-xcframework-ios-12.1" "$FFMPEG_KIT_XCF"
     echo "ffmpeg-kit-next build complete."
@@ -38,13 +46,19 @@ fi
 
 cd "$BUILD_DIR"
 
+XCODEBUILD_ACTION="${XCODEBUILD_ACTION:-build}"
+if [ "${CLEAN_BUILD:-0}" = "1" ]; then
+    XCODEBUILD_ACTION="clean build"
+fi
+
 SKIP_SWIFTLINT=YES
+# shellcheck disable=SC2086
 xcodebuild -project "$WORKING_LOCATION/$PROJECT_NAME.xcodeproj" \
     -scheme "$APPLICATION_NAME" \
     -configuration Release \
     -derivedDataPath "$DERIVED_DATA_PATH" \
     -destination 'generic/platform=iOS' \
-    clean build \
+    $XCODEBUILD_ACTION \
     SKIP_SWIFTLINT=YES \
     CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGN_ENTITLEMENTS="" CODE_SIGNING_ALLOWED="NO"
 
