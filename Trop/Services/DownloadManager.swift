@@ -50,7 +50,7 @@ class DownloadManager: ObservableObject {
     private var downloadedVideoIds: Set<String> = []
     private var cancelledDownloadIds: Set<String> = []
     private var lastReportedProgress: [String: Double] = [:]
-    private var activeFFmpegSessionIds: [String: Int] = [:]
+    private var activeFFmpegSessions: [String: FFmpegSession] = [:]
     private var downloadsDir: URL {
         let base = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first
             ?? fileManager.temporaryDirectory
@@ -304,11 +304,11 @@ class DownloadManager: ObservableObject {
                 cancelledDownloadIds.insert(videoId)
             }
         }
-        for (videoId, sessionId) in activeFFmpegSessionIds {
+        for (videoId, session) in activeFFmpegSessions {
             cancelledDownloadIds.insert(videoId)
-            FFmpegKit.cancel(sessionId)
+            session.cancel()
         }
-        activeFFmpegSessionIds.removeAll()
+        activeFFmpegSessions.removeAll()
     }
 
     private func setProgress(_ fraction: Double, for videoId: String) {
@@ -378,7 +378,7 @@ class DownloadManager: ObservableObject {
                 withCompleteCallback: { [weak self] session in
                     if let videoId {
                         Task { @MainActor in
-                            self?.activeFFmpegSessionIds.removeValue(forKey: videoId)
+                            self?.activeFFmpegSessions.removeValue(forKey: videoId)
                         }
                     }
                     let rc = session?.getReturnCode()
@@ -403,9 +403,8 @@ class DownloadManager: ObservableObject {
             )
 
             if let videoId, let session {
-                let sessionId = Int(session.getSessionId())
                 Task { @MainActor in
-                    self.activeFFmpegSessionIds[videoId] = sessionId
+                    self.activeFFmpegSessions[videoId] = session
                 }
             }
         }
@@ -413,8 +412,8 @@ class DownloadManager: ObservableObject {
 
     func delete(videoId: String) async {
         cancelledDownloadIds.insert(videoId)
-        if let sessionId = activeFFmpegSessionIds.removeValue(forKey: videoId) {
-            FFmpegKit.cancel(sessionId)
+        if let session = activeFFmpegSessions.removeValue(forKey: videoId) {
+            session.cancel()
         }
         lastReportedProgress.removeValue(forKey: videoId)
         downloads[videoId] = .notStarted
