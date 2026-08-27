@@ -135,6 +135,7 @@ class DownloadManager: ObservableObject {
 
             let tempDownload = fileManager.temporaryDirectory
                 .appendingPathComponent("\(UUID().uuidString).\(isAACStream ? "m4a" : "webm")")
+            defer { try? fileManager.removeItem(at: tempDownload) }
             let expectedBytes = await expectedDownloadSize(for: videoId, result: result, song: song)
             try await downloadToFile(
                 from: url,
@@ -173,7 +174,6 @@ class DownloadManager: ObservableObject {
                     artworkData: artwork
                 )
             }
-            try? fileManager.removeItem(at: tempDownload)
 
             if cancelledDownloadIds.contains(videoId) {
                 cancelledDownloadIds.remove(videoId)
