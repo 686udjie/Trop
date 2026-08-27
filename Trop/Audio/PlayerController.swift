@@ -474,14 +474,28 @@ final class PlayerController {
     }
 
     @MainActor
-    func togglePlayPause() {
+    func setPaused(_ paused: Bool) {
         guard let mpv = self.mpv else { return }
-        let willBePlaying = playState.value == .paused || playState.value == .stopped
-        var flag: Int32 = willBePlaying ? 0 : 1
+        let currentlyPaused = playState.value != .playing
+        guard currentlyPaused != paused else {
+            // Keep Now Playing rate in sync even on no-op remote commands.
+            updateNowPlayingProgress()
+            return
+        }
+        var flag: Int32 = paused ? 1 : 0
         mpv_set_property(mpv, "pause", MPV_FORMAT_FLAG, &flag)
-        playState.send(willBePlaying ? .playing : .paused)
-        NowPlaying.shared.isPlaying = willBePlaying
+        playState.send(paused ? .paused : .playing)
+        NowPlaying.shared.isPlaying = !paused
+        if !paused {
+            assertAudioSession()
+        }
         updateNowPlayingProgress()
+    }
+
+    @MainActor
+    func togglePlayPause() {
+        let shouldPause = playState.value == .playing
+        setPaused(shouldPause)
     }
 
     /// Video mode loads the muxed stream once and keeps it resident; later
@@ -864,16 +878,31 @@ extension PlayerController {
     private func setupRemoteCommands() {
         let center = MPRemoteCommandCenter.shared()
 
+        // Avoid stacking handlers if setup runs more than once.
+        center.playCommand.removeTarget(nil)
+        center.pauseCommand.removeTarget(nil)
+        center.togglePlayPauseCommand.removeTarget(nil)
+        center.nextTrackCommand.removeTarget(nil)
+        center.previousTrackCommand.removeTarget(nil)
+        center.changePlaybackPositionCommand.removeTarget(nil)
+
         center.playCommand.isEnabled = true
         center.playCommand.addTarget { [weak self] _ in
             Log.player.info("REMOTE_COMMAND play fired")
-            Task { @MainActor [weak self] in self?.togglePlayPause() }
+            Task { @MainActor [weak self] in self?.setPaused(false) }
             return .success
         }
 
         center.pauseCommand.isEnabled = true
         center.pauseCommand.addTarget { [weak self] _ in
             Log.player.info("REMOTE_COMMAND pause fired")
+            Task { @MainActor [weak self] in self?.setPaused(true) }
+            return .success
+        }
+
+        center.togglePlayPauseCommand.isEnabled = true
+        center.togglePlayPauseCommand.addTarget { [weak self] _ in
+            Log.player.info("REMOTE_COMMAND togglePlayPause fired")
             Task { @MainActor [weak self] in self?.togglePlayPause() }
             return .success
         }

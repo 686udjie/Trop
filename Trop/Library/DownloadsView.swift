@@ -520,7 +520,11 @@ private struct DownloadedSongRow: View {
                 Text("\u{22EE}")
                     .font(.body.weight(.black))
                     .foregroundStyle(settings.accentColor)
+                    .frame(minWidth: 44, minHeight: 44)
+                    .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel("More")
             .sheet(isPresented: $showSongMenu) {
                 SongMenuSheet(
                     song: song,
