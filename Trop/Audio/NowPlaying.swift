@@ -94,7 +94,7 @@ final class NowPlaying {
         }
     }
 
-    private func persistQueueState() {
+    func persistQueueState() {
         guard SettingsStore.shared.persistQueue, !queueSongs.isEmpty else { return }
         if let data = try? JSONEncoder().encode(queueSongs) {
             UserDefaults.standard.set(data, forKey: Self.queueKey)

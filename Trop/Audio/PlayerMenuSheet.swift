@@ -551,6 +551,11 @@ struct SongDetailsView: View {
     @State private var stream: PlaybackResult?
     @State private var formatEntity: FormatEntity?
     @State private var viewCountText: String?
+    @State private var resolvedDuration: Int = 0
+
+    private var effectiveDuration: Int {
+        song.duration > 0 ? song.duration : resolvedDuration
+    }
 
     var body: some View {
         ScrollView {
@@ -576,7 +581,7 @@ struct SongDetailsView: View {
             if let album = song.album {
                 row("Album", album)
             }
-            row("Duration", song.duration.formattedDuration)
+            row("Duration", effectiveDuration.formattedDuration)
             row("Video ID", song.videoId, monospaced: true)
         }
     }
@@ -649,6 +654,18 @@ struct SongDetailsView: View {
     // MARK: Helpers
 
     private func loadMetadata() async {
+        if song.duration <= 0 {
+            if let cached = DurationCache.get(song.videoId), cached > 0 {
+                resolvedDuration = cached
+            } else if !DurationCache.isPending(song.videoId) {
+                DurationCache.markPending(song.videoId)
+                do {
+                    resolvedDuration = try await InnerTube.shared.fetchDuration(videoId: song.videoId)
+                } catch {
+                    DurationCache.clearPending(song.videoId)
+                }
+            }
+        }
         stream = await StreamCache.shared.get(videoId: song.videoId)
         formatEntity = try? await DatabaseService.shared.fetchOne(FormatEntity.self, key: song.videoId)
         if let response = try? await InnerTube.shared.playerResponse(videoId: song.videoId),

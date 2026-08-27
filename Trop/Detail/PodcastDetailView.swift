@@ -368,43 +368,13 @@ struct PodcastDetailView: View {
     private func episodeList(for podcast: PodcastDetailInfo) -> some View {
         VStack(spacing: 0) {
             ForEach(Array(podcast.episodes.enumerated()), id: \.offset) { index, episode in
-                HStack(spacing: 12) {
-                    AsyncImageView(url: episode.thumbnailUrl)
-                        .frame(width: 40, height: 40)
-                        .clipShape(RoundedRectangle(cornerRadius: 4))
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(episode.title)
-                            .font(.subheadline)
-                            .fontWeight(.medium)
-                            .foregroundColor(.primary)
-                            .lineLimit(1)
-
-                        let durationStr = episode.duration.formattedDuration
-                        let subtitleText = durationStr.isEmpty ? "" : durationStr
-
-                        Text(subtitleText)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
-                    }
-
-                    Spacer()
-
-                    SongMenuView(
-                        songItem: episode.toSongItem(),
-                        webUrl: episode.webUrl,
-                        artistBrowseId: episode.firstArtistBrowseId,
-                        albumBrowseId: nil,
-                        onNavigate: { pendingRoute = $0 }
-                    )
-                }
+                PodcastEpisodeRow(
+                    episode: episode,
+                    onPlay: { playEpisode(episode, in: podcast) },
+                    onNavigate: { pendingRoute = $0 }
+                )
                 .padding(.horizontal, 16)
                 .padding(.vertical, 6)
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    playEpisode(episode, in: podcast)
-                }
 
                 if index < podcast.episodes.count - 1 {
                     Divider()
@@ -424,6 +394,7 @@ struct PodcastDetailView: View {
             do {
                 try await PlaybackManager.shared.resolveAndPlay(videoId: first.videoId)
             } catch {
+                Log.podcastDetail.error("playAll failed: \(error)")
             }
         }
     }
@@ -435,7 +406,88 @@ struct PodcastDetailView: View {
             do {
                 try await PlaybackManager.shared.resolveAndPlay(videoId: episode.videoId)
             } catch {
+                Log.podcastDetail.error("playEpisode failed: \(error)")
             }
+        }
+    }
+}
+
+// MARK: - Podcast Episode Row
+
+struct PodcastEpisodeRow: View {
+    let episode: EpisodeItem
+    var onPlay: (() -> Void)?
+    var onNavigate: ((DetailRoute) -> Void)?
+
+    @State private var showSongMenu = false
+    @State private var resolvedDuration: Int = 0
+
+    private var effectiveDuration: Int {
+        episode.duration > 0 ? episode.duration : resolvedDuration
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            AsyncImageView(url: episode.thumbnailUrl)
+                .frame(width: 40, height: 40)
+                .clipShape(RoundedRectangle(cornerRadius: 4))
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(episode.title)
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+
+                let durationStr = effectiveDuration.formattedDuration
+                let subtitleText = episode.duration > 0 ? durationStr : ""
+
+                Text(subtitleText)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            Button {
+                showSongMenu = true
+            } label: {
+                Text("\u{22EE}")
+                    .font(.body.weight(.black))
+                    .foregroundStyle(Color.accentColor)
+            }
+            .sheet(isPresented: $showSongMenu) {
+                SongMenuSheet(
+                    song: episode.toSongItem(),
+                    onNavigate: { onNavigate?($0) }
+                )
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onPlay?()
+        }
+        .task { await resolveDuration() }
+        .onReceive(NotificationCenter.default.publisher(for: .durationDidUpdate)) { notification in
+            guard let vid = notification.userInfo?["videoId"] as? String, vid == episode.videoId else { return }
+            resolvedDuration = DurationCache.get(vid) ?? 0
+        }
+    }
+
+    private func resolveDuration() async {
+        guard episode.duration <= 0 else { return }
+        let vid = episode.videoId
+        if let cached = DurationCache.get(vid), cached > 0 {
+            resolvedDuration = cached
+            return
+        }
+        guard !DurationCache.isPending(vid) else { return }
+        DurationCache.markPending(vid)
+        do {
+            resolvedDuration = try await InnerTube.shared.fetchDuration(videoId: vid)
+        } catch {
+            DurationCache.clearPending(vid)
         }
     }
 }

@@ -21,6 +21,8 @@ struct QueueView<ProgressSlider: View>: View {
     let pendingRoute: Binding<DetailRoute?>
     @ViewBuilder var progressSlider: () -> ProgressSlider
 
+    @State private var showSongMenu = false
+
     var body: some View {
         queueContent
     }
@@ -122,7 +124,6 @@ struct QueueView<ProgressSlider: View>: View {
                         .lineLimit(1)
                 }
             }
-            .frame(height: 64)
 
             Spacer()
 
@@ -137,33 +138,20 @@ struct QueueView<ProgressSlider: View>: View {
 
             let currentSong = np.queueSongs.indices.contains(np.queueIndex) ? np.queueSongs[np.queueIndex] : nil
             if let song = currentSong {
-                Menu {
-                    Button {
-                        UIPasteboard.general.string = song.webUrl
-                    } label: {
-                        Label("Copy Link", systemImage: "link")
-                    }
-                    if let artistId = song.firstArtistBrowseId {
-                        Button {
-                            pendingRoute.wrappedValue = DetailRoute.artist(browseId: artistId)
-                        } label: {
-                            Label("Go to Artist", systemImage: "music.mic")
-                        }
-                    }
-                    if let albumId = song.firstAlbumBrowseId {
-                        Button {
-                            pendingRoute.wrappedValue = DetailRoute.album(browseId: albumId)
-                        } label: {
-                            Label("Go to Album", systemImage: "record.circle")
-                        }
-                    }
+                Button {
+                    showSongMenu = true
                 } label: {
                     Text("\u{22EE}")
                         .font(.system(size: 20, weight: .black))
                         .foregroundStyle(.white.opacity(0.6))
                         .frame(width: 36, height: 36)
                 }
-                .menuOrder(.fixed)
+                .sheet(isPresented: $showSongMenu) {
+                    SongMenuSheet(
+                        song: song,
+                        onNavigate: { pendingRoute.wrappedValue = $0 }
+                    )
+                }
             }
         }
         .padding(.top, 12)

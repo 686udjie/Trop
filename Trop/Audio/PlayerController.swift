@@ -280,7 +280,7 @@ final class PlayerController {
                     self.assertAudioSession()
                     self.setNowPlayingMetadata()
                     self.applyPendingResumeIfNeeded()
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
                         guard self?.currentVideoId == self?.pendingVideoId else { return }
                         self?.updateNowPlayingArtwork()
                         self?.updateNowPlayingProgress()
@@ -719,6 +719,7 @@ extension PlayerController {
     func setNowPlayingMetadata() {
         assertAudioSession()
         let np = NowPlaying.shared
+        nowPlayingInfo.removeAll()
 
         var liveDur = Double(0)
         if let mpv { mpv_get_property(mpv, "duration", MPV_FORMAT_DOUBLE, &liveDur) }
@@ -746,7 +747,7 @@ extension PlayerController {
         }
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
         Log.player.info("""
-        NOW_PLAYING_PUBLISH title='\(np.title)' artist='\(np.artist ?? "-")' \
+        NOW_PLAYING_PUBLISH title='\(np.title)' artist='\(np.artist)' \
         duration=\(duration) rate=\(nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] ?? 0) \
         artwork=\(np.thumbnailUIImage != nil) keys=\(nowPlayingInfo.keys.count)
         """)
@@ -813,15 +814,6 @@ extension PlayerController {
     }
 
     private func setupRemoteCommands() {
-        // Must run after the audio session is configured, or iOS never
-        // registers this app as the Now Playing app: audio keeps playing in
-        // the background but lock-screen / Control Center controls never
-        // appear.
-        DispatchQueue.main.async {
-            UIApplication.shared.beginReceivingRemoteControlEvents()
-            Log.player.info("REMOTE_COMMANDS beginReceivingRemoteControlEvents called")
-        }
-
         let center = MPRemoteCommandCenter.shared()
 
         center.playCommand.isEnabled = true

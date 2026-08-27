@@ -116,6 +116,7 @@ struct YouTubeListItemView: View {
     var onNavigate: ((DetailRoute) -> Void)?
 
     @State private var resolvedDuration: Int = 0
+    @State private var showSongMenu = false
 
     private var videoId: String? {
         switch item {
@@ -177,27 +178,28 @@ struct YouTubeListItemView: View {
 
             Spacer()
 
-            if let song = songItem, let url = item.webUrl {
-                SongMenuView(
-                    songItem: song,
-                    webUrl: url,
-                    artistBrowseId: item.firstArtistBrowseId,
-                    albumBrowseId: item.firstAlbumBrowseId,
-                    onNavigate: { onNavigate?($0) }
-                )
-            } else if let url = item.webUrl {
-                Menu {
-                    Button {
-                        UIPasteboard.general.string = url
-                    } label: {
-                        Label("Copy Link", systemImage: "link")
-                    }
+            if let song = songItem {
+                Button {
+                    showSongMenu = true
                 } label: {
                     Text("\u{22EE}")
                         .font(.body.weight(.black))
                         .foregroundStyle(settings.accentColor)
                 }
-                .menuOrder(.fixed)
+                .sheet(isPresented: $showSongMenu) {
+                    SongMenuSheet(
+                        song: song,
+                        onNavigate: { onNavigate?($0) }
+                    )
+                }
+            } else if let url = item.webUrl {
+                Button {
+                    UIPasteboard.general.string = url
+                } label: {
+                    Text("\u{22EE}")
+                        .font(.body.weight(.black))
+                        .foregroundStyle(settings.accentColor)
+                }
             }
         }
         .contentShape(Rectangle())
