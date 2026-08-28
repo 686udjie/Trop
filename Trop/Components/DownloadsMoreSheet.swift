@@ -49,10 +49,7 @@ struct DownloadsMoreSheet: View {
             Button("Cancel", role: .cancel) {}
             Button("Remove All", role: .destructive) {
                 Task {
-                    let dm = DownloadManager.shared
-                    for song in songs {
-                        await dm.delete(videoId: song.videoId)
-                    }
+                    await DownloadManager.shared.deleteAll()
                     dismiss()
                 }
             }

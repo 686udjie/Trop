@@ -37,7 +37,7 @@ rename_ffmpegkit_frameworks() {
             parent="$(dirname "$fw")"
             mv "$fw" "$parent/$new.framework"
             local bin="$parent/$new.framework/$l"
-            [ -f "$bin" ] || return
+            [ -f "$bin" ] || continue
             mv "$bin" "$parent/$new.framework/$new"
             local newbin="$parent/$new.framework/$new"
             /usr/libexec/PlistBuddy -c "Set :CFBundleExecutable $new" "$parent/$new.framework/Info.plist" 2>/dev/null || true
@@ -191,7 +191,6 @@ if [ "${CLEAN_BUILD:-0}" = "1" ]; then
     XCODEBUILD_ACTION="clean build"
 fi
 
-SKIP_SWIFTLINT=YES
 # shellcheck disable=SC2086
 xcodebuild -project "$WORKING_LOCATION/$PROJECT_NAME.xcodeproj" \
     -scheme "$APPLICATION_NAME" \
@@ -228,6 +227,7 @@ if [ -f "$PAYLOAD_DIR/$APPLICATION_NAME.app/$APPLICATION_NAME" ]; then
 fi
 
 cd "$STAGE_DIR"
+rm -f "$IPA_PATH"
 zip -vr "$IPA_PATH" "Payload"
 
 rm -rf "$PAYLOAD_DIR"

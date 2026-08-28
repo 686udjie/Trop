@@ -179,7 +179,12 @@ extension DownloadManager {
                     videoId: videoId
                 )
                 let validateStart = CFAbsoluteTimeGetCurrent()
-                try await validateDownloadedFile(at: fileURL)
+                do {
+                    try await validateDownloadedFile(at: fileURL)
+                } catch {
+                    try? fileManager.removeItem(at: fileURL)
+                    throw error
+                }
                 Log.downloadManager.debug("VALIDATE \(String(format: "%.1f", CFAbsoluteTimeGetCurrent() - validateStart))s")
             }
             Log.downloadManager.debug("FFMPEG \(String(format: "%.1f", CFAbsoluteTimeGetCurrent() - ffmpegStart))s")
@@ -344,6 +349,7 @@ extension DownloadManager {
 
         let args = [
             "-y",
+            "-rw_timeout", "30000000",
             "-cafile", caPath,
             "-headers", "User-Agent: Mozilla/5.0\r\n",
             "-i", url.absoluteString,
@@ -391,11 +397,12 @@ extension DownloadManager {
                     } else if ReturnCode.isCancel(rc) {
                         finish(.failure(CancellationError()))
                     } else {
-                        let output = session?.getOutput() ?? "unknown error"
+                        let output = session?.getOutput() ?? "unknown"
+                        Log.downloadManager.debug("FFmpeg output: \(output)")
                         finish(.failure(NSError(
                             domain: "DownloadManager",
                             code: -1,
-                            userInfo: [NSLocalizedDescriptionKey: "FFmpeg failed: \(output)"]
+                            userInfo: [NSLocalizedDescriptionKey: "FFmpeg processing failed"]
                         )))
                     }
                 },

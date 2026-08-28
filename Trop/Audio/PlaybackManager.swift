@@ -357,7 +357,9 @@ actor PlaybackManager {
                         Log.playbackManager.debug(
                             "\(result.clientName) returned non-AAC (\(result.mimeType)); looking for AAC client"
                         )
-                        nonAACFallback = result
+                        if nonAACFallback == nil {
+                            nonAACFallback = result
+                        }
                         continue
                     }
                 } else {
