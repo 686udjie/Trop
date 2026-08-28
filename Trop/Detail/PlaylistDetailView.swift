@@ -460,6 +460,7 @@ struct PlaylistDetailView: View {
     @State private var viewModel: PlaylistDetailViewModel
     @State private var playlistEntity: PlaylistEntity?
     @State private var showAddSongs = false
+    @State private var showMoreSheet = false
     @State private var pendingRoute: DetailRoute?
 
     @Environment(\.dismiss) private var dismiss
@@ -644,10 +645,27 @@ struct PlaylistDetailView: View {
                 })
                 .buttonStyle(.plain)
                 .accessibilityLabel("Play all")
+
+                Button {
+                    showMoreSheet = true
+                } label: {
+                    Text("\u{22EE}")
+                        .font(.title3)
+                        .frame(width: 44, height: 44)
+                        .background(Circle().fill(Color(.systemGray6)))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("More options")
             }
             .padding(.top, 4)
         }
         .padding(.vertical, 16)
+        .sheet(isPresented: $showMoreSheet) {
+            PlaylistMoreSheet(
+                playlist: playlist,
+                onSync: { Task { await viewModel.load() } }
+            )
+        }
     }
 
     @ViewBuilder
@@ -794,12 +812,16 @@ struct PlaylistSongRow: View {
 
             Spacer()
 
-            Button {
-                showSongMenu = true
-            } label: {
-                Text("\u{22EE}")
-                    .font(.body.weight(.black))
-                    .foregroundStyle(Color.accentColor)
+            HStack(spacing: 2) {
+                SongLikeButton(song: song)
+                SongDownloadButton(song: song)
+                Button {
+                    showSongMenu = true
+                } label: {
+                    Text("\u{22EE}")
+                        .font(.body.weight(.black))
+                        .foregroundStyle(Color.accentColor)
+                }
             }
             .sheet(isPresented: $showSongMenu) {
                 SongMenuSheet(
@@ -808,6 +830,7 @@ struct PlaylistSongRow: View {
                 )
             }
         }
+        .background(DownloadCellProgressView(song: song))
         .padding(.horizontal, 16)
         .padding(.vertical, 6)
         .contentShape(Rectangle())

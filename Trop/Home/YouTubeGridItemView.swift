@@ -179,12 +179,16 @@ struct YouTubeListItemView: View {
             Spacer()
 
             if let song = songItem {
-                Button {
-                    showSongMenu = true
-                } label: {
-                    Text("\u{22EE}")
-                        .font(.body.weight(.black))
-                        .foregroundStyle(settings.accentColor)
+                HStack(spacing: 2) {
+                    SongLikeButton(song: song)
+                    SongDownloadButton(song: song)
+                    Button {
+                        showSongMenu = true
+                    } label: {
+                        Text("\u{22EE}")
+                            .font(.body.weight(.black))
+                            .foregroundStyle(settings.accentColor)
+                    }
                 }
                 .sheet(isPresented: $showSongMenu) {
                     SongMenuSheet(
@@ -202,6 +206,11 @@ struct YouTubeListItemView: View {
                 }
             }
         }
+        .background(Group {
+            if let s = songItem {
+                DownloadCellProgressView(song: s)
+            }
+        })
         .contentShape(Rectangle())
         .onTapGesture {
             onTap()

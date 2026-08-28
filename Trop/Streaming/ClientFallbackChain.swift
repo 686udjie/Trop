@@ -30,4 +30,19 @@ enum ClientFallbackChain {
         FallbackClient(client: .mobile, skipValidation: false),
         FallbackClient(client: .webRemix, skipValidation: true)
     ]
+
+    /// Download resolve order — same proven direct-URL clients as playback.
+    /// HEAD validation stays on for early clients so we don't download dead URLs;
+    /// iOS/webRemix still skip HEAD (they often break HEAD while GET works).
+    static let forDownload: [FallbackClient] = [
+        FallbackClient(client: .visionOS, skipValidation: false),
+        FallbackClient(client: .androidVr1_65_10, skipValidation: false),
+        FallbackClient(client: .androidVr1_61_48, skipValidation: false),
+        FallbackClient(client: .androidVr1_43_32, skipValidation: false),
+        FallbackClient(client: .tvHtml5SimplyEmbedded, skipValidation: false),
+        FallbackClient(client: .iOS, skipValidation: true),
+        FallbackClient(client: .tvHtml5, skipValidation: false),
+        FallbackClient(client: .mobile, skipValidation: false),
+        FallbackClient(client: .webRemix, skipValidation: true)
+    ]
 }

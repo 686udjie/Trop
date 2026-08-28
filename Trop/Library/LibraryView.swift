@@ -23,6 +23,7 @@ struct LibraryView: View {
 
     @StateObject private var loginModel = LoginViewModel()
     @ObservedObject private var router = AppRouter.shared
+    @ObservedObject private var downloadManager = DownloadManager.shared
 
     @State private var accountName = "Guest"
     @State private var accountImageUrl: String?
@@ -33,8 +34,16 @@ struct LibraryView: View {
     private var autoPlaylists: [AutoPlaylistInfo] {
         [
             AutoPlaylistInfo(id: "liked", title: "Liked Songs", icon: "heart.fill", subtitle: "\(likedSongCount) songs", route: .likedSongs),
+            AutoPlaylistInfo(id: "downloads", title: "Downloads", icon: "arrow.down.circle.fill",
+                             subtitle: downloadsSubtitle, route: nil, detailRoute: .downloads),
             AutoPlaylistInfo(id: "top100", title: "My Top 100", icon: "trophy.fill", subtitle: "Top 100", route: .topSongs(limit: 100))
         ]
+    }
+
+    private var downloadsSubtitle: String {
+        downloadManager.persistedDownloadCount == 0
+            ? "Offline"
+            : "\(downloadManager.persistedDownloadCount) songs"
     }
 
     enum LibraryFilter: String, CaseIterable {
@@ -195,10 +204,17 @@ struct LibraryView: View {
     private var playlistsSection: some View {
         LazyVGrid(columns: gridColumns, spacing: 16) {
             ForEach(autoPlaylists) { info in
-                NavigationLink(value: DetailRoute.autoPlaylist(info.route)) {
-                    autoPlaylistCell(info: info)
+                if let detailRoute = info.detailRoute {
+                    NavigationLink(value: detailRoute) {
+                        autoPlaylistCell(info: info)
+                    }
+                    .buttonStyle(.plain)
+                } else if let route = info.route {
+                    NavigationLink(value: DetailRoute.autoPlaylist(route)) {
+                        autoPlaylistCell(info: info)
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
             }
 
             ForEach(playlists, id: \.id) { playlist in
@@ -309,13 +325,15 @@ struct LibraryView: View {
         VStack(alignment: .leading, spacing: 6) {
             ZStack {
                 RoundedRectangle(cornerRadius: 12)
-                    .fill(LinearGradient(colors: [.blue, .purple], startPoint: .topLeading, endPoint: .bottomTrailing))
+                    .fill(autoPlaylistGradient(for: info.id))
                     .aspectRatio(1, contentMode: .fill)
                 Image(systemName: info.icon)
                     .font(.largeTitle)
                     .foregroundColor(.white)
+                    .shadow(color: .black.opacity(0.2), radius: 2, y: 1)
             }
             .clipShape(RoundedRectangle(cornerRadius: 12))
+            .shadow(color: .black.opacity(0.2), radius: 4, y: 2)
 
             Text(info.title)
                 .lineLimit(1)
@@ -326,6 +344,10 @@ struct LibraryView: View {
                     .foregroundColor(.secondary)
             }
         }
+    }
+
+    private func autoPlaylistGradient(for id: String) -> LinearGradient {
+        LinearGradient(colors: [.blue, .purple], startPoint: .topLeading, endPoint: .bottomTrailing)
     }
 
     private func itemCell(url: String?, title: String, subtitle: String?) -> some View {
@@ -604,5 +626,6 @@ struct AutoPlaylistInfo: Identifiable {
     let title: String
     let icon: String
     let subtitle: String?
-    let route: AutoPlaylistRoute
+    let route: AutoPlaylistRoute?
+    var detailRoute: DetailRoute?
 }
