@@ -81,7 +81,9 @@ class DownloadManager: ObservableObject {
         case .standard: return 96_000
         }
     }
+}
 
+extension DownloadManager {
     func download(song: SongItem) async {
         let videoId = song.videoId
         if case .downloading = downloads[videoId] {
@@ -167,11 +169,13 @@ class DownloadManager: ObservableObject {
                 // then validate the generated .m4a.
                 Log.downloadManager.debug("FFMPEG transcode (Opus -> AAC)...")
                 try await processAudio(
-                    inputURL: tempDownload,
-                    outputURL: fileURL,
-                    title: song.title,
-                    artist: artist,
-                    artworkData: artwork,
+                    TranscodeRequest(
+                        inputURL: tempDownload,
+                        outputURL: fileURL,
+                        title: song.title,
+                        artist: artist,
+                        artworkData: artwork
+                    ),
                     videoId: videoId
                 )
                 let validateStart = CFAbsoluteTimeGetCurrent()
@@ -350,7 +354,7 @@ class DownloadManager: ObservableObject {
         try await runFFmpeg(arguments: args, videoId: videoId) { [weak self] size in
             Task { @MainActor in
                 // Asymptotic map so unknown Content-Length still moves the bar.
-                let fraction = 0.05 + 0.80 * (1.0 - exp(-Double(size) / 5_000_000.0))
+                let fraction = 0.05 + 0.80 * (1 - exp(-Double(size) / 5_000_000))
                 self?.setProgress(fraction, for: videoId)
             }
         }
@@ -556,17 +560,10 @@ class DownloadManager: ObservableObject {
     }
 
     /// Transcodes a non-AAC stream (Opus, etc.) to AAC with metadata using ffmpeg.
-    private func processAudio(
-        inputURL: URL,
-        outputURL: URL,
-        title: String,
-        artist: String,
-        artworkData: Data?,
-        videoId: String
-    ) async throws {
+    private func processAudio(_ request: TranscodeRequest, videoId: String) async throws {
         let bitrate = Self.transcodeBitrate(for: SettingsStore.shared.downloadQuality)
         let tempOutput = fileManager.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).m4a")
-        let artworkURL = try writeTempArtwork(artworkData)
+        let artworkURL = try writeTempArtwork(request.artworkData)
         defer {
             try? fileManager.removeItem(at: tempOutput)
             if let artworkURL {
@@ -574,7 +571,7 @@ class DownloadManager: ObservableObject {
             }
         }
 
-        var args = ["-y", "-i", inputURL.path]
+        var args = ["-y", "-i", request.inputURL.path]
         if let artworkURL {
             args += [
                 "-i", artworkURL.path,
@@ -588,12 +585,20 @@ class DownloadManager: ObservableObject {
         } else {
             args += ["-c:a", "aac", "-b:a", "\(bitrate)"]
         }
-        args += ffmpegMetadataArgs(title: title, artist: artist)
+        args += ffmpegMetadataArgs(title: request.title, artist: request.artist)
         args.append(tempOutput.path)
 
         try await runFFmpeg(arguments: args, videoId: videoId)
-        try? fileManager.removeItem(at: outputURL)
-        try fileManager.moveItem(at: tempOutput, to: outputURL)
+        try? fileManager.removeItem(at: request.outputURL)
+        try fileManager.moveItem(at: tempOutput, to: request.outputURL)
+    }
+
+    private struct TranscodeRequest {
+        let inputURL: URL
+        let outputURL: URL
+        let title: String
+        let artist: String
+        let artworkData: Data?
     }
 
     private func sanitizedFileName(_ s: String) -> String {

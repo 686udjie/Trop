@@ -34,7 +34,8 @@ struct LibraryView: View {
     private var autoPlaylists: [AutoPlaylistInfo] {
         [
             AutoPlaylistInfo(id: "liked", title: "Liked Songs", icon: "heart.fill", subtitle: "\(likedSongCount) songs", route: .likedSongs),
-            AutoPlaylistInfo(id: "downloads", title: "Downloads", icon: "arrow.down.circle.fill", subtitle: downloadsSubtitle, route: nil, detailRoute: .downloads),
+            AutoPlaylistInfo(id: "downloads", title: "Downloads", icon: "arrow.down.circle.fill",
+                             subtitle: downloadsSubtitle, route: nil, detailRoute: .downloads),
             AutoPlaylistInfo(id: "top100", title: "My Top 100", icon: "trophy.fill", subtitle: "Top 100", route: .topSongs(limit: 100))
         ]
     }
