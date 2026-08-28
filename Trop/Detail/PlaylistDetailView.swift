@@ -758,12 +758,10 @@ struct PlaylistDetailView: View {
 // MARK: - Song Row
 
 struct PlaylistSongRow: View {
-    @Environment(SettingsStore.self) private var settings
     let song: SongItem
     var onPlay: (() -> Void)?
     var onNavigate: ((DetailRoute) -> Void)?
 
-    @ObservedObject private var downloadManager = DownloadManager.shared
     @State private var resolvedDuration: Int = 0
     @State private var showSongMenu = false
 
@@ -773,20 +771,9 @@ struct PlaylistSongRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            ZStack(alignment: .bottomTrailing) {
-                AsyncImageView(url: song.thumbnailUrl)
-                    .frame(width: 40, height: 40)
-                    .clipShape(RoundedRectangle(cornerRadius: 4))
-
-                if downloadManager.isDownloaded(videoId: song.videoId) {
-                    Image(systemName: "arrow.down.circle.fill")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.white)
-                        .padding(2)
-                        .background(Circle().fill(settings.accentColor))
-                        .offset(x: 3, y: 3)
-                }
-            }
+            AsyncImageView(url: song.thumbnailUrl)
+                .frame(width: 40, height: 40)
+                .clipShape(RoundedRectangle(cornerRadius: 4))
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(song.title)
@@ -807,12 +794,16 @@ struct PlaylistSongRow: View {
 
             Spacer()
 
-            Button {
-                showSongMenu = true
-            } label: {
-                Text("\u{22EE}")
-                    .font(.body.weight(.black))
-                    .foregroundStyle(Color.accentColor)
+            HStack(spacing: 2) {
+                SongLikeButton(song: song)
+                SongDownloadButton(song: song)
+                Button {
+                    showSongMenu = true
+                } label: {
+                    Text("\u{22EE}")
+                        .font(.body.weight(.black))
+                        .foregroundStyle(Color.accentColor)
+                }
             }
             .sheet(isPresented: $showSongMenu) {
                 SongMenuSheet(
@@ -821,6 +812,7 @@ struct PlaylistSongRow: View {
                 )
             }
         }
+        .background(DownloadCellProgressView(song: song))
         .padding(.horizontal, 16)
         .padding(.vertical, 6)
         .contentShape(Rectangle())

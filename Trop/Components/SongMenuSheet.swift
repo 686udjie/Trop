@@ -13,13 +13,11 @@ struct SongMenuSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var settings = SettingsStore.shared
-    @ObservedObject private var downloadManager = DownloadManager.shared
 
     enum Destination: Hashable {
         case details
     }
 
-    @State private var isInLibrary = false
     @State private var isPinned = false
     @State private var showPlaylistPicker = false
     @State private var showArtistPicker = false
@@ -48,9 +46,6 @@ struct SongMenuSheet: View {
                             icon: isPinned ? "pin.fill" : "pin",
                             title: isPinned ? "Unpin from Quick Picks" : "Pin to Quick Picks"
                         ) { Task { await togglePin() } }
-                        Divider()
-                        libraryRow
-                        Divider()
                         menuRow(
                             icon: "music.mic",
                             title: "View Artist",
@@ -64,8 +59,6 @@ struct SongMenuSheet: View {
                                 subtitle: song.album
                             ) { navigate(.album(browseId: albumId)) }
                         }
-                        Divider()
-                        downloadRow
                     }
                     menuCard {
                         NavigationLink(value: Destination.details) {
@@ -126,14 +119,6 @@ struct SongMenuSheet: View {
             }
 
             Spacer()
-
-            Button {
-                Task { await toggleLibrary() }
-            } label: {
-                Image(systemName: isInLibrary ? "heart.fill" : "heart")
-                    .font(.title3)
-                    .foregroundStyle(isInLibrary ? .red : .secondary)
-            }
         }
         .padding(16)
         .background(
@@ -178,84 +163,6 @@ struct SongMenuSheet: View {
     }
 
     // MARK: - Menu Rows
-
-    private var libraryRow: some View {
-        menuRow(
-            icon: isInLibrary ? "books.vertical.fill" : "books.vertical",
-            title: isInLibrary ? "Remove from Library" : "Add to Library"
-        ) { Task { await toggleLibrary() } }
-    }
-
-    @ViewBuilder
-    private var downloadRow: some View {
-        switch downloadState {
-        case .downloading(let fraction):
-            HStack(spacing: 14) {
-                ProgressView()
-                    .controlSize(.regular)
-                    .frame(width: 26)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Downloading…")
-                        .font(.body)
-                        .foregroundStyle(.primary)
-                    ProgressView(value: fraction)
-                        .tint(settings.accentColor)
-                }
-                Text("\(Int(fraction * 100))%")
-                    .font(.footnote.monospacedDigit())
-                    .foregroundStyle(.secondary)
-                Button("Cancel") {
-                    Task {
-                        await downloadManager.delete(videoId: song.videoId)
-                        dismiss()
-                    }
-                }
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.red)
-                .buttonStyle(.plain)
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-
-        case .completed:
-            menuRowLabel(
-                icon: "checkmark.circle.fill",
-                title: "Downloaded",
-                subtitle: "Available offline"
-            )
-            Divider()
-            menuRow(
-                icon: "trash",
-                title: "Remove Download",
-                destructive: true
-            ) {
-                Task {
-                    await downloadManager.delete(videoId: song.videoId)
-                    dismiss()
-                }
-            }
-
-        case .failed(let message):
-            menuRow(
-                icon: "exclamationmark.triangle",
-                title: "Retry Download",
-                subtitle: message
-            ) {
-                Task {
-                    await downloadManager.download(song: song)
-                    dismiss()
-                }
-            }
-
-        case .notStarted:
-            menuRow(icon: "square.and.arrow.down", title: "Download") {
-                Task {
-                    await downloadManager.download(song: song)
-                    dismiss()
-                }
-            }
-        }
-    }
 
     private func menuRow(
         icon: String,
@@ -314,43 +221,11 @@ struct SongMenuSheet: View {
 
     // MARK: - State
 
-    private var downloadState: DownloadManager.DownloadState {
-        if let state = downloadManager.downloads[song.videoId], state != .notStarted {
-            return state
-        }
-        return downloadManager.isDownloaded(videoId: song.videoId) ? .completed : .notStarted
-    }
-
     private func loadStates() async {
-        if let entity = try? await DatabaseService.shared.fetchOne(SongEntity.self, key: song.videoId) {
-            isInLibrary = entity.inLibrary != nil
-        }
         isPinned = (try? await DatabaseService.shared.isPinnedToSpeedDial(videoId: song.videoId)) ?? false
     }
 
     // MARK: - Actions
-
-    private func toggleLibrary() async {
-        let db = DatabaseService.shared
-        let target = !isInLibrary
-        isInLibrary = target
-        do {
-            let entity = try await db.fetchOne(SongEntity.self, key: song.videoId)
-            if target {
-                try await MutationService.shared.addToLibrary(
-                    videoId: song.videoId,
-                    addToken: entity?.libraryAddToken ?? ""
-                )
-            } else {
-                try await MutationService.shared.removeFromLibrary(
-                    videoId: song.videoId,
-                    removeToken: entity?.libraryRemoveToken ?? ""
-                )
-            }
-        } catch {
-            isInLibrary = !target
-        }
-    }
 
     private func togglePin() async {
         let db = DatabaseService.shared
