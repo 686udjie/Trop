@@ -151,7 +151,6 @@ extension PlayerController {
 
         let prevVideoId = currentVideoId
         let isNewSong = prevVideoId != nil && videoId != prevVideoId
-        currentVideoId = videoId
 
         if isNewSong {
             await PlaybackStateService.shared.stopTracking()
