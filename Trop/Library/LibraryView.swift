@@ -333,11 +333,11 @@ struct LibraryView: View {
                     .shadow(color: .black.opacity(0.2), radius: 2, y: 1)
             }
             .clipShape(RoundedRectangle(cornerRadius: 12))
-            .shadow(color: info.id == "downloads" ? settings.accentColor.opacity(0.25) : .clear, radius: 8, y: 3)
+            .shadow(color: .black.opacity(0.2), radius: 4, y: 2)
 
             Text(info.title)
                 .lineLimit(1)
-                .font(.callout.weight(info.id == "downloads" ? .semibold : .regular))
+                .font(.callout)
             if let subtitle = info.subtitle {
                 Text(subtitle)
                     .font(.caption)
@@ -347,16 +347,7 @@ struct LibraryView: View {
     }
 
     private func autoPlaylistGradient(for id: String) -> LinearGradient {
-        switch id {
-        case "downloads":
-            return LinearGradient(
-                colors: [settings.accentColor.opacity(0.9), Color.teal.opacity(0.75)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        default:
-            return LinearGradient(colors: [.blue, .purple], startPoint: .topLeading, endPoint: .bottomTrailing)
-        }
+        LinearGradient(colors: [.blue, .purple], startPoint: .topLeading, endPoint: .bottomTrailing)
     }
 
     private func itemCell(url: String?, title: String, subtitle: String?) -> some View {

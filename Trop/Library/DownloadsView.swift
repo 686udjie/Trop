@@ -10,6 +10,7 @@ struct DownloadsView: View {
     @State private var viewModel = DownloadsViewModel()
     @ObservedObject private var downloadManager = DownloadManager.shared
     @State private var pendingRoute: DetailRoute?
+    @State private var showMoreSheet = false
 
     var body: some View {
         Group {
@@ -92,8 +93,12 @@ struct DownloadsView: View {
             duration: viewModel.totalDuration,
             accentColor: settings.accentColor,
             onPlay: playAll,
-            onShuffle: shufflePlay
+            onShuffle: shufflePlay,
+            onMore: { showMoreSheet = true }
         )
+        .sheet(isPresented: $showMoreSheet) {
+            DownloadsMoreSheet(songs: viewModel.songs)
+        }
     }
 
     private var activeDownloadsSection: some View {
@@ -157,7 +162,6 @@ struct DownloadsView: View {
 final class DownloadsViewModel {
     var tracks: [DownloadedTrackEntity] = []
     var isLoading = true
-    var storageBytes: Int64 = 0
 
     private let downloadManager = DownloadManager.shared
 
@@ -174,6 +178,5 @@ final class DownloadsViewModel {
 
     func refreshTracks() async {
         tracks = await downloadManager.fetchAllSorted(by: .recent)
-        storageBytes = downloadManager.totalStorageBytes()
     }
 }

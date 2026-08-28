@@ -181,6 +181,23 @@ actor MutationService {
         }
     }
 
+    func renamePlaylist(playlistId: String, newName: String) async throws {
+        let entity = try? await db.fetchOne(PlaylistEntity.self, key: playlistId)
+        let isLocal = entity?.browseId == nil
+
+        if !isLocal {
+            let actions: [[String: Any]] = [
+                ["action": "ACTION_SET_PLAYLIST_NAME", "name": newName]
+            ]
+            _ = try await innerTube.editPlaylist(playlistId: playlistId, actions: actions)
+        }
+
+        if var entity {
+            entity.name = newName
+            try await db.save(entity)
+        }
+    }
+
     func subscribeArtist(channelId: String, artistId: String) async throws {
         var entity: ArtistEntity?
         if var existing = try await db.fetchOne(ArtistEntity.self, key: artistId) {

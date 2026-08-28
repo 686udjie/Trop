@@ -473,10 +473,12 @@ extension DownloadManager {
     }
 
     func totalStorageBytes() -> Int64 {
-        let keys = fileManager.enumerator(at: downloadsDir, includingPropertiesForKeys: [.fileSizeKey])?
-            .compactMap { $0 as? URL } ?? []
-        return keys.reduce(0) { total, url in
-            let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+        let tracks = (try? DatabaseService.shared.dbPool.read { db in
+            try DownloadedTrackEntity.fetchAll(db)
+        }) ?? []
+        return tracks.reduce(0) { total, track in
+            let size = (try? URL(fileURLWithPath: track.localPath)
+                .resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
             return total + Int64(size)
         }
     }

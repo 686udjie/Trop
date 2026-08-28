@@ -41,21 +41,26 @@ struct DownloadedSongRow: View {
 
             Spacer(minLength: 0)
 
-            Button {
-                showSongMenu = true
-            } label: {
-                Text("\u{22EE}")
-                    .font(.body.weight(.black))
-                    .foregroundStyle(settings.accentColor)
-                    .frame(minWidth: 44, minHeight: 44)
-                    .contentShape(Rectangle())
+            HStack(spacing: 2) {
+                SongLikeButton(song: song)
+                SongDownloadButton(song: song)
+                Button {
+                    showSongMenu = true
+                } label: {
+                    Text("\u{22EE}")
+                        .font(.body.weight(.black))
+                        .foregroundStyle(settings.accentColor)
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("More")
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("More")
             .sheet(isPresented: $showSongMenu) {
                 SongMenuSheet(song: song, onNavigate: onNavigate)
             }
         }
+        .background(DownloadCellProgressView(song: song))
         .padding(.horizontal, 16)
         .padding(.vertical, 6)
         .contentShape(Rectangle())

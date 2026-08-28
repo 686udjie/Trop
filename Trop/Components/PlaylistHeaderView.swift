@@ -17,6 +17,7 @@ struct PlaylistHeaderView: View {
     let accentColor: Color
     let onPlay: () -> Void
     let onShuffle: () -> Void
+    let onMore: (() -> Void)?
 
     init(
         title: String,
@@ -27,7 +28,8 @@ struct PlaylistHeaderView: View {
         duration: Int,
         accentColor: Color = .accentColor,
         onPlay: @escaping () -> Void,
-        onShuffle: @escaping () -> Void
+        onShuffle: @escaping () -> Void,
+        onMore: (() -> Void)? = nil
     ) {
         self.title = title
         self.subtitle = subtitle
@@ -38,6 +40,7 @@ struct PlaylistHeaderView: View {
         self.accentColor = accentColor
         self.onPlay = onPlay
         self.onShuffle = onShuffle
+        self.onMore = onMore
     }
 
     var body: some View {
@@ -93,6 +96,18 @@ struct PlaylistHeaderView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Play all")
+
+            if let onMore {
+                Button(action: onMore) {
+                    Text("\u{22EE}")
+                        .font(.title3)
+                        .foregroundStyle(.primary)
+                        .frame(width: 48, height: 48)
+                        .background(Circle().fill(Color(.secondarySystemGroupedBackground)))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("More options")
+            }
         }
         .padding(.top, 4)
     }
