@@ -13,13 +13,11 @@ struct SongMenuSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var settings = SettingsStore.shared
-    @ObservedObject private var downloadManager = DownloadManager.shared
 
     enum Destination: Hashable {
         case details
     }
 
-    @State private var isInLibrary = false
     @State private var isPinned = false
     @State private var showPlaylistPicker = false
     @State private var showArtistPicker = false
@@ -48,9 +46,6 @@ struct SongMenuSheet: View {
                             icon: isPinned ? "pin.fill" : "pin",
                             title: isPinned ? "Unpin from Quick Picks" : "Pin to Quick Picks"
                         ) { Task { await togglePin() } }
-                        Divider()
-                        libraryRow
-                        Divider()
                         menuRow(
                             icon: "music.mic",
                             title: "View Artist",
@@ -64,9 +59,6 @@ struct SongMenuSheet: View {
                                 subtitle: song.album
                             ) { navigate(.album(browseId: albumId)) }
                         }
-                    }
-                    menuCard {
-                        downloadRow
                     }
                     menuCard {
                         NavigationLink(value: Destination.details) {
@@ -127,14 +119,6 @@ struct SongMenuSheet: View {
             }
 
             Spacer()
-
-            Button {
-                Task { await toggleLibrary() }
-            } label: {
-                Image(systemName: isInLibrary ? "heart.fill" : "heart")
-                    .font(.title3)
-                    .foregroundStyle(isInLibrary ? .red : .secondary)
-            }
         }
         .padding(16)
         .background(
@@ -180,54 +164,15 @@ struct SongMenuSheet: View {
 
     // MARK: - Menu Rows
 
-    private var libraryRow: some View {
-        menuRow(
-            icon: isInLibrary ? "books.vertical.fill" : "books.vertical",
-            title: isInLibrary ? "Remove from Library" : "Add to Library"
-        ) { Task { await toggleLibrary() } }
-    }
-
-    @ViewBuilder
-    private var downloadRow: some View {
-        switch downloadState {
-        case .downloading(let fraction):
-            HStack(spacing: 14) {
-                ProgressView()
-                    .controlSize(.regular)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Downloading…")
-                    ProgressView(value: fraction)
-                        .tint(settings.accentColor)
-                }
-                Spacer()
-                Text("\(Int(fraction * 100))%")
-                    .font(.footnote.monospacedDigit())
-                    .foregroundStyle(.secondary)
-            }
-            .font(.body)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-
-        case .completed:
-            menuRow(icon: "trash", title: "Remove Download") {
-                Task { await downloadManager.delete(videoId: song.videoId) }
-            }
-
-        default:
-            menuRow(icon: "square.and.arrow.down", title: "Download") {
-                Task { await downloadManager.download(song: song) }
-            }
-        }
-    }
-
     private func menuRow(
         icon: String,
         title: String,
         subtitle: String? = nil,
+        destructive: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            menuRowLabel(icon: icon, title: title, subtitle: subtitle)
+            menuRowLabel(icon: icon, title: title, subtitle: subtitle, destructive: destructive)
         }
         .buttonStyle(.plain)
     }
@@ -235,17 +180,18 @@ struct SongMenuSheet: View {
     private func menuRowLabel(
         icon: String,
         title: String,
-        subtitle: String? = nil
+        subtitle: String? = nil,
+        destructive: Bool = false
     ) -> some View {
         HStack(spacing: 14) {
             Image(systemName: icon)
                 .font(.system(size: 18))
-                .foregroundStyle(settings.accentColor)
+                .foregroundStyle(destructive ? Color.red : settings.accentColor)
                 .frame(width: 26)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(.body)
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(destructive ? Color.red : Color.primary)
                 if let subtitle, !subtitle.isEmpty {
                     Text(subtitle)
                         .font(.footnote)
@@ -275,43 +221,11 @@ struct SongMenuSheet: View {
 
     // MARK: - State
 
-    private var downloadState: DownloadManager.DownloadState {
-        if let state = downloadManager.downloads[song.videoId], state != .notStarted {
-            return state
-        }
-        return downloadManager.isDownloaded(videoId: song.videoId) ? .completed : .notStarted
-    }
-
     private func loadStates() async {
-        if let entity = try? await DatabaseService.shared.fetchOne(SongEntity.self, key: song.videoId) {
-            isInLibrary = entity.inLibrary != nil
-        }
         isPinned = (try? await DatabaseService.shared.isPinnedToSpeedDial(videoId: song.videoId)) ?? false
     }
 
     // MARK: - Actions
-
-    private func toggleLibrary() async {
-        let db = DatabaseService.shared
-        let target = !isInLibrary
-        isInLibrary = target
-        do {
-            let entity = try await db.fetchOne(SongEntity.self, key: song.videoId)
-            if target {
-                try await MutationService.shared.addToLibrary(
-                    videoId: song.videoId,
-                    addToken: entity?.libraryAddToken ?? ""
-                )
-            } else {
-                try await MutationService.shared.removeFromLibrary(
-                    videoId: song.videoId,
-                    removeToken: entity?.libraryRemoveToken ?? ""
-                )
-            }
-        } catch {
-            isInLibrary = !target
-        }
-    }
 
     private func togglePin() async {
         let db = DatabaseService.shared

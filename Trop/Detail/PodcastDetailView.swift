@@ -450,12 +450,16 @@ struct PodcastEpisodeRow: View {
 
             Spacer()
 
-            Button {
-                showSongMenu = true
-            } label: {
-                Text("\u{22EE}")
-                    .font(.body.weight(.black))
-                    .foregroundStyle(Color.accentColor)
+            HStack(spacing: 2) {
+                SongLikeButton(song: episode.toSongItem())
+                SongDownloadButton(song: episode.toSongItem())
+                Button {
+                    showSongMenu = true
+                } label: {
+                    Text("\u{22EE}")
+                        .font(.body.weight(.black))
+                        .foregroundStyle(Color.accentColor)
+                }
             }
             .sheet(isPresented: $showSongMenu) {
                 SongMenuSheet(
@@ -464,6 +468,7 @@ struct PodcastEpisodeRow: View {
                 )
             }
         }
+        .background(DownloadCellProgressView(song: episode.toSongItem()))
         .contentShape(Rectangle())
         .onTapGesture {
             onPlay?()

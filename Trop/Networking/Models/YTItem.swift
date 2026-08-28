@@ -732,6 +732,22 @@ extension SongItem {
         self.playlistId = nil
         self.likeStatus = nil
     }
+
+    init(entity: DownloadedTrackEntity) {
+        self.videoId = entity.id
+        self.title = entity.title
+        self.artists = entity.artist
+            .split(separator: ",")
+            .map { YTArtist(name: SongItem.cleanArtistName(String($0).trimmingCharacters(in: .whitespaces))) }
+            .filter { !$0.name.isEmpty }
+        self.album = nil
+        self.albumId = nil
+        self.duration = entity.duration
+        self.thumbnailUrl = entity.thumbnailUrl
+        self.isExplicit = false
+        self.playlistId = nil
+        self.likeStatus = nil
+    }
 }
 
 extension AlbumItem {

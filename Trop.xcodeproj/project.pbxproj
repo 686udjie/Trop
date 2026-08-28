@@ -7,13 +7,58 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		144200113040C1BE0032F8CD /* fk_libavcodec.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 144200013040C1BE0032F8CD /* fk_libavcodec.xcframework */; };
+		144200123040C1BE0032F8CD /* fk_libavdevice.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 144200023040C1BE0032F8CD /* fk_libavdevice.xcframework */; };
+		144200133040C1BE0032F8CD /* fk_libavfilter.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 144200033040C1BE0032F8CD /* fk_libavfilter.xcframework */; };
+		144200143040C1BE0032F8CD /* fk_libavformat.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 144200043040C1BE0032F8CD /* fk_libavformat.xcframework */; };
+		144200153040C1BE0032F8CD /* fk_libavutil.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 144200053040C1BE0032F8CD /* fk_libavutil.xcframework */; };
+		144200163040C1BE0032F8CD /* fk_libswresample.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 144200063040C1BE0032F8CD /* fk_libswresample.xcframework */; };
+		144200173040C1BE0032F8CD /* fk_libswscale.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 144200073040C1BE0032F8CD /* fk_libswscale.xcframework */; };
+		144200183040C1BE0032F8CD /* ffmpegkit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 144200083040C1BE0032F8CD /* ffmpegkit.xcframework */; };
+		144200213040C1BE0032F8CD /* fk_libavcodec.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 144200013040C1BE0032F8CD /* fk_libavcodec.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		144200223040C1BE0032F8CD /* fk_libavdevice.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 144200023040C1BE0032F8CD /* fk_libavdevice.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		144200233040C1BE0032F8CD /* fk_libavfilter.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 144200033040C1BE0032F8CD /* fk_libavfilter.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		144200243040C1BE0032F8CD /* fk_libavformat.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 144200043040C1BE0032F8CD /* fk_libavformat.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		144200253040C1BE0032F8CD /* fk_libavutil.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 144200053040C1BE0032F8CD /* fk_libavutil.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		144200263040C1BE0032F8CD /* fk_libswresample.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 144200063040C1BE0032F8CD /* fk_libswresample.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		144200273040C1BE0032F8CD /* fk_libswscale.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 144200073040C1BE0032F8CD /* fk_libswscale.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		144200283040C1BE0032F8CD /* ffmpegkit.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 144200083040C1BE0032F8CD /* ffmpegkit.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		14B578D92FF1AB43006B3990 /* MPVKit in Frameworks */ = {isa = PBXBuildFile; productRef = 14B578D82FF1AB43006B3990 /* MPVKit */; };
 		14B578DC2FF20002006B3990 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = 14B578DB2FF20001006B3990 /* GRDB */; };
 		14B578DF2FF20DCD006B3990 /* Nuke in Frameworks */ = {isa = PBXBuildFile; productRef = 14B578DE2FF20DCC006B3990 /* Nuke */; };
 		14B578E52FF20DCF006B3990 /* Marquee in Frameworks */ = {isa = PBXBuildFile; productRef = 14B578E42FF20DCF006B3990 /* Marquee */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXCopyFilesBuildPhase section */
+		1442DDC53040C1BE0032F8CD /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				144200213040C1BE0032F8CD /* fk_libavcodec.xcframework in Embed Frameworks */,
+				144200223040C1BE0032F8CD /* fk_libavdevice.xcframework in Embed Frameworks */,
+				144200233040C1BE0032F8CD /* fk_libavfilter.xcframework in Embed Frameworks */,
+				144200243040C1BE0032F8CD /* fk_libavformat.xcframework in Embed Frameworks */,
+				144200253040C1BE0032F8CD /* fk_libavutil.xcframework in Embed Frameworks */,
+				144200263040C1BE0032F8CD /* fk_libswresample.xcframework in Embed Frameworks */,
+				144200273040C1BE0032F8CD /* fk_libswscale.xcframework in Embed Frameworks */,
+				144200283040C1BE0032F8CD /* ffmpegkit.xcframework in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
+		144200013040C1BE0032F8CD /* fk_libavcodec.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = fk_libavcodec.xcframework; path = "build/ffmpeg-kit-xcframeworks/fk_libavcodec.xcframework"; sourceTree = SOURCE_ROOT; };
+		144200023040C1BE0032F8CD /* fk_libavdevice.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = fk_libavdevice.xcframework; path = "build/ffmpeg-kit-xcframeworks/fk_libavdevice.xcframework"; sourceTree = SOURCE_ROOT; };
+		144200033040C1BE0032F8CD /* fk_libavfilter.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = fk_libavfilter.xcframework; path = "build/ffmpeg-kit-xcframeworks/fk_libavfilter.xcframework"; sourceTree = SOURCE_ROOT; };
+		144200043040C1BE0032F8CD /* fk_libavformat.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = fk_libavformat.xcframework; path = "build/ffmpeg-kit-xcframeworks/fk_libavformat.xcframework"; sourceTree = SOURCE_ROOT; };
+		144200053040C1BE0032F8CD /* fk_libavutil.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = fk_libavutil.xcframework; path = "build/ffmpeg-kit-xcframeworks/fk_libavutil.xcframework"; sourceTree = SOURCE_ROOT; };
+		144200063040C1BE0032F8CD /* fk_libswresample.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = fk_libswresample.xcframework; path = "build/ffmpeg-kit-xcframeworks/fk_libswresample.xcframework"; sourceTree = SOURCE_ROOT; };
+		144200073040C1BE0032F8CD /* fk_libswscale.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = fk_libswscale.xcframework; path = "build/ffmpeg-kit-xcframeworks/fk_libswscale.xcframework"; sourceTree = SOURCE_ROOT; };
+		144200083040C1BE0032F8CD /* ffmpegkit.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = ffmpegkit.xcframework; path = "build/ffmpeg-kit-xcframeworks/ffmpegkit.xcframework"; sourceTree = SOURCE_ROOT; };
 		14B5762F2FF190EF006B3990 /* Trop.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Trop.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -21,7 +66,7 @@
 		14B578EA2FF30001006B3990 /* Exceptions for "Trop" folder in "Trop" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
-				Info.plist,
+				Resources/Info.plist,
 			);
 			target = 14B5762E2FF190EF006B3990 /* Trop */;
 		};
@@ -44,6 +89,14 @@
 			buildActionMask = 2147483647;
 			files = (
 				14B578D92FF1AB43006B3990 /* MPVKit in Frameworks */,
+				144200113040C1BE0032F8CD /* fk_libavcodec.xcframework in Frameworks */,
+				144200123040C1BE0032F8CD /* fk_libavdevice.xcframework in Frameworks */,
+				144200133040C1BE0032F8CD /* fk_libavfilter.xcframework in Frameworks */,
+				144200143040C1BE0032F8CD /* fk_libavformat.xcframework in Frameworks */,
+				144200153040C1BE0032F8CD /* fk_libavutil.xcframework in Frameworks */,
+				144200163040C1BE0032F8CD /* fk_libswresample.xcframework in Frameworks */,
+				144200173040C1BE0032F8CD /* fk_libswscale.xcframework in Frameworks */,
+				144200183040C1BE0032F8CD /* ffmpegkit.xcframework in Frameworks */,
 				14B578DC2FF20002006B3990 /* GRDB in Frameworks */,
 				14B578DF2FF20DCD006B3990 /* Nuke in Frameworks */,
 				14B578E52FF20DCF006B3990 /* Marquee in Frameworks */,
@@ -53,10 +106,26 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		144200003040C1BE0032F8CD /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				144200013040C1BE0032F8CD /* fk_libavcodec.xcframework */,
+				144200023040C1BE0032F8CD /* fk_libavdevice.xcframework */,
+				144200033040C1BE0032F8CD /* fk_libavfilter.xcframework */,
+				144200043040C1BE0032F8CD /* fk_libavformat.xcframework */,
+				144200053040C1BE0032F8CD /* fk_libavutil.xcframework */,
+				144200063040C1BE0032F8CD /* fk_libswresample.xcframework */,
+				144200073040C1BE0032F8CD /* fk_libswscale.xcframework */,
+				144200083040C1BE0032F8CD /* ffmpegkit.xcframework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 		14B576262FF190EF006B3990 = {
 			isa = PBXGroup;
 			children = (
 				14B576312FF190EF006B3990 /* Trop */,
+				144200003040C1BE0032F8CD /* Frameworks */,
 				14B576302FF190EF006B3990 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -78,6 +147,7 @@
 			buildPhases = (
 				14B5762B2FF190EF006B3990 /* Sources */,
 				14B5762C2FF190EF006B3990 /* Frameworks */,
+				1442DDC53040C1BE0032F8CD /* Embed Frameworks */,
 				14B5762D2FF190EF006B3990 /* Resources */,
 				250D2C10929042AA8A8BE59906F78CD5 /* InjectUIFileSharingEnabled */,
 				14B5763D2FF190F0006B3990 /* SwiftLint */,
@@ -335,16 +405,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = Trop/Info.plist;
-				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
-				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
-				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UIBackgroundModes = audio;
-				INFOPLIST_KEY_UIFileSharingEnabled = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportsDocumentBrowser = YES;
+				INFOPLIST_FILE = Trop/Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -373,16 +434,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = Trop/Info.plist;
-				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
-				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
-				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UIBackgroundModes = audio;
-				INFOPLIST_KEY_UIFileSharingEnabled = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportsDocumentBrowser = YES;
+				INFOPLIST_FILE = Trop/Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",

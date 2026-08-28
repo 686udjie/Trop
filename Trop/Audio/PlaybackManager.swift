@@ -13,6 +13,10 @@ actor PlaybackManager {
 
     private var inflightResolutions: [String: Task<PlaybackResult, Error>] = [:]
 
+    private func resolutionKey(videoId: String, forDownload: Bool) -> String {
+        forDownload ? "\(videoId):download" : videoId
+    }
+
     private init() {}
 
     /// Resolve a video and start playback. Returns the result used, or throws.
@@ -84,7 +88,7 @@ actor PlaybackManager {
             try await resolveAndPlayFromNetwork(videoId: videoId)
         }
         inflightResolutions[videoId] = task
-        defer { clearInflight(videoId: videoId) }
+        defer { clearInflight(key: videoId) }
         return try await task.value
     }
 
@@ -181,8 +185,8 @@ actor PlaybackManager {
         throw lastError ?? StreamError.allClientsFailed
     }
 
-    private func clearInflight(videoId: String) {
-        inflightResolutions.removeValue(forKey: videoId)
+    private func clearInflight(key: String) {
+        inflightResolutions.removeValue(forKey: key)
     }
 
     /// Retrieves all artists for the current video to preserve metadata accuracy.
@@ -289,35 +293,41 @@ actor PlaybackManager {
     }
     /// Resolve a video without playing. Useful for previews / testing.
     func resolve(videoId: String, preferredFormat: Format? = nil, forDownload: Bool = false) async throws -> PlaybackResult {
-        if let cached = await StreamCache.shared.get(videoId: videoId) {
+        if !forDownload, let cached = await StreamCache.shared.get(videoId: videoId) {
             return cached
         }
 
-        if let existing = inflightResolutions[videoId] {
+        let key = resolutionKey(videoId: videoId, forDownload: forDownload)
+        if let existing = inflightResolutions[key] {
             return try await existing.value
         }
 
         let task = Task { [self] in
             try await resolveFromNetwork(videoId: videoId, preferredFormat: preferredFormat, forDownload: forDownload)
         }
-        inflightResolutions[videoId] = task
-        defer { clearInflight(videoId: videoId) }
+        inflightResolutions[key] = task
+        defer { clearInflight(key: key) }
         return try await task.value
     }
 
     private func resolveFromNetwork(videoId: String, preferredFormat: Format?, forDownload: Bool) async throws -> PlaybackResult {
-        let poTokenTask = Task { try? await generatePoToken(videoId: videoId) }
-        defer { poTokenTask.cancel() }
+        var poTokenTask: Task<PoTokenResult?, Never>?
+        defer { poTokenTask?.cancel() }
 
         var lastError: Error?
+        var nonAACFallback: PlaybackResult?
+        let clients = forDownload ? ClientFallbackChain.forDownload : ClientFallbackChain.preferred
 
-        for fb in ClientFallbackChain.preferred {
+        for fb in clients {
             var playerPoToken: String?
             var streamPoToken: String?
 
             if fb.client.useWebPoTokens {
-                playerPoToken = await poTokenTask.value?.playerRequestPoToken
-                streamPoToken = await poTokenTask.value?.streamingDataPoToken
+                if poTokenTask == nil {
+                    poTokenTask = Task { try? await generatePoToken(videoId: videoId) }
+                }
+                playerPoToken = await poTokenTask?.value?.playerRequestPoToken
+                streamPoToken = await poTokenTask?.value?.streamingDataPoToken
             }
 
             do {
@@ -330,23 +340,42 @@ actor PlaybackManager {
                     forDownload: forDownload
                 )
 
-                if fb.skipValidation {
+                if !fb.skipValidation {
+                    guard await StreamResolver.validateStream(url: result.streamUrl) else {
+                        lastError = StreamError.validationFailed(result.clientName)
+                        Log.playbackManager.debug("\(result.clientName) HEAD validation failed, trying next")
+                        continue
+                    }
+                }
+
+                // Downloads remux/transcode with AVFoundation; prefer AAC so we
+                // can skip Opus→AAC (unreliable in Simulator / some devices).
+                if forDownload {
+                    let mime = result.mimeType.lowercased()
+                    let isAAC = mime.contains("mp4a") || mime.contains("aac")
+                    if !isAAC {
+                        Log.playbackManager.debug(
+                            "\(result.clientName) returned non-AAC (\(result.mimeType)); looking for AAC client"
+                        )
+                        if nonAACFallback == nil {
+                            nonAACFallback = result
+                        }
+                        continue
+                    }
+                } else {
                     await StreamCache.shared.set(videoId: videoId, result: result)
-                    return result
                 }
-
-                guard await StreamResolver.validateStream(url: result.streamUrl) else {
-                    lastError = StreamError.validationFailed(result.clientName)
-                    continue
-                }
-
-                await StreamCache.shared.set(videoId: videoId, result: result)
                 return result
 
             } catch {
                 lastError = error
                 Log.playbackManager.error("\(fb.client.clientName) failed: \(error.localizedDescription)")
             }
+        }
+
+        if forDownload, let fallback = nonAACFallback {
+            Log.playbackManager.debug("No AAC stream found — falling back to \(fallback.mimeType)")
+            return fallback
         }
 
         throw lastError ?? StreamError.allClientsFailed

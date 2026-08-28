@@ -54,7 +54,7 @@ reviews:
       enabled: false
 
 tone_instructions: |
-  Review as a senior iOS/SwiftUI engineer. Be concise. Focus on correctness, not style nits (SwiftLint handles those). Flag bugs, retain cycles, missing error handling, and non-idiomatic patterns. Use the Trop style guide below for naming and architecture decisions.
+  Review as a senior iOS/SwiftUI engineer. Be concise. Focus on correctness, retain cycles, error handling, and idiomatic patterns.
 
 chat:
   auto_reply: true

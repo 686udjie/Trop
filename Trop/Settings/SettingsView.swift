@@ -14,11 +14,19 @@ struct SettingsView: View {
                 SettingsNavigationRow("Appearance", icon: "paintpalette") {
                     AppearanceSettingsView()
                 }
+            } header: {
+                Text("Appearance")
+            }
+
+            Section {
                 SettingsNavigationRow("Player", icon: "play.circle") {
                     PlayerSettingsView()
                 }
+                SettingsNavigationRow("Downloads", icon: "arrow.down.circle") {
+                    DownloadSettingsView()
+                }
             } header: {
-                Text("User Interface")
+                Text("Playback & Offline")
             }
 
             Section {

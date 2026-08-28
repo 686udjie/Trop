@@ -102,18 +102,36 @@ enum FormatSelector {
             return nil
         }
 
-        let aacFormats = audioFormats.filter { format in
+        // Prefer formats we can actually fetch (direct URL or cipher).
+        let fetchable = audioFormats.filter {
+            ($0.url?.isEmpty == false) || $0.signatureCipher != nil || $0.cipher != nil
+        }
+        let candidates = fetchable.isEmpty ? audioFormats : fetchable
+
+        let aacFormats = candidates.filter { format in
             let c = format.codec.lowercased()
             return c.contains("mp4a") || c.contains("aac")
         }
 
-        let pool = aacFormats.isEmpty ? audioFormats : aacFormats
+        var pool = aacFormats.isEmpty ? candidates : aacFormats
         Log.formatSelector.debug(
             "Download pool: \(pool.count) format(s)\(aacFormats.isEmpty ? " (no AAC, falling back to Opus)" : " (AAC preferred)")"
         )
 
-        let selected = pool.max { a, b in
-            formatScore(a) < formatScore(b)
+        let quality = SettingsStore.shared.downloadQuality
+        if quality == .standard {
+            let targetBitrate = DownloadManager.transcodeBitrate(for: .standard)
+            let capped = pool.filter { ($0.bitrate ?? targetBitrate) <= targetBitrate + 32_000 }
+            if !capped.isEmpty {
+                pool = capped
+            }
+        }
+
+        let selected: Format?
+        if quality == .standard {
+            selected = pool.min { ($0.bitrate ?? Int.max) < ($1.bitrate ?? Int.max) }
+        } else {
+            selected = pool.max { formatScore($0) < formatScore($1) }
         }
 
         if let selected {

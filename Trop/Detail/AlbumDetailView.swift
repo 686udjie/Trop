@@ -579,12 +579,16 @@ struct AlbumSongRow: View {
 
             Spacer()
 
-            Button {
-                showSongMenu = true
-            } label: {
-                Text("\u{22EE}")
-                    .font(.body.weight(.black))
-                    .foregroundStyle(Color.accentColor)
+            HStack(spacing: 2) {
+                SongLikeButton(song: song)
+                SongDownloadButton(song: song)
+                Button {
+                    showSongMenu = true
+                } label: {
+                    Text("\u{22EE}")
+                        .font(.body.weight(.black))
+                        .foregroundStyle(Color.accentColor)
+                }
             }
             .sheet(isPresented: $showSongMenu) {
                 SongMenuSheet(
@@ -593,6 +597,7 @@ struct AlbumSongRow: View {
                 )
             }
         }
+        .background(DownloadCellProgressView(song: song))
         .contentShape(Rectangle())
         .onTapGesture {
             onPlay?()
