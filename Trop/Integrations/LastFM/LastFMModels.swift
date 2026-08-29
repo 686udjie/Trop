@@ -24,6 +24,17 @@ struct LastFMAPIErrorBody: Decodable {
     let message: String
 }
 
+/// Playback metadata passed into Last.fm scrobble / now-playing hooks.
+struct LastFMTrackSnapshot: Equatable {
+    var videoId: String?
+    var title: String
+    var artist: String
+    var album: String?
+    var duration: TimeInterval
+    var currentTime: TimeInterval = 0
+    var playTime: TimeInterval = 0
+}
+
 enum LastFMError: Error, LocalizedError {
     case notConfigured
     case notLoggedIn

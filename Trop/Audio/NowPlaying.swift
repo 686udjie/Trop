@@ -535,45 +535,6 @@ final class NowPlaying {
         notifyIntegrationsProgress()
     }
 
-    private func notifyIntegrationsTrackChanged() {
-        let artist = displayArtist.isEmpty ? self.artist : displayArtist
-        let album = albumTitle.isEmpty ? nil : albumTitle
-        LastFMService.shared.handleTrackChange(
-            videoId: videoId,
-            title: title,
-            artist: artist,
-            album: album,
-            duration: duration
-        )
-        DiscordRpcService.shared.handlePlaybackUpdate(
-            videoId: videoId,
-            title: title,
-            artist: artist,
-            album: album,
-            isPlaying: isPlaying
-        )
-    }
-
-    private func notifyIntegrationsProgress() {
-        let artist = displayArtist.isEmpty ? self.artist : displayArtist
-        let album = albumTitle.isEmpty ? nil : albumTitle
-        LastFMService.shared.considerScrobble(
-            videoId: videoId,
-            title: title,
-            artist: artist,
-            album: album,
-            currentTime: currentTime,
-            duration: duration
-        )
-        DiscordRpcService.shared.handlePlaybackUpdate(
-            videoId: videoId,
-            title: title,
-            artist: artist,
-            album: album,
-            isPlaying: isPlaying
-        )
-    }
-
     private func stopTimer() {
         timer?.invalidate()
         timer = nil

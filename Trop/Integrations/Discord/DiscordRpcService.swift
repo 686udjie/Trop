@@ -167,13 +167,15 @@ final class DiscordRpcService {
         let imageURL = videoId.map { NowPlaying.artworkURL(for: $0) }
         let activityName = artist.isEmpty ? "Trop" : artist
         await gateway.updateActivity(
-            name: activityName,
-            details: title,
-            state: artist.isEmpty ? nil : artist,
-            largeImageURL: imageURL,
-            largeText: album.isEmpty ? title : album,
-            startTimestamp: activityStartedAt,
-            isPlaying: isPlaying
+            DiscordActivity(
+                name: activityName,
+                details: title,
+                state: artist.isEmpty ? nil : artist,
+                largeImageURL: imageURL,
+                largeText: album.isEmpty ? title : album,
+                startTimestamp: activityStartedAt,
+                isPlaying: isPlaying
+            )
         )
         Log.discord.debug("Updated presence: \(artist) - \(title) playing=\(isPlaying)")
     }

@@ -86,15 +86,9 @@ final class LastFMService {
 
     // MARK: - Playback hooks
 
-    func handleTrackChange(
-        videoId: String?,
-        title: String,
-        artist: String,
-        album: String?,
-        duration: TimeInterval
-    ) {
+    func handleTrackChange(_ track: LastFMTrackSnapshot) {
         guard SettingsStore.shared.lastFMEnabled, isLoggedIn else { return }
-        guard let videoId, !title.isEmpty, !artist.isEmpty else { return }
+        guard let videoId = track.videoId, !track.title.isEmpty, !track.artist.isEmpty else { return }
 
         if lastNowPlayingVideoId != videoId {
             lastNowPlayingVideoId = videoId
@@ -102,107 +96,83 @@ final class LastFMService {
         }
 
         guard SettingsStore.shared.lastFMUpdateNowPlaying else { return }
-        let durationSeconds = duration > 0 ? Int(duration.rounded()) : nil
+        let durationSeconds = track.duration > 0 ? Int(track.duration.rounded()) : nil
         Task {
             do {
                 try await LastFMClient.shared.updateNowPlaying(
-                    artist: artist,
-                    track: title,
-                    album: album,
+                    artist: track.artist,
+                    track: track.title,
+                    album: track.album,
                     duration: durationSeconds
                 )
-                Log.lastfm.debug("Updated now playing: \(artist) - \(title)")
+                Log.lastfm.debug("Updated now playing: \(track.artist) - \(track.title)")
             } catch {
                 Log.lastfm.error("updateNowPlaying failed: \(error.localizedDescription)")
             }
         }
     }
 
-    func considerScrobble(
-        videoId: String?,
-        title: String,
-        artist: String,
-        album: String?,
-        currentTime: TimeInterval,
-        duration: TimeInterval
-    ) {
+    func considerScrobble(_ track: LastFMTrackSnapshot) {
         guard SettingsStore.shared.lastFMEnabled, isLoggedIn else { return }
-        guard let videoId, !title.isEmpty, !artist.isEmpty else { return }
+        guard let videoId = track.videoId, !track.title.isEmpty, !track.artist.isEmpty else { return }
         guard !scrobbledVideoIds.contains(videoId) else { return }
 
         let settings = SettingsStore.shared
         let minDuration = settings.lastFMMinSongDuration
-        guard duration >= minDuration || duration <= 0 else { return }
+        guard track.duration >= minDuration || track.duration <= 0 else { return }
 
         let delaySeconds = settings.lastFMScrobbleDelaySeconds
         let delayPercent = settings.lastFMScrobbleDelayPercent
-        let percentThreshold = duration > 0 ? duration * delayPercent : delaySeconds
+        let percentThreshold = track.duration > 0 ? track.duration * delayPercent : delaySeconds
         let threshold = min(max(percentThreshold, minDuration), delaySeconds)
         // Last.fm rule of thumb: scrobble after half the track or the configured delay.
-        let effectiveThreshold = duration > 0 ? min(threshold, duration * delayPercent) : delaySeconds
+        let effectiveThreshold = track.duration > 0
+            ? min(threshold, track.duration * delayPercent)
+            : delaySeconds
         let required = max(effectiveThreshold, minDuration)
 
-        guard currentTime >= required else { return }
+        guard track.currentTime >= required else { return }
 
-        scrobbledVideoIds.insert(videoId)
-        let timestamp = Int(Date().timeIntervalSince1970)
-        let durationSeconds = duration > 0 ? Int(duration.rounded()) : nil
-        Task {
-            do {
-                try await LastFMClient.shared.scrobble(
-                    artist: artist,
-                    track: title,
-                    timestamp: timestamp,
-                    album: album,
-                    duration: durationSeconds
-                )
-                Log.lastfm.info("Scrobbled: \(artist) - \(title)")
-            } catch {
-                scrobbledVideoIds.remove(videoId)
-                Log.lastfm.error("Scrobble failed: \(error.localizedDescription)")
-            }
-        }
+        submitScrobble(track, videoId: videoId, logLabel: "Scrobbled")
     }
 
     /// Fallback scrobble when playback ends after meeting the history threshold.
-    func scrobbleIfNeededOnStop(
-        videoId: String?,
-        title: String,
-        artist: String,
-        album: String?,
-        playTime: TimeInterval,
-        duration: TimeInterval
-    ) {
+    func scrobbleIfNeededOnStop(_ track: LastFMTrackSnapshot) {
         guard SettingsStore.shared.lastFMEnabled, isLoggedIn else { return }
-        guard let videoId, !title.isEmpty, !artist.isEmpty else { return }
+        guard let videoId = track.videoId, !track.title.isEmpty, !track.artist.isEmpty else { return }
         guard !scrobbledVideoIds.contains(videoId) else { return }
 
         let minDuration = SettingsStore.shared.lastFMMinSongDuration
-        guard playTime >= minDuration else { return }
+        guard track.playTime >= minDuration else { return }
 
-        if duration > 0 {
+        if track.duration > 0 {
             let percent = SettingsStore.shared.lastFMScrobbleDelayPercent
-            guard playTime >= duration * percent || playTime >= SettingsStore.shared.lastFMScrobbleDelaySeconds else {
+            let delaySeconds = SettingsStore.shared.lastFMScrobbleDelaySeconds
+            guard track.playTime >= track.duration * percent || track.playTime >= delaySeconds else {
                 return
             }
         }
 
+        submitScrobble(track, videoId: videoId, logLabel: "Scrobbled on stop")
+    }
+
+    private func submitScrobble(_ track: LastFMTrackSnapshot, videoId: String, logLabel: String) {
         scrobbledVideoIds.insert(videoId)
         let timestamp = Int(Date().timeIntervalSince1970)
-        let durationSeconds = duration > 0 ? Int(duration.rounded()) : nil
+        let durationSeconds = track.duration > 0 ? Int(track.duration.rounded()) : nil
         Task {
             do {
                 try await LastFMClient.shared.scrobble(
-                    artist: artist,
-                    track: title,
+                    artist: track.artist,
+                    track: track.title,
                     timestamp: timestamp,
-                    album: album,
+                    album: track.album,
                     duration: durationSeconds
                 )
-                Log.lastfm.info("Scrobbled on stop: \(artist) - \(title)")
+                Log.lastfm.info("\(logLabel): \(track.artist) - \(track.title)")
             } catch {
                 scrobbledVideoIds.remove(videoId)
-                Log.lastfm.error("Scrobble on stop failed: \(error.localizedDescription)")
+                Log.lastfm.error("\(logLabel) failed: \(error.localizedDescription)")
             }
         }
     }

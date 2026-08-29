@@ -62,37 +62,33 @@ actor DiscordGateway {
         Log.discord.info("Discord gateway disconnected")
     }
 
-    func updateActivity(
-        name: String,
-        details: String?,
-        state: String?,
-        largeImageURL: String?,
-        largeText: String?,
-        startTimestamp: Int64?,
-        isPlaying: Bool
-    ) async {
+    func updateActivity(_ activityUpdate: DiscordActivity) async {
         guard status == .connected, let webSocket else { return }
 
         var activity: [String: Any] = [
-            "name": name.isEmpty ? "Trop" : name,
+            "name": activityUpdate.name.isEmpty ? "Trop" : activityUpdate.name,
             "type": 2,
             "flags": 1
         ]
         if !applicationId.isEmpty {
             activity["application_id"] = applicationId
         }
-        if let details, !details.isEmpty { activity["details"] = String(details.prefix(128)) }
-        if let state, !state.isEmpty { activity["state"] = String(state.prefix(128)) }
+        if let details = activityUpdate.details, !details.isEmpty {
+            activity["details"] = String(details.prefix(128))
+        }
+        if let state = activityUpdate.state, !state.isEmpty {
+            activity["state"] = String(state.prefix(128))
+        }
 
-        if let startTimestamp, isPlaying {
+        if let startTimestamp = activityUpdate.startTimestamp, activityUpdate.isPlaying {
             activity["timestamps"] = ["start": startTimestamp]
         }
 
         var assets: [String: String] = [:]
-        if let largeText, !largeText.isEmpty {
+        if let largeText = activityUpdate.largeText, !largeText.isEmpty {
             assets["large_text"] = String(largeText.prefix(128))
         }
-        if let largeImageURL, !largeImageURL.isEmpty {
+        if let largeImageURL = activityUpdate.largeImageURL, !largeImageURL.isEmpty {
             // External media proxy prefix used by classic music RPC clients.
             assets["large_image"] = "mp:\(largeImageURL)"
         }
@@ -100,12 +96,13 @@ actor DiscordGateway {
             activity["assets"] = assets
         }
 
+        let showActivity = activityUpdate.isPlaying || activityUpdate.details != nil
         let payload: [String: Any] = [
             "op": 3,
             "d": [
                 "since": NSNull(),
-                "activities": isPlaying || details != nil ? [activity] : [],
-                "status": isPlaying ? "online" : "idle",
+                "activities": showActivity ? [activity] : [],
+                "status": activityUpdate.isPlaying ? "online" : "idle",
                 "afk": false
             ] as [String: Any]
         ]

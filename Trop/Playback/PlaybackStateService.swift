@@ -71,23 +71,23 @@ actor PlaybackStateService {
     }
 
     private func notifyLastFMScrobble(videoId: String, playTimeMs: Int64) async {
-        let snapshot = await MainActor.run { () -> (title: String, artist: String, album: String?, duration: TimeInterval)? in
+        let snapshot = await MainActor.run { () -> LastFMTrackSnapshot? in
             let np = NowPlaying.shared
             guard np.videoId == videoId else { return nil }
             let artist = np.displayArtist.isEmpty ? np.artist : np.displayArtist
             let album = np.albumTitle.isEmpty ? nil : np.albumTitle
-            return (np.title, artist, album, np.duration)
+            return LastFMTrackSnapshot(
+                videoId: videoId,
+                title: np.title,
+                artist: artist,
+                album: album,
+                duration: np.duration,
+                playTime: TimeInterval(playTimeMs) / 1000
+            )
         }
         guard let snapshot else { return }
         await MainActor.run {
-            LastFMService.shared.scrobbleIfNeededOnStop(
-                videoId: videoId,
-                title: snapshot.title,
-                artist: snapshot.artist,
-                album: snapshot.album,
-                playTime: TimeInterval(playTimeMs) / 1000,
-                duration: snapshot.duration
-            )
+            LastFMService.shared.scrobbleIfNeededOnStop(snapshot)
         }
     }
 
