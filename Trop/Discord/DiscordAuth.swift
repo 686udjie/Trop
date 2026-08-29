@@ -80,12 +80,12 @@ enum DiscordAuth {
         expectedState = nil
 
         let components = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false)
-        let items = Dictionary(
-            uniqueKeysWithValues: (components?.queryItems ?? []).compactMap { item in
-                guard let value = item.value else { return nil }
-                return (item.name, value)
+        var items: [String: String] = [:]
+        for item in components?.queryItems ?? [] {
+            if let value = item.value {
+                items[item.name] = value
             }
-        )
+        }
         if let error = items["error"] {
             throw DiscordAuthError.network(error)
         }
