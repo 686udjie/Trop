@@ -23,7 +23,7 @@ struct LibraryView: View {
 
     @StateObject private var loginModel = LoginViewModel()
     @ObservedObject private var router = AppRouter.shared
-    @ObservedObject private var downloadManager = DownloadManager.shared
+    @Environment(\.downloadManager) private var downloadManager
 
     @State private var accountName = "Guest"
     @State private var accountImageUrl: String?

@@ -12,21 +12,32 @@ actor PersonalizationService {
     private let db = DatabaseService.shared
     private let innerTube = InnerTube.shared
 
+    private var enrichmentTasks: [Task<Void, Never>] = []
+
     // MARK: - Phase 1: Local sections (fast, load immediately)
 
     func buildQuickPicks(limit: Int = 12) async -> HomeSection {
         guard let songs = try? await db.fetchLikedSongs(), !songs.isEmpty else {
             return .quickPicks(items: [])
         }
-        let items = songs.shuffled().prefix(max(limit, 1)).map { YTItem.song(SongItem(entity: $0)) }
-        return .quickPicks(items: Array(items))
+        let picked = songs.shuffled().prefix(max(limit, 1))
+        let initialItems = picked.map { YTItem.song(SongItem(entity: $0)) }
+        let section = HomeSection.quickPicks(items: Array(initialItems))
+        let task = Task { [weak self] in
+            guard let self else { return }
+            await self.enrichLikedSongs(songs: Array(picked))
+        }
+        recordEnrichment(task)
+        return section
     }
 
     func buildKeepListening() async -> HomeSection {
         var items: [YTItem] = []
+        var recentSongs: [SongEntity] = []
 
-        if let recentSongs = try? await db.fetchRecentSongs(days: 30, limit: 6) {
-            for song in recentSongs where items.count < 8 {
+        if let fetched = try? await db.fetchRecentSongs(days: 30, limit: 6) {
+            recentSongs = fetched
+            for song in fetched where items.count < 8 {
                 items.append(.song(SongItem(entity: song)))
             }
         }
@@ -43,15 +54,65 @@ actor PersonalizationService {
             }
         }
 
-        return .keepListening(items: items)
+        let section = HomeSection.keepListening(items: items)
+        let task = Task { [weak self] in
+            guard let self else { return }
+            await self.enrichLikedSongs(songs: recentSongs)
+        }
+        recordEnrichment(task)
+        return section
+    }
+
+    private func enrichLikedSongs(songs: [SongEntity]) async {
+        for entity in songs where entity.title.isEmpty {
+            guard let metadata = try? await fetchSongMetadata(videoId: entity.id),
+                  !metadata.title.isEmpty else { continue }
+            var enriched = entity
+            enriched.title = metadata.title
+            enriched.artistName = metadata.artistName ?? enriched.artistName
+            enriched.thumbnailUrl = metadata.thumbnailUrl ?? enriched.thumbnailUrl
+            if enriched.duration == 0 { enriched.duration = metadata.duration }
+            enriched.modifyDate = Date()
+            try? await db.save(enriched)
+        }
     }
 
     func buildForgottenFavorites() async -> HomeSection {
         guard let songs = try? await db.fetchForgottenFavorites(days: 60, limit: 10), !songs.isEmpty else {
             return .forgottenFavorites(items: [])
         }
-        let items = songs.map { YTItem.song(SongItem(entity: $0)) }
-        return .forgottenFavorites(items: items)
+        let initialItems = songs.map { YTItem.song(SongItem(entity: $0)) }
+        let section = HomeSection.forgottenFavorites(items: initialItems)
+        let task = Task { [weak self] in
+            guard let self else { return }
+            await self.enrichForgottenFavorites()
+        }
+        recordEnrichment(task)
+        return section
+    }
+
+    private func enrichForgottenFavorites() async {
+        guard let songs = try? await db.fetchForgottenFavorites(days: 60, limit: 10) else { return }
+        let toEnrich = songs.filter { $0.title.isEmpty }.prefix(3)
+        guard !toEnrich.isEmpty else { return }
+        var didEnrich = false
+        for entity in toEnrich {
+            guard let metadata = try? await fetchSongMetadata(videoId: entity.id),
+                  !metadata.title.isEmpty else { continue }
+            var enriched = entity
+            enriched.title = metadata.title
+            enriched.artistName = metadata.artistName ?? enriched.artistName
+            enriched.thumbnailUrl = metadata.thumbnailUrl ?? enriched.thumbnailUrl
+            if enriched.duration == 0 { enriched.duration = metadata.duration }
+            enriched.modifyDate = Date()
+            try? await db.save(enriched)
+            didEnrich = true
+        }
+        if didEnrich {
+            await MainActor.run {
+                NotificationCenter.default.post(name: .personalizationDataUpdated, object: nil)
+            }
+        }
     }
 
     // MARK: - Phase 2: API-based sections (load in background)
@@ -147,6 +208,55 @@ actor PersonalizationService {
     }
 
     // MARK: - Helpers
+
+    /// Tracks a background enrichment task so `drainEnrichments()` can
+    /// wait for it to complete.
+    private func recordEnrichment(_ task: Task<Void, Never>) {
+        enrichmentTasks.append(task)
+        Task { [weak self] in
+            await task.value
+            await self?.removeEnrichment(task)
+        }
+    }
+
+    private func removeEnrichment(_ task: Task<Void, Never>) {
+        enrichmentTasks.removeAll { $0 == task }
+    }
+
+    /// Awaits all in-flight background enrichment tasks. Use this before
+    /// re-reading derived state so the next query sees freshly-saved data.
+    func drainEnrichments() async {
+        let tasks = enrichmentTasks
+        for task in tasks { await task.value }
+    }
+
+    private struct SongMetadata {
+        let title: String
+        let artistName: String?
+        let thumbnailUrl: String?
+        let duration: Int
+    }
+
+    private func fetchSongMetadata(videoId: String) async throws -> SongMetadata? {
+        let json: [String: Any]
+        do {
+            json = try await innerTube.player(videoId: videoId)
+        } catch {
+            return nil
+        }
+        guard let videoDetails = json["videoDetails"] as? [String: Any] else { return nil }
+        let title = videoDetails["title"] as? String ?? ""
+        let author = videoDetails["author"] as? String
+        let lengthSeconds = videoDetails["lengthSeconds"] as? String
+        let duration = lengthSeconds.flatMap { Int($0) } ?? 0
+        var thumbnailUrl: String?
+        if let thumbs = videoDetails["thumbnail"] as? [String: Any],
+           let list = thumbs["thumbnails"] as? [[String: Any]] {
+            thumbnailUrl = list.last?["url"] as? String
+        }
+        guard !title.isEmpty else { return nil }
+        return SongMetadata(title: title, artistName: author, thumbnailUrl: thumbnailUrl, duration: duration)
+    }
 
     private func isLoggedIn() async -> Bool {
         let store = CookieStore()

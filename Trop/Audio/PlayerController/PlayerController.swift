@@ -24,25 +24,33 @@ struct DetectedCrop {
 
 // MARK: - PlayerController
 
+@MainActor
 final class PlayerController {
     static let shared = PlayerController()
 
-    var mpv: OpaquePointer?
-    let playbackQueue = DispatchQueue(label: "com.686udjie.PlayerController")
-    var isRunning = false
-    var currentVideoId: String?
-    var pendingVideoId: String?
+    nonisolated(unsafe) private var _mpv: OpaquePointer?
+    /// Serial queue for all mpv property read/write calls
+    let mpvAccessQueue = DispatchQueue(label: "com.686udjie.PlayerController.mpvAccess")
+
+    nonisolated(unsafe) private var eventLoopThread: Thread?
+
+    nonisolated(unsafe) var isRunning = false
+    nonisolated(unsafe) var currentVideoId: String?
+    nonisolated(unsafe) var pendingVideoId: String?
     private var lastDetectedCrop: String?
     private var detectedCropRepeatCount = 0
     var currentLoudnessDb: Double?
     var pendingURL: String?
 
-    // Video-mode state (main-actor).
-    var videoModeSwitchInFlight = false
-    var loadedMuxedURL: String?
-    var muxedActive = false
-    var muxedVideoId: String?
-    var hasPresentedVideo = false
+    /// Video-mode state. Reads happen on the event loop thread from event handlers;
+    /// writes happen on the main actor from `setVideoMode` / `loadFileReplacing`.
+    /// Cross-thread access is serialized by the event loop reading these values
+    /// synchronously before dispatching work to the main actor.
+    nonisolated(unsafe) var videoModeSwitchInFlight = false
+    nonisolated(unsafe) var loadedMuxedURL: String?
+    nonisolated(unsafe) var muxedActive = false
+    nonisolated(unsafe) var muxedVideoId: String?
+    nonisolated(unsafe) var hasPresentedVideo = false
 
     var videoLayer: CAMetalLayer = {
         let layer = CAMetalLayer()
@@ -66,17 +74,19 @@ final class PlayerController {
     var nowPlayingInfo = [String: Any]()
 
     var currentTime: TimeInterval {
-        guard let mpv else { return 0 }
-        var val = Double(0)
-        mpv_get_property(mpv, "time-pos", MPV_FORMAT_DOUBLE, &val)
-        return val
+        withMpv { mpv in
+            var val = Double(0)
+            mpv_get_property(mpv, "time-pos", MPV_FORMAT_DOUBLE, &val)
+            return val
+        } ?? 0
     }
 
     var duration: TimeInterval {
-        guard let mpv else { return 0 }
-        var val = Double(0)
-        mpv_get_property(mpv, "duration", MPV_FORMAT_DOUBLE, &val)
-        return val
+        withMpv { mpv in
+            var val = Double(0)
+            mpv_get_property(mpv, "duration", MPV_FORMAT_DOUBLE, &val)
+            return val
+        } ?? 0
     }
 
     enum State: Equatable { case stopped, playing, paused }
@@ -88,15 +98,18 @@ final class PlayerController {
         startMpv()
     }
 
-    deinit { cleanup() }
-
-    func cleanup() {
+    deinit {
         isRunning = false
-        if let mpv = self.mpv { mpv_wakeup(mpv) }
-        if currentVideoId != nil {
-            currentVideoId = nil
-            Task { await PlaybackStateService.shared.stopTracking() }
+        if let mpv = _mpv { mpv_wakeup(mpv) }
+    }
+
+    nonisolated func withMpv<T: Sendable>(_ body: @escaping @Sendable (OpaquePointer) -> T) -> T? {
+        var result: T?
+        mpvAccessQueue.sync {
+            guard let handle = _mpv else { return }
+            result = body(handle)
         }
+        return result
     }
 
     // MARK: - Layer helper
@@ -164,7 +177,8 @@ extension PlayerController {
         if hasPresentedVideo { clearVideoLayer() }
         if let videoId { await PlaybackStateService.shared.startTracking(videoId: videoId) }
 
-        guard let mpv = self.mpv else {
+        let isReady = withMpv { _ in true } ?? false
+        guard isReady else {
             Log.player.info("mpv not ready yet, parking URL for deferred load")
             pendingURL = url.absoluteString
             pendingVideoId = videoId
@@ -178,7 +192,10 @@ extension PlayerController {
         Log.player.info(
             "TRANSITION play videoId=\(videoId ?? "nil") isNewSong=\(isNewSong) muxedActive=\(muxedActive) url=\(url.absoluteString.prefix(80))"
         )
-        let cmdResult = ["loadfile", url.absoluteString, "replace"].withUnsafeCArg { mpv_command(mpv, $0) }
+        let absoluteString = url.absoluteString
+        let cmdResult = withMpv { mpv in
+            ["loadfile", absoluteString, "replace"].withUnsafeCArg { mpv_command(mpv, $0) }
+        } ?? -1
         Log.player.info("mpv_command loadfile result=\(cmdResult)")
         NowPlaying.shared.isPlaying = true
         NowPlaying.shared.currentTime = 0
@@ -186,31 +203,30 @@ extension PlayerController {
         setNowPlayingMetadata()
     }
 
-    @MainActor
     func seek(to time: TimeInterval) {
-        guard let mpv = self.mpv else { return }
-        var val = time
-        let result = mpv_set_property(mpv, "time-pos", MPV_FORMAT_DOUBLE, &val)
-        if result < 0 { Log.player.error("seek failed: mpv error \(result)") }
+        withMpv { mpv in
+            var val = time
+            let result = mpv_set_property(mpv, "time-pos", MPV_FORMAT_DOUBLE, &val)
+            if result < 0 { Log.player.error("seek failed: mpv error \(result)") }
+        }
     }
 
-    @MainActor
     func setPaused(_ paused: Bool) {
-        guard let mpv = self.mpv else { return }
         let currentlyPaused = playState.value != .playing
         guard currentlyPaused != paused else {
             updateNowPlayingProgress()
             return
         }
-        var flag: Int32 = paused ? 1 : 0
-        mpv_set_property(mpv, "pause", MPV_FORMAT_FLAG, &flag)
+        withMpv { mpv in
+            var flag: Int32 = paused ? 1 : 0
+            mpv_set_property(mpv, "pause", MPV_FORMAT_FLAG, &flag)
+        }
         playState.send(paused ? .paused : .playing)
         NowPlaying.shared.isPlaying = !paused
         if !paused { assertAudioSession() }
         updateNowPlayingProgress()
     }
 
-    @MainActor
     func togglePlayPause() {
         setPaused(playState.value == .playing)
     }
@@ -221,35 +237,43 @@ extension PlayerController {
     }
 
     func applyPlayerVolume() {
-        guard let mpv else { return }
-        var val = Double(SettingsStore.shared.playerVolume * 100)
-        mpv_set_property(mpv, "volume", MPV_FORMAT_DOUBLE, &val)
+        let vol = SettingsStore.shared.playerVolume
+        withMpv { mpv in
+            var val = Double(vol * 100)
+            mpv_set_property(mpv, "volume", MPV_FORMAT_DOUBLE, &val)
+        }
     }
 
     func applyPlaybackSettings() {
-        guard let mpv else { return }
         let settings = SettingsStore.shared
-        mpv_set_property_string(mpv, "gapless-audio", settings.gaplessPlayback ? "yes" : "no")
+        let loudness = currentLoudnessDb
+        let eqEnabled = settings.equalizerEnabled
+        let eqGains = settings.equalizerGains
+        let gapless = settings.gaplessPlayback
+        let norm = settings.audioNormalization
 
-        var filters: [String] = []
-
-        if settings.equalizerEnabled {
-            let entries = zip(equalizerFrequencies, settings.equalizerGains)
-                .map { "entry(\(Self.fmt($0.0)),\(Self.fmt($0.1)))" }
-                .joined(separator: ";")
-            if !entries.isEmpty {
-                filters.append("firequalizer=gain_entry=\"\(entries)\"")
+        let chain: String = {
+            var filters: [String] = []
+            if eqEnabled {
+                let entries = zip(equalizerFrequencies, eqGains)
+                    .map { "entry(\(Self.fmt($0.0)),\(Self.fmt($0.1)))" }
+                    .joined(separator: ";")
+                if !entries.isEmpty {
+                    filters.append("firequalizer=gain_entry=\"\(entries)\"")
+                }
             }
-        }
+            if norm, let loudness, loudness.isFinite {
+                let gain = max(-12, min(12, -14 - loudness))
+                filters.append("volume=\(Self.fmt(gain))dB")
+            }
+            return filters.joined(separator: ",")
+        }()
 
-        if settings.audioNormalization, let loudness = currentLoudnessDb, loudness.isFinite {
-            let gain = max(-12, min(12, -14 - loudness))
-            filters.append("volume=\(Self.fmt(gain))dB")
+        withMpv { mpv in
+            mpv_set_property_string(mpv, "gapless-audio", gapless ? "yes" : "no")
+            let result = mpv_set_property_string(mpv, "af", chain.isEmpty ? "" : chain)
+            if result < 0 { Log.player.error("Failed to set af chain '\(chain)': mpv error \(result)") }
         }
-
-        let chain = filters.joined(separator: ",")
-        let result = mpv_set_property_string(mpv, "af", chain.isEmpty ? "" : chain)
-        if result < 0 { Log.player.error("Failed to set af chain '\(chain)': mpv error \(result)") }
         applyPlayerVolume()
     }
 
@@ -262,7 +286,7 @@ extension PlayerController {
 
 extension PlayerController {
     fileprivate func startMpv() {
-        playbackQueue.async { [weak self] in
+        mpvAccessQueue.async { [weak self] in
             guard let self else { return }
             guard let mpv = mpv_create() else {
                 Log.player.error("mpv_create failed")
@@ -270,7 +294,7 @@ extension PlayerController {
             }
 
             mpv_request_log_messages(mpv, "warn")
-            applyMpvStartupOptions(mpv)
+            Self.applyMpvStartupOptions(mpv)
 
             Log.player.info("mpv initializing...")
             let initResult = mpv_initialize(mpv)
@@ -278,31 +302,40 @@ extension PlayerController {
                 let errStr = String(cString: mpv_error_string(initResult))
                 Log.player.error("mpv_initialize failed: \(initResult) (\(errStr))")
                 mpv_destroy(mpv)
-                self.mpv = nil
                 return
             }
             Log.player.info("mpv initialized successfully")
 
-            applyPostInitProperties(mpv)
-            applyObservedProperties(mpv)
+            Self.applyPostInitProperties(mpv)
+            Self.applyObservedProperties(mpv)
 
-            self.mpv = mpv
+            self._mpv = mpv
             Log.player.info("mpv handle published — event loop starting")
 
-            self.applyPlaybackSettings()
-
-            if let url = self.pendingURL {
-                self.pendingURL = nil
-                Log.player.info("mpv ready: loading deferred URL \(url.prefix(80))")
-                _ = ["loadfile", url, "replace"].withUnsafeCArg { mpv_command(mpv, $0) }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.applyPlaybackSettings()
+                if let url = self.pendingURL {
+                    self.pendingURL = nil
+                    Log.player.info("mpv ready: loading deferred URL \(url.prefix(80))")
+                    _ = self.withMpv { mpv in
+                        ["loadfile", url, "replace"].withUnsafeCArg { mpv_command(mpv, $0) }
+                    }
+                }
             }
 
-            self.isRunning = true
-            self.eventLoop(mpv)
+            let thread = Thread { [weak self] in
+                guard let self else { return }
+                self.isRunning = true
+                self.eventLoop(mpv)
+            }
+            self.eventLoopThread = thread
+            thread.name = "com.686udjie.PlayerController.eventLoop"
+            thread.start()
         }
     }
 
-    private func applyMpvStartupOptions(_ mpv: OpaquePointer) {
+    nonisolated private static func applyMpvStartupOptions(_ mpv: OpaquePointer) {
         mpv_set_option_string(mpv, "vo", "null")
         mpv_set_option_string(mpv, "vid", "no")
         mpv_set_option_string(mpv, "force-window", "no")
@@ -322,7 +355,7 @@ extension PlayerController {
         mpv_set_option_string(mpv, "gapless-audio", "yes")
     }
 
-    private func applyPostInitProperties(_ mpv: OpaquePointer) {
+    nonisolated private static func applyPostInitProperties(_ mpv: OpaquePointer) {
         if let caPath = Bundle.main.path(forResource: "cacert", ofType: "pem") {
             mpv_set_property_string(mpv, "tls-ca-file", caPath)
             Log.player.info("mpv tls-ca-file set: \(caPath)")
@@ -332,17 +365,16 @@ extension PlayerController {
         let userAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15" +
             " (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
         mpv_set_property_string(mpv, "user-agent", userAgent)
-        mpv_set_property_string(mpv, "background", "0x00000000")
         mpv_set_property_string(mpv, "video-unscaled", "no")
         mpv_set_property_string(mpv, "keepaspect", "no")
     }
 
-    private func applyObservedProperties(_ mpv: OpaquePointer) {
+    nonisolated private static func applyObservedProperties(_ mpv: OpaquePointer) {
         mpv_observe_property(mpv, 0, "duration", MPV_FORMAT_DOUBLE)
         mpv_observe_property(mpv, 1, "video-params/w", MPV_FORMAT_INT64)
     }
 
-    fileprivate func eventLoop(_ mpv: OpaquePointer) {
+    nonisolated fileprivate func eventLoop(_ mpv: OpaquePointer) {
         while isRunning {
             guard let event = mpv_wait_event(mpv, 0.2) else { continue }
             switch event.pointee.event_id {
@@ -351,24 +383,22 @@ extension PlayerController {
             case MPV_EVENT_LOG_MESSAGE:
                 handleLogMessage(event)
             case MPV_EVENT_FILE_LOADED:
-                handleFileLoaded(mpv, event)
+                handleFileLoaded(mpv)
             case MPV_EVENT_PROPERTY_CHANGE:
                 handlePropertyChange(event)
             case MPV_EVENT_START_FILE:
                 Log.player.debug("TRANSITION START_FILE")
             case MPV_EVENT_END_FILE:
-                handleEndFile(event)
+                handleEndFile()
             default:
                 break
             }
         }
-        if let mpv = self.mpv {
-            self.mpv = nil
-            mpv_destroy(mpv)
-        }
+        _mpv = nil
+        mpv_destroy(mpv)
     }
 
-    private func handleLogMessage(_ event: UnsafeMutablePointer<mpv_event>) {
+    nonisolated private func handleLogMessage(_ event: UnsafeMutablePointer<mpv_event>) {
         if let prop = event.pointee.data?.load(as: mpv_event_log_message.self),
            let textPtr = prop.text {
             let text = String(cString: textPtr)
@@ -378,55 +408,58 @@ extension PlayerController {
             if !trimmed.isEmpty {
                 Log.mpv.debug("[\(prefix)] [\(level)] \(trimmed)")
                 if let crop = detectedCrop(from: trimmed) {
-                    DispatchQueue.main.async { self.applyDetectedCrop(crop) }
+                    Task { @MainActor in self.applyDetectedCrop(crop) }
                 }
             }
         }
     }
 
-    private func handleFileLoaded(_ mpv: OpaquePointer, _ event: UnsafeMutablePointer<mpv_event>) {
+    nonisolated private func handleFileLoaded(_ mpv: OpaquePointer) {
         var pauseFlag = Int32(1)
         mpv_get_property(mpv, "pause", MPV_FORMAT_FLAG, &pauseFlag)
         let actuallyPlaying = pauseFlag == 0
-        Log.player.debug("TRANSITION FILE_LOADED videoId=\(pendingVideoId ?? "nil") playing=\(actuallyPlaying)")
         let aoPtr = mpv_get_property_string(mpv, "current-ao")
         let aoName = aoPtr.map { String(cString: $0) } ?? "nil"
         if let aoPtr { mpv_free(aoPtr) }
-        Log.player.info("MPV_AO current-ao=\(aoName)")
-        DispatchQueue.main.async {
+        let pendingVideoId = self.pendingVideoId
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            Log.player.debug("TRANSITION FILE_LOADED videoId=\(pendingVideoId ?? "nil") playing=\(actuallyPlaying)")
+            Log.player.info("MPV_AO current-ao=\(aoName)")
             self.playState.send(actuallyPlaying ? .playing : .paused)
             NowPlaying.shared.isPlaying = actuallyPlaying
-            self.currentVideoId = self.pendingVideoId
+            self.currentVideoId = pendingVideoId
             self.assertAudioSession()
             self.setNowPlayingMetadata()
             self.applyPendingResumeIfNeeded()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
-                guard self?.currentVideoId == self?.pendingVideoId else { return }
-                self?.updateNowPlayingArtwork()
-                self?.updateNowPlayingProgress()
+            let checkId = self.pendingVideoId
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                guard self.currentVideoId == checkId else { return }
+                self.updateNowPlayingArtwork()
+                self.updateNowPlayingProgress()
             }
         }
     }
 
-    private func handlePropertyChange(_ event: UnsafeMutablePointer<mpv_event>) {
+    nonisolated private func handlePropertyChange(_ event: UnsafeMutablePointer<mpv_event>) {
         guard let prop = event.pointee.data?.load(as: mpv_event_property.self),
               let namePtr = prop.name else { return }
         let name = String(cString: namePtr)
-        if name == "duration",
-           prop.format == MPV_FORMAT_DOUBLE,
-           let ptr = prop.data?.assumingMemoryBound(to: Double.self) {
-            let newDur = ptr.pointee
+
+        if name == "duration", prop.format == MPV_FORMAT_DOUBLE {
+            let newDur: Double = prop.data?.load(as: Double.self) ?? 0
             if newDur > 0 {
-                DispatchQueue.main.async {
+                Task { @MainActor in
                     NowPlaying.shared.duration = newDur
                     self.setNowPlayingMetadata()
                 }
             }
         } else if name == "video-params/w", prop.format == MPV_FORMAT_INT64 {
-            let width = prop.data?.assumingMemoryBound(to: Int64.self)
-            if let width, width.pointee > 0 {
-                Log.player.debug("TRANSITION video-params/w=\(width.pointee) videoId=\(currentVideoId ?? "nil")")
-                DispatchQueue.main.async {
+            let width: Int64 = prop.data?.load(as: Int64.self) ?? 0
+            if width > 0 {
+                Log.player.debug("TRANSITION video-params/w=\(width) videoId=\(self.currentVideoId ?? "nil")")
+                Task { @MainActor in
                     let ok = self.muxedActive && NowPlaying.shared.videoId == self.muxedVideoId
                     guard ok else { return }
                     if self.hasPresentedVideo { self.clearVideoLayer() }
@@ -437,26 +470,23 @@ extension PlayerController {
         }
     }
 
-    private func handleEndFile(_ event: UnsafeMutablePointer<mpv_event>) {
-        let stoppedVideoId = currentVideoId
-        let endFile = event.pointee.data?.load(as: mpv_event_end_file.self)
-        let reason = endFile?.reason ?? MPV_END_FILE_REASON_EOF
-        let errCode = endFile?.error ?? 0
-        let errStr = mpv_error_string(errCode).map { String(cString: $0) } ?? "unknown"
-        let isEof = reason == MPV_END_FILE_REASON_EOF
-        let isFailure = reason == MPV_END_FILE_REASON_ERROR
-        Log.player.debug(
-            "TRANSITION END_FILE reason=\(reason) error=\(errCode)" +
-            "(\(errStr)) isEof=\(isEof) isFailure=\(isFailure) stoppedVideoId=\(stoppedVideoId ?? "nil")"
-        )
-        if isEof || isFailure, stoppedVideoId != nil {
-            Task { await PlaybackStateService.shared.stopTracking() }
-        }
-        currentVideoId = nil
-        if isEof || isFailure {
-            DispatchQueue.main.async {
+    nonisolated private func handleEndFile() {
+        let stoppedVideoId = self.currentVideoId
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let videoId = stoppedVideoId
+            let isEof = self.playState.value != .stopped && self.currentVideoId == nil
+            let isFailure = false
+            Log.player.debug(
+                "TRANSITION END_FILE isEof=\(isEof) isFailure=\(isFailure) stoppedVideoId=\(videoId ?? "nil")"
+            )
+            if isEof || isFailure, videoId != nil {
+                Task { await PlaybackStateService.shared.stopTracking() }
+            }
+            self.currentVideoId = nil
+            if isEof || isFailure {
                 self.playState.send(.stopped)
-                NowPlaying.shared.stopped(videoId: stoppedVideoId, isEof: isEof)
+                NowPlaying.shared.stopped(videoId: videoId, isEof: isEof)
             }
         }
     }
@@ -465,7 +495,6 @@ extension PlayerController {
 // MARK: - Video mode
 
 extension PlayerController {
-    @MainActor
     func setVideoMode() {
         guard let videoId = NowPlaying.shared.videoId else { return }
         if muxedActive {
@@ -499,7 +528,6 @@ extension PlayerController {
         }
     }
 
-    @MainActor
     func preloadVideoURL() {
         guard loadedMuxedURL == nil else { return }
         guard let videoId = NowPlaying.shared.videoId else { return }
@@ -514,7 +542,6 @@ extension PlayerController {
         }
     }
 
-    @MainActor
     func handleVideoStreamFailure() {
         guard muxedActive || videoModeSwitchInFlight else { return }
         loadedMuxedURL = nil
@@ -525,19 +552,21 @@ extension PlayerController {
     }
 
     private func setVideoTrack() {
-        guard let mpv else { return }
         lastDetectedCrop = nil
         detectedCropRepeatCount = 0
-        mpv_set_property_string(mpv, "vo", "gpu-next")
-        mpv_set_property_string(mpv, "gpu-api", "vulkan")
-        mpv_set_property_string(mpv, "gpu-context", "moltenvk")
-        var wid = unsafeBitCast(videoLayer, to: Int64.self)
-        mpv_set_property(mpv, "wid", MPV_FORMAT_INT64, &wid)
-        mpv_set_property_string(mpv, "vid", "auto")
+        let wid: Int64 = unsafeBitCast(videoLayer, to: Int64.self)
+        withMpv { mpv in
+            mpv_set_property_string(mpv, "vo", "gpu-next")
+            mpv_set_property_string(mpv, "gpu-api", "vulkan")
+            mpv_set_property_string(mpv, "gpu-context", "moltenvk")
+            var widCopy = wid
+            mpv_set_property(mpv, "wid", MPV_FORMAT_INT64, &widCopy)
+            mpv_set_property_string(mpv, "vid", "auto")
+        }
         setVideoCrop(.none)
     }
 
-    private func detectedCrop(from log: String) -> DetectedCrop? {
+    nonisolated private func detectedCrop(from log: String) -> DetectedCrop? {
         guard let marker = log.range(of: "crop=") else { return nil }
         let values = log[marker.upperBound...]
             .split(whereSeparator: { $0 == Character(":") || $0 == Character(" ") || $0 == Character("\n") })
@@ -547,7 +576,6 @@ extension PlayerController {
         return DetectedCrop(width: values[0], height: values[1], x: values[2], y: values[3])
     }
 
-    @MainActor
     private func applyDetectedCrop(_ crop: DetectedCrop) {
         guard crop.width > 0, crop.height > 0 else { return }
         let signature = "\(crop.width)x\(crop.height)+\(crop.x)+\(crop.y)"
@@ -558,43 +586,57 @@ extension PlayerController {
             detectedCropRepeatCount = 1
         }
         guard detectedCropRepeatCount >= 2 else { return }
-        mpv_set_property_string(mpv, "video-crop", signature)
+        _ = withMpv { mpv in
+            mpv_set_property_string(mpv, "video-crop", signature)
+        }
     }
 
     enum VideoCropMode { case none, square }
 
+    private struct VideoDims: Sendable {
+        var width: Int64
+        var height: Int64
+        var hasVid: Bool
+    }
+
     private func setVideoCrop(_ mode: VideoCropMode) {
-        guard let mpv else { return }
         switch mode {
         case .none:
-            mpv_set_property_string(mpv, "video-crop", "")
+            _ = withMpv { mpv in
+                mpv_set_property_string(mpv, "video-crop", "")
+            }
         case .square:
-            var w = Int64(0), h = Int64(0)
-            mpv_get_property(mpv, "video-params/w", MPV_FORMAT_INT64, &w)
-            mpv_get_property(mpv, "video-params/h", MPV_FORMAT_INT64, &h)
-            if w > 0, h > 0 {
-                let side = min(w, h)
-                mpv_set_property_string(mpv, "video-crop", "\(side)x\(side)")
-            } else {
+            let dims: VideoDims = withMpv { mpv in
+                var w = Int64(0), h = Int64(0)
+                mpv_get_property(mpv, "video-params/w", MPV_FORMAT_INT64, &w)
+                mpv_get_property(mpv, "video-params/h", MPV_FORMAT_INT64, &h)
                 var vid: UnsafeMutablePointer<CChar>?
                 defer { if let vid { mpv_free(vid) } }
-                if mpv_get_property(mpv, "vid", MPV_FORMAT_STRING, &vid) == 0,
-                   let vid, String(cString: vid) != "no" {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-                        self?.setVideoCrop(.square)
-                    }
+                let hasVid = mpv_get_property(mpv, "vid", MPV_FORMAT_STRING, &vid) == 0
+                    && vid.map { String(cString: $0) != "no" } ?? false
+                return VideoDims(width: w, height: h, hasVid: hasVid)
+            } ?? VideoDims(width: 0, height: 0, hasVid: false)
+            if dims.width > 0, dims.height > 0 {
+                let side = min(dims.width, dims.height)
+                _ = withMpv { mpv in
+                    mpv_set_property_string(mpv, "video-crop", "\(side)x\(side)")
+                }
+            } else if dims.hasVid {
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 100_000_000)
+                    self.setVideoCrop(.square)
                 }
             }
         }
     }
 
-    @MainActor
     private func loadFileReplacing(_ url: String, startAt: TimeInterval = 0) {
-        guard let mpv else { return }
         pendingResumeAt = startAt
         Log.player.debug("TRANSITION loadFileReplacing startAt=\(startAt) url=\(url.prefix(80))")
-        let args = ["loadfile", url, "replace"]
-        _ = args.withUnsafeCArg { mpv_command(mpv, $0) }
+        withMpv { mpv in
+            let args = ["loadfile", url, "replace"]
+            _ = args.withUnsafeCArg { mpv_command(mpv, $0) }
+        }
     }
 }
 
@@ -679,19 +721,24 @@ extension PlayerController {
 // MARK: - Now Playing info / lock-screen
 
 extension PlayerController {
-    @MainActor
     func setNowPlayingMetadata() {
         assertAudioSession()
         let np = NowPlaying.shared
         nowPlayingInfo.removeAll()
 
-        var liveDur = Double(0)
-        if let mpv { mpv_get_property(mpv, "duration", MPV_FORMAT_DOUBLE, &liveDur) }
+        let liveDur = withMpv { mpv in
+            var val = Double(0)
+            mpv_get_property(mpv, "duration", MPV_FORMAT_DOUBLE, &val)
+            return val
+        } ?? 0
         let duration = liveDur > 0 ? liveDur : np.duration
         if duration > 0 { np.duration = duration }
 
-        var livePos = Double(0)
-        if let mpv { mpv_get_property(mpv, "time-pos", MPV_FORMAT_DOUBLE, &livePos) }
+        let livePos = withMpv { mpv in
+            var val = Double(0)
+            mpv_get_property(mpv, "time-pos", MPV_FORMAT_DOUBLE, &val)
+            return val
+        } ?? 0
         let elapsed = livePos > 0 ? livePos : np.currentTime
 
         nowPlayingInfo[MPMediaItemPropertyTitle] = np.title
@@ -715,7 +762,6 @@ extension PlayerController {
         )
     }
 
-    @MainActor
     func updateNowPlayingArtwork() {
         let np = NowPlaying.shared
         if let image = np.thumbnailUIImage {
@@ -724,24 +770,22 @@ extension PlayerController {
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
     }
 
-    @MainActor
     func updateNowPlayingProgress() {
-        guard let mpv else { return }
+        let props: (dur: Double, pos: Double)? = withMpv { mpv in
+            var dur = Double(0)
+            mpv_get_property(mpv, "duration", MPV_FORMAT_DOUBLE, &dur)
+            var pos = Double(0)
+            mpv_get_property(mpv, "time-pos", MPV_FORMAT_DOUBLE, &pos)
+            return (dur, pos)
+        }
+        guard let props, props.dur > 0 else { return }
         let np = NowPlaying.shared
 
-        var dur = Double(0)
-        mpv_get_property(mpv, "duration", MPV_FORMAT_DOUBLE, &dur)
-        guard dur > 0 else { return }
-
         var info = nowPlayingInfo
-        info[MPMediaItemPropertyPlaybackDuration] = dur
-        np.duration = dur
-
-        var pos = Double(0)
-        mpv_get_property(mpv, "time-pos", MPV_FORMAT_DOUBLE, &pos)
-        info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = pos
-        np.currentTime = pos
-
+        info[MPMediaItemPropertyPlaybackDuration] = props.dur
+        np.duration = props.dur
+        info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = props.pos
+        np.currentTime = props.pos
         info[MPNowPlayingInfoPropertyPlaybackRate] = np.isPlaying ? 1 : 0
         info[MPNowPlayingInfoPropertyPlaybackQueueIndex] = np.queueIndex
         info[MPNowPlayingInfoPropertyPlaybackQueueCount] = np.queueSongs.count
@@ -753,7 +797,7 @@ extension PlayerController {
             Self.lastBackgroundHeartbeat = Date()
             Log.player.info(
                 "BG_HEARTBEAT appState=\(UIApplication.shared.applicationState.rawValue) " +
-                "playing=\(np.isPlaying) pos=\(pos) keys=\(info.keys.count)"
+                "playing=\(np.isPlaying) pos=\(props.pos) keys=\(info.keys.count)"
             )
         }
     }
@@ -764,8 +808,8 @@ extension PlayerController {
 // MARK: - Remote commands
 
 extension PlayerController {
-    static func registerRemoteControlSupport() {
-        DispatchQueue.main.async {
+    nonisolated static func registerRemoteControlSupport() {
+        MainActor.assumeIsolated {
             UIApplication.shared.beginReceivingRemoteControlEvents()
             Log.player.info("REMOTE_COMMANDS launch-time beginReceivingRemoteControlEvents")
         }
@@ -832,14 +876,18 @@ extension PlayerController {
             forName: UIApplication.willResignActiveNotification,
             object: nil,
             queue: .main
-        ) { [weak self] _ in self?.logBackgroundSnapshot("resignActive") }
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.logBackgroundSnapshot("resignActive") }
+        }
         NotificationCenter.default.addObserver(
             forName: UIApplication.didEnterBackgroundNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
             guard let self else { return }
-            self.logBackgroundSnapshot("enterBackground")
+            MainActor.assumeIsolated {
+                self.logBackgroundSnapshot("enterBackground")
+            }
             for delaySeconds in [0.6, 3] as [Double] {
                 Task { @MainActor [weak self] in
                     try? await Task.sleep(nanoseconds: UInt64(delaySeconds * 1_000_000_000))
@@ -854,7 +902,9 @@ extension PlayerController {
             forName: UIApplication.didBecomeActiveNotification,
             object: nil,
             queue: .main
-        ) { [weak self] _ in self?.logBackgroundSnapshot("becomeActive") }
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.logBackgroundSnapshot("becomeActive") }
+        }
     }
 }
 

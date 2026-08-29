@@ -39,8 +39,55 @@ final class HomeViewModel {
     private var cachedLocalSections: [HomeSection] = []
     private var cachedPhase2Sections: [HomeSection] = []
 
+    private var notificationObserver: NSObjectProtocol?
+
     init() {
         hideExplicit = SettingsStore.shared.hideExplicit
+        if let existing = notificationObserver {
+            NotificationCenter.default.removeObserver(existing)
+        }
+        notificationObserver = NotificationCenter.default.addObserver(
+            forName: .personalizationDataUpdated,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.refreshLocalSections()
+        }
+    }
+
+    private nonisolated func refreshLocalSections() {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let settings = SettingsStore.shared
+            async let qp: HomeSection = settings.showQuickPicks
+                ? await personalization.buildQuickPicks(limit: settings.topListsLength)
+                : .quickPicks(items: [])
+            async let kl: HomeSection = await personalization.buildKeepListening()
+            async let ff: HomeSection = await personalization.buildForgottenFavorites()
+            let (qpResult, klResult, ffResult) = await (qp, kl, ff)
+            var local: [HomeSection] = []
+            if !qpResult.items.isEmpty { local.append(qpResult) }
+            if !klResult.items.isEmpty { local.append(klResult) }
+            if !ffResult.items.isEmpty { local.append(ffResult) }
+            self.cachedLocalSections = local
+            self.mergeSections()
+            await self.personalization.drainEnrichments()
+            let refreshed = await (
+                self.personalization.buildForgottenFavorites(),
+                self.personalization.buildKeepListening()
+            )
+            var merged = local
+            merged.removeAll { section in
+                switch section {
+                case .forgottenFavorites, .keepListening: return true
+                default: return false
+                }
+            }
+            if !refreshed.0.items.isEmpty { merged.append(refreshed.0) }
+            if !refreshed.1.items.isEmpty { merged.append(refreshed.1) }
+            self.cachedLocalSections = merged
+            self.mergeSections()
+        }
     }
 
     /// Re-reads settings that affect the feed (explicit filter, quick picks).
@@ -121,18 +168,19 @@ final class HomeViewModel {
         isLoading = true
         error = nil
 
-        async let serverTask: Void = fetchHomePage(generation: generation)
         async let localTask: Void = storeLocalSections()
-
-        _ = await (serverTask, localTask)
-
+        _ = await localTask
         guard generation == loadGeneration else { return }
-
-        await ensureQuickPicksAvailable(generation: generation)
-
+        await personalization.drainEnrichments()
         mergeSections()
-
         isLoading = false
+
+        Task { [generation] in
+            await fetchHomePage(generation: generation)
+            guard generation == self.loadGeneration else { return }
+            await self.ensureQuickPicksAvailable(generation: generation)
+            self.mergeSections()
+        }
 
         Task { await loadPhase2Sections() }
     }

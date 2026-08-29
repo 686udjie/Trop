@@ -12,7 +12,7 @@ struct SongMenuSheet: View {
     var onNavigate: ((DetailRoute) -> Void)?
 
     @Environment(\.dismiss) private var dismiss
-    @State private var settings = SettingsStore.shared
+    @Environment(\.settingsStore) private var settings
 
     enum Destination: Hashable {
         case details
@@ -282,8 +282,9 @@ struct SongMenuSheet: View {
     }
 
     private func share() {
-        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-              let root = scene.keyWindow?.rootViewController else { return }
+        guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first,
+              let window = scene.windows.first(where: { $0.isKeyWindow }),
+              let root = window.rootViewController else { return }
         dismiss()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
             let activityVC = UIActivityViewController(

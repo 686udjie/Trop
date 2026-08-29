@@ -8,7 +8,7 @@ import SwiftUI
 struct DownloadsView: View {
     @Environment(SettingsStore.self) private var settings
     @State private var viewModel = DownloadsViewModel()
-    @ObservedObject private var downloadManager = DownloadManager.shared
+    @Environment(\.downloadManager) private var downloadManager
     @State private var pendingRoute: DetailRoute?
     @State private var showMoreSheet = false
 
@@ -174,7 +174,7 @@ struct DownloadsView: View {
     }
 
     private func playLocal(_ song: SongItem) async {
-        guard let localURL = DownloadManager.shared.localURL(for: song.videoId) else { return }
+        guard let localURL = await DownloadManager.shared.localURL(for: song.videoId) else { return }
         let artists = song.artists
         let displayArtist = artists.map(\.name).joined(separator: ", ")
         await PlayerController.shared.play(

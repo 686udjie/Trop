@@ -14,7 +14,7 @@ struct PlayerMenuSheet: View {
     var onCollapseRequest: (() -> Void)?
 
     @Environment(\.dismiss) private var dismiss
-    @State private var settings = SettingsStore.shared
+    @Environment(\.settingsStore) private var settings
 
     enum Destination: Hashable {
         case equalizer
@@ -26,7 +26,7 @@ struct PlayerMenuSheet: View {
     @State private var showPlaylistPicker = false
     @State private var showArtistPicker = false
     @State private var isResolvingArtist = false
-    @ObservedObject private var downloadManager = DownloadManager.shared
+    @Environment(\.downloadManager) private var downloadManager
 
     var body: some View {
         NavigationStack {

@@ -724,7 +724,7 @@ extension EpisodeItem {
 extension SongItem {
     init(entity: SongEntity) {
         self.videoId = entity.id
-        self.title = entity.title
+        self.title = entity.title.isEmpty ? "Unknown" : entity.title
         self.artists = entity.artistName.map { [YTArtist(name: SongItem.cleanArtistName($0))] } ?? []
         self.album = entity.albumName
         self.albumId = nil

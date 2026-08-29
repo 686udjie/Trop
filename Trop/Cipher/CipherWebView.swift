@@ -8,7 +8,8 @@
 import WebKit
 import Foundation
 
-actor CipherWebView: NSObject {
+@MainActor
+final class CipherWebView: NSObject {
     static let shared = CipherWebView()
 
     private var isReady = false
@@ -37,8 +38,6 @@ actor CipherWebView: NSObject {
             return
         }
 
-        // Deduplicate concurrent loads: actor reentrancy otherwise lets a
-        // second caller overwrite `readyContinuation`, orphaning the first.
         if let existing = loadTask {
             try await existing.value
             return
@@ -78,7 +77,6 @@ actor CipherWebView: NSObject {
             Log.cipherWebView.debug("No config for hash \(hash), trying heuristic extraction")
             let extracted = try? await FunctionNameExtractor.shared.extract(from: playerJs, playerHash: hash)
             if let js = extracted?.sigJs, !js.isEmpty {
-                // Strip the outer parens to get the raw function declaration
                 let raw = js.hasPrefix("(") && js.hasSuffix(")") ? String(js.dropFirst().dropLast()) : js
                 sigConfig = raw
                 isExpression = false
@@ -107,7 +105,6 @@ actor CipherWebView: NSObject {
             }
         }
 
-        // Patch player.js to expose cipher functions on window
         let patchedJs = CipherHTMLBuilder.patchPlayerJs(
             playerJs: playerJs,
             sigConfig: sigConfig,
@@ -118,57 +115,48 @@ actor CipherWebView: NSObject {
             playerHash: hash
         )
 
-        // Save patched player.js to local file
         guard let dir = playerDir else { throw CipherError.cacheUnavailable }
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         Log.cipherWebView.debug("Player directory: \(dir.path)")
         let playerFile = dir.appendingPathComponent("base_\(hash).js")
         try patchedJs.write(to: playerFile, atomically: true, encoding: .utf8)
 
-        // Generate file-based HTML
         let html = CipherHTMLBuilder.buildFileBasedHTML(playerHash: hash)
-
-        // Save HTML to temp file in same directory
         let htmlFile = dir.appendingPathComponent("cipher_\(hash).html")
         try html.write(to: htmlFile, atomically: true, encoding: .utf8)
 
-        let wv: WKWebView = await MainActor.run {
-            let handler = CipherMessageHandler(cipher: self)
-            let config = WKWebViewConfiguration()
-            let userContent = WKUserContentController()
-            userContent.add(handler, name: "cipher")
-            config.userContentController = userContent
-            config.suppressesIncrementalRendering = true
+        let handler = CipherMessageHandler(cipher: self)
+        let webConfig = WKWebViewConfiguration()
+        let userContent = WKUserContentController()
+        userContent.add(handler, name: "cipher")
+        webConfig.userContentController = userContent
+        webConfig.suppressesIncrementalRendering = true
 
-            let w = WKWebView(frame: .zero, configuration: config)
-            w.isHidden = true
-            return w
-        }
-        self.webView = wv
+        let w = WKWebView(frame: .zero, configuration: webConfig)
+        w.isHidden = true
+        self.webView = w
 
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
             self.readyContinuation = cont
             self.scheduleReadyTimeout()
-            Task { @MainActor in
-                wv.loadFileURL(htmlFile, allowingReadAccessTo: dir)
-            }
+            w.loadFileURL(htmlFile, allowingReadAccessTo: dir)
         }
 
         self.isReady = true
         Log.cipherWebView.debug("Ready (file-based, hash=\(hash))")
     }
 
-    private nonisolated func scheduleReadyTimeout() {
-        Task { [weak self] in
+    private func scheduleReadyTimeout() {
+        Task {
             try? await Task.sleep(nanoseconds: 30_000_000_000)
-            await self?.handleTimeout()
+            handleTimeout()
         }
     }
 
-    fileprivate func handleTimeout() {
+    func handleTimeout() {
         if let cont = readyContinuation {
-            cont.resume(throwing: CipherError.jsExecutionFailed("WebView ready timeout"))
             readyContinuation = nil
+            cont.resume(throwing: CipherError.jsExecutionFailed("WebView ready timeout"))
         }
     }
 
@@ -186,14 +174,12 @@ actor CipherWebView: NSObject {
 
         var url = decodedUrl
         if let sig = sigEncoded {
-            // Try player's URL builder first (returns URL with sig embedded)
             let result = try await evaluateJS(
                 "buildSignedUrl(\(escapeJs(decodedUrl)), \(escapeJs(spParam)), \(escapeJs(sig)))"
             )
             if let builtUrl = result, builtUrl.hasPrefix("http") {
                 url = builtUrl
             } else {
-                // Fallback: manual sig deobfuscation + URL assembly
                 let deobfuscated = try await evaluateJS(
                     "deobfuscateSig(null,null,\(escapeJs(sig)))"
                 )
@@ -207,7 +193,6 @@ actor CipherWebView: NSObject {
             }
         }
 
-        // n-transform: transform the n-parameter value via the URL builder class
         if let nValue = extractNParam(from: url) {
             if let transformed = try? await evaluateJS(
                 "transformN(\(escapeJs(nValue)))"
@@ -218,7 +203,6 @@ actor CipherWebView: NSObject {
                     url = regex.stringByReplacingMatches(in: url, range: range, withTemplate: "n=\(transformed)")
                 }
             } else {
-                // Remove untransformed n-param to avoid 403
                 let pattern = "&?n=\(NSRegularExpression.escapedPattern(for: nValue))(?=&|$)"
                 if let regex = try? NSRegularExpression(pattern: pattern, options: []) {
                     let range = NSRange(url.startIndex..., in: url)
@@ -235,45 +219,37 @@ actor CipherWebView: NSObject {
     // MARK: - Private
 
     private func evaluateJS(_ script: String) async throws -> String? {
-        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<String?, Error>) in
+        guard let wv = webView else {
+            throw CipherError.jsExecutionFailed("webView is nil")
+        }
+
+        return try await withCheckedThrowingContinuation { (cont: CheckedContinuation<String?, Error>) in
+            var timeoutTask: Task<Void, Never>?
             let lock = NSLock()
-            var finished = false
-            func finish(_ result: Result<String?, Error>) {
+
+            func resumeOnce(_ block: (CheckedContinuation<String?, Error>) -> Void) {
                 lock.lock()
-                guard !finished else { lock.unlock(); return }
-                finished = true
-                lock.unlock()
-                cont.resume(with: result)
+                defer { lock.unlock() }
+                guard timeoutTask != nil else { return }
+                timeoutTask = nil
+                block(cont)
             }
 
-            Task { [weak self] in
-                guard let self = self else {
-                    finish(.failure(CipherError.jsExecutionFailed("deallocated")))
-                    return
+            timeoutTask = Task {
+                try? await Task.sleep(nanoseconds: 20_000_000_000)
+                resumeOnce { cont in
+                    cont.resume(throwing: CipherError.jsExecutionFailed("JS evaluation timed out"))
                 }
-                let wv = await self.webView
-                guard let wv = wv else {
-                    finish(.failure(CipherError.jsExecutionFailed("webView is nil")))
-                    return
-                }
+            }
 
-                // Fail instead of hanging if the script never reports back.
-                Task {
-                    try? await Task.sleep(nanoseconds: 20_000_000_000)
-                    finish(.failure(CipherError.jsExecutionFailed("JS evaluation timed out")))
-                }
-
-                await MainActor.run {
-                    wv.evaluateJavaScript(script) { result, error in
-                        if let error = error {
-                            finish(.failure(CipherError.jsExecutionFailed(error.localizedDescription)))
-                            return
-                        }
-                        if let result = result as? String {
-                            finish(.success(result))
-                        } else {
-                            finish(.success(nil))
-                        }
+            wv.evaluateJavaScript(script) { result, error in
+                resumeOnce { cont in
+                    if let error {
+                        cont.resume(throwing: CipherError.jsExecutionFailed(error.localizedDescription))
+                    } else if let result {
+                        cont.resume(returning: result as? String)
+                    } else {
+                        cont.resume(returning: nil)
                     }
                 }
             }
@@ -300,7 +276,6 @@ actor CipherWebView: NSObject {
         return result
     }
 
-    /// Extracts the value of the `n` parameter from a URL, or nil if not present.
     private func extractNParam(from url: String) -> String? {
         guard let regex = try? NSRegularExpression(pattern: "[?&]n=([^&]+)", options: []) else { return nil }
         let range = NSRange(url.startIndex..., in: url)
@@ -312,25 +287,27 @@ actor CipherWebView: NSObject {
         return nil
     }
 
-    fileprivate func handleReady() {
+    func handleReady() {
         if let cont = readyContinuation {
-            cont.resume(returning: ())
             readyContinuation = nil
+            cont.resume(returning: ())
         }
     }
 
-    fileprivate func handleError(_ error: String) {
+    func handleError(_ error: String) {
         if let cont = readyContinuation {
-            cont.resume(throwing: CipherError.jsExecutionFailed(error))
             readyContinuation = nil
+            cont.resume(throwing: CipherError.jsExecutionFailed(error))
         }
     }
 }
 
+// MARK: - Message Handler
+
 private final class CipherMessageHandler: NSObject, WKScriptMessageHandler {
     private weak var cipher: CipherWebView?
 
-    @MainActor init(cipher: CipherWebView) {
+    init(cipher: CipherWebView) {
         self.cipher = cipher
     }
 
@@ -343,10 +320,10 @@ private final class CipherMessageHandler: NSObject, WKScriptMessageHandler {
             return
         }
 
-        Task { [weak self] in
+        Task { @MainActor in
             switch type {
             case "ready":
-                await self?.cipher?.handleReady()
+                self.cipher?.handleReady()
             case "discovery":
                 let sig = json["sigFuncName"] as? String ?? "?"
                 let n = json["nFuncName"] as? String ?? "?"
@@ -355,7 +332,7 @@ private final class CipherMessageHandler: NSObject, WKScriptMessageHandler {
             case "sigError", "nError", "error":
                 let msg = json["error"] as? String ?? "unknown JS error"
                 Log.cipherWebView.error("JS \(type): \(msg)")
-                await self?.cipher?.handleError(msg)
+                self.cipher?.handleError(msg)
             default:
                 break
             }
