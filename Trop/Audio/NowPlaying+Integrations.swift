@@ -8,8 +8,8 @@ import Foundation
 extension NowPlaying {
     func notifyIntegrationsTrackChanged() {
         let track = integrationTrackSnapshot()
-        LastFMService.shared.handleTrackChange(track)
-        DiscordRpcService.shared.handlePlaybackUpdate(
+        LastFMScrobbler.shared.handleTrackChange(track)
+        DiscordRpcManager.shared.setActivity(
             videoId: track.videoId,
             title: track.title,
             artist: track.artist,
@@ -21,8 +21,8 @@ extension NowPlaying {
     func notifyIntegrationsProgress() {
         var track = integrationTrackSnapshot()
         track.currentTime = currentTime
-        LastFMService.shared.considerScrobble(track)
-        DiscordRpcService.shared.handlePlaybackUpdate(
+        LastFMScrobbler.shared.considerScrobble(track)
+        DiscordRpcManager.shared.setActivity(
             videoId: track.videoId,
             title: track.title,
             artist: track.artist,

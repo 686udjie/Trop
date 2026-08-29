@@ -7,8 +7,8 @@ import SwiftUI
 
 struct IntegrationsSettingsView: View {
     @Environment(SettingsStore.self) private var settings
-    @State private var lastFM = LastFMService.shared
-    @State private var discord = DiscordRpcService.shared
+    @State private var lastFM = LastFMScrobbler.shared
+    @State private var discord = DiscordRpcManager.shared
 
     var body: some View {
         List {
@@ -41,18 +41,21 @@ struct IntegrationsSettingsView: View {
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
             } footer: {
-                Text("Scrobble plays to Last.fm and show what you’re listening to with classic Discord Rich Presence.")
+                Text("Scrobble plays to Last.fm and show what you’re listening to with Discord Rich Presence.")
             }
         }
         .navigationTitle("Integrations")
         .navigationBarTitleDisplayMode(.inline)
         .miniPlayerTracksScroll()
+        .onAppear {
+            lastFM.restoreSession()
+        }
     }
 
     private var lastFMStatus: IntegrationConnectionStatus {
         if lastFM.isLoggedIn, settings.lastFMEnabled { return .active }
         if lastFM.isLoggedIn { return .connected }
-        if lastFM.hasAPICredentials { return .ready }
+        if lastFM.isConfigured { return .ready }
         return .setup
     }
 
@@ -63,19 +66,19 @@ struct IntegrationsSettingsView: View {
         case .connected:
             return "Signed in as \(lastFM.username ?? "you")"
         case .ready:
-            return "API ready — sign in to scrobble"
+            return "API ready — authorize to scrobble"
         case .setup:
-            return "Connect your Last.fm account"
+            return "Add keys to Trop.plist, then connect"
         }
     }
 
     private var discordStatus: IntegrationConnectionStatus {
-        if discord.isLoggedIn, settings.discordRPCEnabled,
+        if discord.isAuthorized, settings.discordRPCEnabled,
            discord.connectionStatus == .connected {
             return .active
         }
-        if discord.isLoggedIn, settings.discordRPCEnabled { return .ready }
-        if discord.isLoggedIn { return .connected }
+        if discord.isAuthorized, settings.discordRPCEnabled { return .ready }
+        if discord.isAuthorized { return .connected }
         return .setup
     }
 

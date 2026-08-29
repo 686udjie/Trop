@@ -5,7 +5,15 @@
 
 import Foundation
 
-/// Minimal Discord gateway client for classic user-token Rich Presence (STATUS_UPDATE / op 3).
+enum DiscordGatewayEvent: Equatable {
+    case hello(heartbeatIntervalMs: Int)
+    case ready(sessionId: String, resumeURL: String?)
+    case resumed
+    case invalidSession(resumable: Bool)
+    case disconnected(code: Int, reason: String)
+}
+
+/// Minimal Discord gateway client for Social Layer presence (IDENTIFY + STATUS_UPDATE).
 actor DiscordGateway {
     enum Status: Equatable {
         case disconnected
@@ -17,16 +25,22 @@ actor DiscordGateway {
     private var session: URLSession?
     private var heartbeatTask: Task<Void, Never>?
     private var receiveTask: Task<Void, Never>?
-    private var heartbeatIntervalMs: Int = 41250
+    private var heartbeatIntervalMs = 41250
     private var sequence: Int?
-    private var token: String = ""
-    private var applicationId: String = ""
+    private var sessionId: String?
+    private var accessToken = ""
+    private var applicationId = ""
 
     private(set) var status: Status = .disconnected
+    private var eventHandler: (@Sendable (DiscordGatewayEvent) -> Void)?
+
+    func setEventHandler(_ handler: (@Sendable (DiscordGatewayEvent) -> Void)?) {
+        eventHandler = handler
+    }
 
     func connect(token: String, applicationId: String) async {
-        await disconnect()
-        self.token = token
+        await disconnect(emitEvent: false)
+        accessToken = token
         self.applicationId = applicationId
         status = .connecting
 
@@ -35,7 +49,7 @@ actor DiscordGateway {
         let session = URLSession(configuration: config)
         self.session = session
 
-        guard let url = URL(string: "wss://gateway.discord.gg/?v=10&encoding=json") else {
+        guard let url = URL(string: DiscordDefaults.gatewayURL) else {
             status = .disconnected
             return
         }
@@ -43,12 +57,10 @@ actor DiscordGateway {
         webSocket = task
         task.resume()
         Log.discord.info("Discord gateway connecting")
-        receiveTask = Task {
-            await self.receiveLoop()
-        }
+        receiveTask = Task { await self.receiveLoop() }
     }
 
-    func disconnect() async {
+    func disconnect(emitEvent: Bool = true) async {
         heartbeatTask?.cancel()
         heartbeatTask = nil
         receiveTask?.cancel()
@@ -57,70 +69,26 @@ actor DiscordGateway {
         webSocket = nil
         session?.invalidateAndCancel()
         session = nil
-        sequence = nil
         status = .disconnected
+        if emitEvent {
+            eventHandler?(.disconnected(code: 1000, reason: "local disconnect"))
+        }
         Log.discord.info("Discord gateway disconnected")
     }
 
-    func updateActivity(_ activityUpdate: DiscordActivity) async {
+    func sendPresence(_ payload: [String: Any]) async {
         guard status == .connected, let webSocket else { return }
-
-        var activity: [String: Any] = [
-            "name": activityUpdate.name.isEmpty ? "Trop" : activityUpdate.name,
-            "type": 2,
-            "flags": 1
-        ]
-        if !applicationId.isEmpty {
-            activity["application_id"] = applicationId
-        }
-        if let details = activityUpdate.details, !details.isEmpty {
-            activity["details"] = String(details.prefix(128))
-        }
-        if let state = activityUpdate.state, !state.isEmpty {
-            activity["state"] = String(state.prefix(128))
-        }
-
-        if let startTimestamp = activityUpdate.startTimestamp, activityUpdate.isPlaying {
-            activity["timestamps"] = ["start": startTimestamp]
-        }
-
-        var assets: [String: String] = [:]
-        if let largeText = activityUpdate.largeText, !largeText.isEmpty {
-            assets["large_text"] = String(largeText.prefix(128))
-        }
-        if let largeImageURL = activityUpdate.largeImageURL, !largeImageURL.isEmpty {
-            // External media proxy prefix used by classic music RPC clients.
-            assets["large_image"] = "mp:\(largeImageURL)"
-        }
-        if !assets.isEmpty {
-            activity["assets"] = assets
-        }
-
-        let showActivity = activityUpdate.isPlaying || activityUpdate.details != nil
-        let payload: [String: Any] = [
-            "op": 3,
-            "d": [
-                "since": NSNull(),
-                "activities": showActivity ? [activity] : [],
-                "status": activityUpdate.isPlaying ? "online" : "idle",
-                "afk": false
-            ] as [String: Any]
-        ]
         await sendJSON(payload, on: webSocket)
     }
 
-    func clearActivity() async {
-        guard status == .connected, let webSocket else { return }
-        let payload: [String: Any] = [
-            "op": 3,
-            "d": [
-                "since": NSNull(),
-                "activities": [] as [Any],
-                "status": "online",
-                "afk": false
-            ] as [String: Any]
-        ]
-        await sendJSON(payload, on: webSocket)
+    func clearPresence() async {
+        await sendPresence(
+            DiscordPresence.buildPresenceUpdateJSON(status: .online, activities: [])
+        )
+    }
+
+    func currentSession() -> (sessionId: String?, seq: Int) {
+        (sessionId, sequence ?? 0)
     }
 
     // MARK: - Internals
@@ -144,6 +112,7 @@ actor DiscordGateway {
                 if !Task.isCancelled {
                     Log.discord.error("Gateway receive error: \(error.localizedDescription)")
                     status = .disconnected
+                    eventHandler?(.disconnected(code: 1006, reason: error.localizedDescription))
                 }
                 break
             }
@@ -162,29 +131,35 @@ actor DiscordGateway {
 
         switch op {
         case 10:
-            // Hello
             if let d = json["d"] as? [String: Any],
                let interval = d["heartbeat_interval"] as? Int {
                 heartbeatIntervalMs = interval
             }
+            eventHandler?(.hello(heartbeatIntervalMs: heartbeatIntervalMs))
             await sendIdentify()
             startHeartbeat()
         case 11:
-            // Heartbeat ACK
             break
         case 0:
-            if let t = json["t"] as? String, t == "READY" {
-                status = .connected
-                Log.discord.info("Discord gateway READY")
+            if let t = json["t"] as? String {
+                if t == "READY", let d = json["d"] as? [String: Any] {
+                    sessionId = d["session_id"] as? String
+                    let resume = d["resume_gateway_url"] as? String
+                    status = .connected
+                    Log.discord.info("Discord gateway READY")
+                    eventHandler?(.ready(sessionId: sessionId ?? "", resumeURL: resume))
+                } else if t == "RESUMED" {
+                    status = .connected
+                    eventHandler?(.resumed)
+                }
             }
         case 9:
-            Log.discord.error("Discord invalid session")
-            status = .disconnected
-            await disconnect()
+            let resumable = (json["d"] as? Bool) ?? false
+            eventHandler?(.invalidSession(resumable: resumable))
         case 7:
             Log.discord.notice("Discord requested reconnect")
-            let token = self.token
-            let appId = self.applicationId
+            let token = accessToken
+            let appId = applicationId
             await connect(token: token, applicationId: appId)
         default:
             break
@@ -196,7 +171,8 @@ actor DiscordGateway {
         let payload: [String: Any] = [
             "op": 2,
             "d": [
-                "token": token,
+                "token": accessToken,
+                "intents": 0,
                 "properties": [
                     "os": "iOS",
                     "browser": "Trop",
@@ -212,6 +188,36 @@ actor DiscordGateway {
             ] as [String: Any]
         ]
         await sendJSON(payload, on: webSocket)
+    }
+
+    private func sendResume(sessionId: String, seq: Int) async {
+        guard let webSocket else { return }
+        let payload: [String: Any] = [
+            "op": 6,
+            "d": [
+                "token": accessToken,
+                "session_id": sessionId,
+                "seq": seq
+            ] as [String: Any]
+        ]
+        await sendJSON(payload, on: webSocket)
+    }
+
+    func resumeConnection(sessionId: String, seq: Int, token: String, applicationId: String) async {
+        await connect(token: token, applicationId: applicationId)
+        // After Hello, identify path runs; override by sending resume once connected path starts.
+        // Hello handler always sends identify — for resume we reconnect and let strategy caller
+        // use identify with fresh connection. Explicit resume frame after hello is preferred.
+        self.sessionId = sessionId
+        sequence = seq
+        // Wait briefly for hello then resume.
+        for _ in 0..<20 {
+            if status == .connected || status == .connecting {
+                break
+            }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        await sendResume(sessionId: sessionId, seq: seq)
     }
 
     private func startHeartbeat() {

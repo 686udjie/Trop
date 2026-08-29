@@ -420,11 +420,11 @@ final class SettingsStore {
         lastFMEnabled = defaults.object(forKey: Keys.lastFMEnabled) as? Bool ?? false
         lastFMUpdateNowPlaying = defaults.object(forKey: Keys.lastFMUpdateNowPlaying) as? Bool ?? true
         lastFMScrobbleDelayPercent = defaults.object(forKey: Keys.lastFMScrobbleDelayPercent) as? Double
-            ?? LastFMClient.defaultScrobbleDelayPercent
+            ?? LastFMDefaults.scrobbleDelayPercent
         lastFMMinSongDuration = defaults.object(forKey: Keys.lastFMMinSongDuration) as? Double
-            ?? LastFMClient.defaultScrobbleMinSongDuration
+            ?? LastFMDefaults.scrobbleMinSongDuration
         lastFMScrobbleDelaySeconds = defaults.object(forKey: Keys.lastFMScrobbleDelaySeconds) as? Double
-            ?? LastFMClient.defaultScrobbleDelaySeconds
+            ?? LastFMDefaults.scrobbleDelaySeconds
         discordRPCEnabled = defaults.object(forKey: Keys.discordRPCEnabled) as? Bool ?? false
         discordApplicationId = defaults.string(forKey: Keys.discordApplicationId) ?? ""
     }

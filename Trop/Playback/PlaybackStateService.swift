@@ -87,7 +87,7 @@ actor PlaybackStateService {
         }
         guard let snapshot else { return }
         await MainActor.run {
-            LastFMService.shared.scrobbleIfNeededOnStop(snapshot)
+            LastFMScrobbler.shared.scrobbleIfNeededOnStop(snapshot)
         }
     }
 

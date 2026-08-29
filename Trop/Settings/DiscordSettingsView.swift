@@ -7,9 +7,10 @@ import SwiftUI
 
 struct DiscordSettingsView: View {
     @Environment(SettingsStore.self) private var settings
-    @State private var service = DiscordRpcService.shared
-    @State private var showLogin = false
-    @State private var applicationIdDraft = ""
+    @State private var manager = DiscordRpcManager.shared
+    @State private var showOAuth = false
+    @State private var oauthURL: URL?
+    @State private var isAuthorizing = false
 
     private let brand = IntegrationBrand.discord
 
@@ -24,32 +25,37 @@ struct DiscordSettingsView: View {
             }
 
             Section {
-                if service.isLoggedIn {
+                if manager.isAuthorized {
                     LabeledContent("Account") {
-                        Text(service.username ?? "Connected")
+                        Text(manager.username ?? "Connected")
                             .foregroundStyle(.secondary)
                     }
                     LabeledContent("Gateway") {
-                        Text(service.connectionStatus.rawValue)
+                        Text(manager.connectionStatus.rawValue)
                             .foregroundStyle(gatewayColor)
                     }
                     Button("Log Out", role: .destructive) {
                         Task {
                             settings.discordRPCEnabled = false
-                            await service.logout()
+                            await manager.logout()
                         }
                     }
                 } else {
                     Button {
-                        showLogin = true
+                        Task { await startAuthorize() }
                     } label: {
                         Label("Log In with Discord", systemImage: "person.crop.circle.badge.checkmark")
                     }
+                    .disabled(manager.clientId.isEmpty || isAuthorizing)
                 }
             } header: {
                 Text("Account")
             } footer: {
-                Text("Uses classic gateway Rich Presence. Your session stays in the Keychain.")
+                if manager.clientId.isEmpty {
+                    Text("Add DiscordClientID to Trop.plist and register redirect trop://oauth2/callback in the Discord Developer Portal.")
+                } else {
+                    Text("Uses PKCE OAuth2 and classic gateway Rich Presence. Tokens stay in the Keychain.")
+                }
             }
 
             Section {
@@ -62,40 +68,22 @@ struct DiscordSettingsView: View {
                             settings.discordRPCEnabled = newValue
                             Task {
                                 if newValue {
-                                    await service.connectIfNeeded()
+                                    await manager.connectIfAuthorized()
                                 } else {
-                                    await service.disconnect()
+                                    await manager.disconnect()
                                 }
                             }
                         }
                     )
                 )
-                .disabled(!service.isLoggedIn)
+                .disabled(!manager.isAuthorized)
             } header: {
                 Text("Presence")
             } footer: {
                 Text("When enabled, Trop updates your Discord listening activity as you play.")
             }
 
-            Section {
-                TextField("Application ID", text: $applicationIdDraft)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .keyboardType(.numberPad)
-                    .onAppear {
-                        applicationIdDraft = settings.discordApplicationId
-                    }
-                    .onChange(of: applicationIdDraft) { _, newValue in
-                        settings.discordApplicationId = newValue
-                            .trimmingCharacters(in: .whitespacesAndNewlines)
-                    }
-            } header: {
-                Text("Discord Application")
-            } footer: {
-                Text("Create an application at the Discord Developer Portal and paste its Application ID for activity assets and naming.")
-            }
-
-            if let error = service.lastError {
+            if let error = manager.lastError {
                 Section {
                     Text(error)
                         .foregroundStyle(.red)
@@ -106,19 +94,24 @@ struct DiscordSettingsView: View {
         .navigationTitle("Discord")
         .navigationBarTitleDisplayMode(.inline)
         .miniPlayerTracksScroll()
-        .sheet(isPresented: $showLogin) {
-            DiscordLoginWebView { token, username in
-                do {
-                    try service.saveToken(token, username: username)
-                    settings.discordRPCEnabled = true
-                } catch {
-                    Log.discord.error("Failed to save Discord token: \(error.localizedDescription)")
+        .sheet(isPresented: $showOAuth) {
+            if let oauthURL {
+                DiscordOAuthWebView(authURL: oauthURL) {
+                    showOAuth = false
+                    DiscordAuth.cancelPending()
+                    isAuthorizing = false
                 }
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .discordAuthPresentWebView)) { note in
+            if let url = note.userInfo?["url"] as? URL {
+                oauthURL = url
+                showOAuth = true
+            }
+        }
         .onAppear {
-            if settings.discordRPCEnabled, service.isLoggedIn {
-                Task { await service.connectIfNeeded() }
+            if settings.discordRPCEnabled, manager.isAuthorized {
+                Task { await manager.connectIfAuthorized() }
             }
         }
     }
@@ -155,15 +148,14 @@ struct DiscordSettingsView: View {
                     .fill(gatewayColor)
                     .frame(width: 10, height: 10)
                     .shadow(color: gatewayColor.opacity(0.55), radius: 4)
-                    .accessibilityLabel(service.connectionStatus.rawValue)
             }
 
-            if service.isLoggedIn {
+            if manager.isAuthorized {
                 HStack(spacing: 10) {
-                    Label(service.username ?? "Discord", systemImage: "person.fill")
+                    Label(manager.username ?? "Discord", systemImage: "person.fill")
                         .font(.subheadline.weight(.medium))
                     Spacer(minLength: 0)
-                    Text(service.connectionStatus.rawValue)
+                    Text(manager.connectionStatus.rawValue)
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(gatewayColor)
                         .padding(.horizontal, 10)
@@ -188,41 +180,54 @@ struct DiscordSettingsView: View {
     }
 
     private var statusHeadline: String {
-        if service.isLoggedIn, settings.discordRPCEnabled,
-           service.connectionStatus == .connected {
+        if manager.isAuthorized, settings.discordRPCEnabled,
+           manager.connectionStatus == .connected {
             return "Presence live"
         }
-        if service.isLoggedIn, settings.discordRPCEnabled {
+        if manager.isAuthorized, settings.discordRPCEnabled {
             return "Connecting…"
         }
-        if service.isLoggedIn {
+        if manager.isAuthorized {
             return "Signed in"
         }
         return "Connect Discord"
     }
 
     private var statusDetail: String {
-        if service.isLoggedIn, settings.discordRPCEnabled,
-           service.connectionStatus == .connected {
+        if manager.isAuthorized, settings.discordRPCEnabled,
+           manager.connectionStatus == .connected {
             return "Listening activity updates while you play"
         }
-        if service.isLoggedIn, settings.discordRPCEnabled {
+        if manager.isAuthorized, settings.discordRPCEnabled {
             return "Waiting for the Discord gateway"
         }
-        if service.isLoggedIn {
+        if manager.isAuthorized {
             return "Enable Rich Presence to go live"
         }
-        return "Sign in to show classic Rich Presence"
+        return "Sign in with PKCE OAuth to show Rich Presence"
     }
 
     private var gatewayColor: Color {
-        switch service.connectionStatus {
+        switch manager.connectionStatus {
         case .connected:
             return Color(red: 0.18, green: 0.72, blue: 0.32)
-        case .connecting:
+        case .connecting, .authorizing:
             return Color(red: 0.98, green: 0.70, blue: 0.15)
         case .disconnected:
             return Color(.tertiaryLabel)
+        }
+    }
+
+    private func startAuthorize() async {
+        isAuthorizing = true
+        defer { isAuthorizing = false }
+        do {
+            try await manager.authorize()
+            settings.discordRPCEnabled = true
+            showOAuth = false
+        } catch {
+            showOAuth = false
+            Log.discord.error("Discord authorize failed: \(error.localizedDescription)")
         }
     }
 }

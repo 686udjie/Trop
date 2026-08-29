@@ -7,16 +7,11 @@ import SwiftUI
 
 struct LastFMSettingsView: View {
     @Environment(SettingsStore.self) private var settings
-    @State private var service = LastFMService.shared
-    @State private var showCredentialsWebView = false
-    @State private var showLogin = false
-    @State private var username = ""
-    @State private var password = ""
-    @State private var loginError: String?
-    @State private var isLoggingIn = false
-    @State private var manualAPIKey = ""
-    @State private var manualSecret = ""
-    @State private var showManualCredentials = false
+    @State private var scrobbler = LastFMScrobbler.shared
+    @State private var showAuth = false
+    @State private var authURL: URL?
+    @State private var authToken: String?
+    @State private var authError: String?
 
     private let brand = IntegrationBrand.lastFM
 
@@ -31,46 +26,29 @@ struct LastFMSettingsView: View {
             }
 
             Section {
-                Button {
-                    showCredentialsWebView = true
-                } label: {
-                    Label("Get API Credentials", systemImage: "safari")
-                }
-                Button {
-                    showManualCredentials = true
-                } label: {
-                    Label("Enter Manually", systemImage: "keyboard")
-                }
-            } header: {
-                Text("API Application")
-            } footer: {
-                Text("Opens last.fm so Trop can read your API Key and Shared secret after you create or view an API account.")
-            }
-
-            Section {
-                if service.isLoggedIn {
+                if scrobbler.isLoggedIn {
                     LabeledContent("Signed in as") {
-                        Text(service.username ?? "—")
+                        Text(scrobbler.username ?? "—")
                             .foregroundStyle(.secondary)
                     }
                     Button("Log Out", role: .destructive) {
-                        try? service.logout()
-                        settings.lastFMEnabled = false
+                        scrobbler.logout()
                     }
                 } else {
                     Button {
-                        loginError = nil
-                        showLogin = true
+                        Task { await startAuth() }
                     } label: {
-                        Label("Log In with Last.fm", systemImage: "person.crop.circle.badge.checkmark")
+                        Label("Connect Last.fm", systemImage: "person.crop.circle.badge.checkmark")
                     }
-                    .disabled(!service.hasAPICredentials)
+                    .disabled(!scrobbler.isConfigured || scrobbler.isBusy)
                 }
             } header: {
                 Text("Account")
             } footer: {
-                if !service.hasAPICredentials {
-                    Text("Add API credentials before signing in.")
+                if !scrobbler.isConfigured {
+                    Text("Add LastFMAPIKey and LastFMAPISecret to Trop.plist to enable Last.fm.")
+                } else {
+                    Text("Opens last.fm so you can authorize Trop. Session key is stored in UserDefaults.")
                 }
             }
 
@@ -80,13 +58,13 @@ struct LastFMSettingsView: View {
                     icon: "dot.radiowaves.left.and.right",
                     isOn: $settings.lastFMEnabled
                 )
-                .disabled(!service.isLoggedIn)
+                .disabled(!scrobbler.isLoggedIn)
                 SettingsToggleRow(
                     "Update Now Playing",
                     icon: "music.note",
                     isOn: $settings.lastFMUpdateNowPlaying
                 )
-                .disabled(!service.isLoggedIn || !settings.lastFMEnabled)
+                .disabled(!scrobbler.isLoggedIn || !settings.lastFMEnabled)
             } header: {
                 Text("Scrobbling")
             }
@@ -113,13 +91,10 @@ struct LastFMSettingsView: View {
             } header: {
                 Text("Timing")
             } footer: {
-                Text(
-                    "A scrobble is sent once listening time reaches the track percentage "
-                    + "(or the max delay), and at least the minimum duration."
-                )
+                Text("Default is 50% of the track or 180 seconds, whichever comes first (clamped by max delay).")
             }
 
-            if let error = service.lastError {
+            if let error = authError ?? scrobbler.lastError {
                 Section {
                     Text(error)
                         .font(.footnote)
@@ -130,18 +105,21 @@ struct LastFMSettingsView: View {
         .navigationTitle("Last.fm")
         .navigationBarTitleDisplayMode(.inline)
         .miniPlayerTracksScroll()
-        .sheet(isPresented: $showCredentialsWebView) {
-            LastFMCredentialsWebView { apiKey, secret in
-                Task {
-                    try? await service.saveAPICredentials(apiKey: apiKey, apiSecret: secret)
+        .sheet(isPresented: $showAuth) {
+            if let authURL, let authToken {
+                LastFMAuthWebView(authURL: authURL, token: authToken) { result in
+                    showAuth = false
+                    switch result {
+                    case .success(let auth):
+                        Task { await scrobbler.completeAuthorization(auth) }
+                    case .failure(let error):
+                        authError = error.localizedDescription
+                    }
                 }
             }
         }
-        .sheet(isPresented: $showManualCredentials) {
-            manualCredentialsSheet
-        }
-        .sheet(isPresented: $showLogin) {
-            loginSheet
+        .onAppear {
+            scrobbler.restoreSession()
         }
     }
 
@@ -175,9 +153,9 @@ struct LastFMSettingsView: View {
             }
 
             HStack(spacing: 8) {
-                setupStep(number: 1, title: "API", done: service.hasAPICredentials)
-                setupStep(number: 2, title: "Account", done: service.isLoggedIn)
-                setupStep(number: 3, title: "Scrobble", done: service.isLoggedIn && settings.lastFMEnabled)
+                setupStep(number: 1, title: "API", done: scrobbler.isConfigured)
+                setupStep(number: 2, title: "Account", done: scrobbler.isLoggedIn)
+                setupStep(number: 3, title: "Scrobble", done: scrobbler.isLoggedIn && settings.lastFMEnabled)
             }
         }
         .padding(18)
@@ -193,29 +171,23 @@ struct LastFMSettingsView: View {
     }
 
     private var statusHeadline: String {
-        if service.isLoggedIn, settings.lastFMEnabled {
-            return "Scrobbling on"
-        }
-        if service.isLoggedIn {
-            return "Signed in"
-        }
-        if service.hasAPICredentials {
-            return "Almost there"
-        }
+        if scrobbler.isLoggedIn, settings.lastFMEnabled { return "Scrobbling on" }
+        if scrobbler.isLoggedIn { return "Signed in" }
+        if scrobbler.isConfigured { return "Almost there" }
         return "Connect Last.fm"
     }
 
     private var statusDetail: String {
-        if service.isLoggedIn, settings.lastFMEnabled {
-            return "Plays sync to \(service.username ?? "your profile")"
+        if scrobbler.isLoggedIn, settings.lastFMEnabled {
+            return "Plays sync to \(scrobbler.username ?? "your profile")"
         }
-        if service.isLoggedIn {
+        if scrobbler.isLoggedIn {
             return "Enable scrobbling to start syncing plays"
         }
-        if service.hasAPICredentials {
-            return "Sign in with your Last.fm username and password"
+        if scrobbler.isConfigured {
+            return "Authorize Trop on last.fm to continue"
         }
-        return "Create or paste an API key, then sign in"
+        return "Add API keys to Trop.plist, then connect"
     }
 
     private func setupStep(number: Int, title: String, done: Bool) -> some View {
@@ -259,91 +231,15 @@ struct LastFMSettingsView: View {
         }
     }
 
-    private var manualCredentialsSheet: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    TextField("API Key", text: $manualAPIKey)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                    SecureField("Shared Secret", text: $manualSecret)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                } footer: {
-                    Text("From last.fm/api/account — both values are 32-character hex strings.")
-                }
-            }
-            .navigationTitle("API Credentials")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { showManualCredentials = false }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        Task {
-                            try? await service.saveAPICredentials(
-                                apiKey: manualAPIKey,
-                                apiSecret: manualSecret
-                            )
-                            showManualCredentials = false
-                        }
-                    }
-                    .disabled(
-                        manualAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                            || manualSecret.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    )
-                }
-            }
-        }
-    }
-
-    private var loginSheet: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    TextField("Username", text: $username)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                    SecureField("Password", text: $password)
-                } footer: {
-                    Text(loginError ?? "Uses Last.fm’s mobile session API. Your password is not stored.")
-                        .foregroundStyle(loginError == nil ? Color.secondary : Color.red)
-                }
-            }
-            .navigationTitle("Last.fm Login")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { showLogin = false }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Sign In") {
-                        Task { await performLogin() }
-                    }
-                    .disabled(
-                        isLoggingIn
-                            || username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                            || password.isEmpty
-                    )
-                }
-            }
-            .disabled(isLoggingIn)
-        }
-        .presentationDetents([.medium])
-    }
-
-    private func performLogin() async {
-        isLoggingIn = true
-        defer { isLoggingIn = false }
+    private func startAuth() async {
+        authError = nil
         do {
-            try await service.login(username: username, password: password)
-            password = ""
-            settings.lastFMEnabled = true
-            showLogin = false
-            loginError = nil
+            let pair = try await scrobbler.beginAuthorization()
+            authURL = pair.url
+            authToken = pair.token
+            showAuth = true
         } catch {
-            loginError = error.localizedDescription
+            authError = error.localizedDescription
         }
     }
 }

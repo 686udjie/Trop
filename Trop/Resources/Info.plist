@@ -34,5 +34,16 @@
 	</array>
 	<key>UISupportsDocumentBrowser</key>
 	<true/>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.686udjie.Trop.oauth</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>trop</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

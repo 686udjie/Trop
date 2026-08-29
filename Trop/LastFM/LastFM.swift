@@ -1,18 +1,66 @@
 //
-//  LastFMClient.swift
+//  LastFM.swift
 //  Trop
 //
 
 import CryptoKit
 import Foundation
 
-/// Signed Last.fm API 2.0 client (form-urlencoded, MD5 api_sig).
-actor LastFMClient {
-    static let shared = LastFMClient()
+enum LastFMError: Error, LocalizedError {
+    case notConfigured
+    case notLoggedIn
+    case api(code: Int, message: String)
+    case invalidResponse
+    case network(Error)
 
-    static let defaultScrobbleDelayPercent: Double = 0.5
-    static let defaultScrobbleMinSongDuration: TimeInterval = 30
-    static let defaultScrobbleDelaySeconds: TimeInterval = 180
+    var errorDescription: String? {
+        switch self {
+        case .notConfigured:
+            return "Last.fm API credentials are not configured in Trop.plist"
+        case .notLoggedIn:
+            return "Not logged in to Last.fm"
+        case .api(_, let message):
+            return message
+        case .invalidResponse:
+            return "Invalid response from Last.fm"
+        case .network(let error):
+            return error.localizedDescription
+        }
+    }
+}
+
+struct LastFMTokenResponse: Decodable {
+    let token: String
+}
+
+struct LastFMAuthentication: Decodable {
+    let session: Session
+
+    struct Session: Decodable {
+        let name: String
+        let key: String
+        let subscriber: Int?
+    }
+}
+
+struct LastFMAPIErrorBody: Decodable {
+    let error: Int
+    let message: String
+}
+
+/// Signed Last.fm API 2.0 client (Metrolist-compatible).
+enum LastFMDefaults {
+    static let scrobbleDelayPercent: Double = 0.5
+    static let scrobbleDelaySeconds: TimeInterval = 180
+    static let scrobbleMinSongDuration: TimeInterval = 30
+}
+
+actor LastFM {
+    static let shared = LastFM()
+
+    static let defaultScrobbleDelayPercent = LastFMDefaults.scrobbleDelayPercent
+    static let defaultScrobbleDelaySeconds = LastFMDefaults.scrobbleDelaySeconds
+    static let defaultScrobbleMinSongDuration = LastFMDefaults.scrobbleMinSongDuration
 
     private let baseURL = URL(string: "https://ws.audioscrobbler.com/2.0/")!
     private let session: URLSession
@@ -29,10 +77,20 @@ actor LastFMClient {
         decoder = JSONDecoder()
     }
 
+    static func initialize(apiKey: String, secret: String) {
+        Task {
+            await shared.configure(apiKey: apiKey, apiSecret: secret, sessionKey: nil)
+        }
+    }
+
     func configure(apiKey: String, apiSecret: String, sessionKey: String?) {
         self.apiKey = apiKey
         self.apiSecret = apiSecret
         self.sessionKey = sessionKey
+    }
+
+    func setSessionKey(_ key: String?) {
+        sessionKey = key
     }
 
     var isConfigured: Bool {
@@ -43,16 +101,24 @@ actor LastFMClient {
         isConfigured && !(sessionKey ?? "").isEmpty
     }
 
-    // MARK: - Auth
+    func getToken() async throws -> String {
+        guard isConfigured else { throw LastFMError.notConfigured }
+        let data = try await post(method: "auth.getToken", extra: [:], includeSession: false)
+        if let error = try? decoder.decode(LastFMAPIErrorBody.self, from: data), error.error != 0 {
+            throw LastFMError.api(code: error.error, message: error.message)
+        }
+        let response = try decoder.decode(LastFMTokenResponse.self, from: data)
+        return response.token
+    }
 
-    func getMobileSession(username: String, password: String) async throws -> LastFMAuthentication {
+    func getSession(token: String) async throws -> LastFMAuthentication {
         guard isConfigured else { throw LastFMError.notConfigured }
         let data = try await post(
-            method: "auth.getMobileSession",
-            extra: ["username": username, "password": password],
+            method: "auth.getSession",
+            extra: ["token": token],
             includeSession: false
         )
-        if let error = try? decoder.decode(LastFMAPIErrorBody.self, from: data) {
+        if let error = try? decoder.decode(LastFMAPIErrorBody.self, from: data), error.error != 0 {
             throw LastFMError.api(code: error.error, message: error.message)
         }
         do {
@@ -64,7 +130,14 @@ actor LastFMClient {
         }
     }
 
-    // MARK: - Scrobbling
+    func authURL(token: String) -> URL {
+        var components = URLComponents(string: "https://www.last.fm/api/auth/")!
+        components.queryItems = [
+            URLQueryItem(name: "api_key", value: apiKey),
+            URLQueryItem(name: "token", value: token)
+        ]
+        return components.url!
+    }
 
     func updateNowPlaying(
         artist: String,

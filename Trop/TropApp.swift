@@ -10,6 +10,7 @@ import SwiftUI
 
 @main
 struct TropApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var settings = SettingsStore.shared
 
     init() {
@@ -17,15 +18,6 @@ struct TropApp: App {
         ensureDirectories()
         PlayerController.registerRemoteControlSupport()
         observePlaybackSettings()
-        bootstrapIntegrations()
-    }
-
-    /// Restores Last.fm client config and Discord gateway when RPC is enabled.
-    private func bootstrapIntegrations() {
-        _ = LastFMService.shared
-        if SettingsStore.shared.discordRPCEnabled {
-            Task { await DiscordRpcService.shared.connectIfNeeded() }
-        }
     }
 
     /// Re-applies mpv playback settings whenever the user changes the
@@ -52,6 +44,9 @@ struct TropApp: App {
                 .preferredColorScheme(settings.preferredColorScheme)
                 .tint(settings.accentColor)
                 .environment(settings)
+                .onOpenURL { url in
+                    _ = DiscordAuth.handleRedirectURL(url)
+                }
         }
     }
 
