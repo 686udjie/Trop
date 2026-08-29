@@ -174,7 +174,7 @@ struct DownloadsView: View {
     }
 
     private func playLocal(_ song: SongItem) async {
-        guard let localURL = await DownloadManager.shared.localURL(for: song.videoId) else { return }
+        guard let localURL = DownloadManager.shared.localURL(for: song.videoId) else { return }
         let artists = song.artists
         let displayArtist = artists.map(\.name).joined(separator: ", ")
         await PlayerController.shared.play(

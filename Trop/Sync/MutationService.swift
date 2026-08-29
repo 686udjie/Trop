@@ -24,12 +24,76 @@ actor MutationService {
         )
     }
 
+    private func enrichEmptySong(_ entity: SongEntity) async -> SongEntity {
+        guard entity.title.isEmpty else { return entity }
+        var enriched = entity
+        if let metadata = try? await fetchSongMetadata(videoId: entity.id) {
+            enriched.title = metadata.title
+            enriched.artistName = metadata.artistName
+            enriched.thumbnailUrl = metadata.thumbnailUrl
+            enriched.duration = metadata.duration
+            enriched.albumName = metadata.albumName
+        }
+        return enriched
+    }
+
+    private struct SongMetadata {
+        let title: String
+        let artistName: String?
+        let thumbnailUrl: String?
+        let duration: Int
+        let albumName: String?
+    }
+
+    private func fetchSongMetadata(videoId: String) async throws -> SongMetadata? {
+        let json = try await innerTube.next(videoId: videoId)
+        guard let contents = json["contents"] as? [String: Any],
+              let singleColumn = contents["singleColumnMusicWatchNextResultsRenderer"] as? [String: Any],
+              let tabbed = singleColumn["tabbedRenderer"] as? [String: Any],
+              let watchNext = tabbed["watchNextTabbedResultsRenderer"] as? [String: Any],
+              let tabs = watchNext["tabs"] as? [[String: Any]],
+              let firstTab = tabs.first,
+              let tabRenderer = firstTab["tabRenderer"] as? [String: Any],
+              let content = tabRenderer["content"] as? [String: Any],
+              let results = content["results"] as? [String: Any],
+              let primary = results["primaryInfoRenderer"] as? [String: Any] else {
+            return nil
+        }
+
+        let title = extractRunsText(primary["title"] as? [String: Any]) ?? ""
+
+        let secondary = results["secondaryInfoRenderer"] as? [String: Any]
+        let byline = secondary?["videoOwnerRenderer"] as? [String: Any]
+        let bylineRuns = extractRawRuns(byline?["title"] as? [String: Any])
+        let artistName = bylineRuns.first.map { $0["text"] as? String } ?? nil
+
+        let thumbnailDict = primary["thumbnail"] as? [String: Any]
+        let thumbnails = thumbnailDict?["thumbnails"] as? [[String: Any]]
+        let thumbnailUrl = thumbnails?.last?["url"] as? String
+
+        let lengthSeconds = primary["lengthSeconds"] as? String
+        let duration = lengthSeconds.flatMap { Int($0) } ?? 0
+
+        return SongMetadata(title: title, artistName: artistName, thumbnailUrl: thumbnailUrl, duration: duration, albumName: nil)
+    }
+
+    private func extractRunsText(_ dict: [String: Any]?) -> String? {
+        guard let runs = dict?["runs"] as? [[String: Any]], let first = runs.first else { return nil }
+        return first["text"] as? String
+    }
+
+    private func extractRawRuns(_ dict: [String: Any]?) -> [[String: Any]] {
+        guard let runs = dict?["runs"] as? [[String: Any]] else { return [] }
+        return runs
+    }
+
     func likeSong(videoId: String) async throws {
         var entity: SongEntity
         if let existing = try await db.fetchOne(SongEntity.self, key: videoId) {
             entity = existing
         } else {
-            entity = emptySong(id: videoId, liked: false)
+            let skeleton = emptySong(id: videoId, liked: false)
+            entity = await enrichEmptySong(skeleton)
         }
         entity.liked = true
         entity.modifyDate = Date()
@@ -48,7 +112,8 @@ actor MutationService {
         if let existing = try await db.fetchOne(SongEntity.self, key: videoId) {
             entity = existing
         } else {
-            entity = emptySong(id: videoId, liked: true)
+            let skeleton = emptySong(id: videoId, liked: true)
+            entity = await enrichEmptySong(skeleton)
         }
         entity.liked = false
         entity.modifyDate = Date()
@@ -67,7 +132,8 @@ actor MutationService {
         if let existing = try await db.fetchOne(SongEntity.self, key: videoId) {
             entity = existing
         } else {
-            entity = emptySong(id: videoId, liked: false, addToken: addToken)
+            let skeleton = emptySong(id: videoId, liked: false, addToken: addToken)
+            entity = await enrichEmptySong(skeleton)
         }
         entity.inLibrary = entity.inLibrary ?? Date()
         entity.modifyDate = Date()

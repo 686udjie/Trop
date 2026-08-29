@@ -371,7 +371,9 @@ struct SongItem: Codable, Hashable {
     var likeStatus: String?
 
     static func from(_ renderer: [String: Any]) -> SongItem? {
-        guard let videoId = extractVideoId(renderer) else { return nil }
+        guard let videoId = extractVideoId(renderer) else {
+            return nil
+        }
         let duration = parseDurationFromRenderer(renderer)
         let playlistId = extractPlaylistId(renderer)
 

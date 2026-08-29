@@ -26,6 +26,7 @@ struct PlayerMenuSheet: View {
     @State private var showPlaylistPicker = false
     @State private var showArtistPicker = false
     @State private var isResolvingArtist = false
+    @ObservedObject private var downloadManager = DownloadManager.shared
 
     var body: some View {
         NavigationStack {
@@ -43,6 +44,8 @@ struct PlayerMenuSheet: View {
                         }
                         Divider()
                         pinRow
+                        Divider()
+                        downloadRow
                     }
                     menuCard {
                         NavigationLink(value: Destination.details) {
@@ -125,26 +128,34 @@ struct PlayerMenuSheet: View {
     // MARK: - Quick Actions
 
     private var actionGrid: some View {
-        HStack(spacing: 1) {
+        HStack(spacing: 0) {
             actionButton(icon: "dot.radiowaves.left.and.right", label: "Start Radio") {
                 startRadio()
             }
+            separator
             actionButton(icon: "music.note.list", label: "Playlist") {
                 showPlaylistPicker = true
             }
+            separator
             actionButton(icon: "link", label: "Copy Link") {
                 UIPasteboard.general.string = song.webUrl
                 dismiss()
             }
         }
+        .background(Color(.secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private var separator: some View {
+        Color(.separator)
+            .frame(width: 0.5, height: 28)
     }
 
     private func actionButton(icon: String, label: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            VStack(spacing: 8) {
+            VStack(spacing: 6) {
                 Image(systemName: icon)
-                    .font(.system(size: 19, weight: .medium))
+                    .font(.system(size: 20, weight: .medium))
                     .foregroundStyle(settings.accentColor)
                 Text(label)
                     .font(.caption)
@@ -155,7 +166,27 @@ struct PlayerMenuSheet: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .background(Color(.secondarySystemGroupedBackground))
+    }
+
+    // MARK: - Download Row
+
+    private var downloadRow: some View {
+        let state = downloadManager.state(for: song.videoId)
+        return Group {
+            switch state {
+            case .completed:
+                simpleRow(icon: "checkmark.circle.fill", title: "Remove Download", destructive: true) {
+                    Task { await downloadManager.delete(videoId: song.videoId) }
+                }
+            case .downloading:
+                simpleRow(icon: "arrow.down.circle", title: "Downloading…") {}
+                    .disabled(true)
+            case .notStarted, .failed:
+                simpleRow(icon: "arrow.down.circle", title: "Download") {
+                    Task { await downloadManager.download(song: song) }
+                }
+            }
+        }
     }
 
     // MARK: - Library Rows
@@ -220,17 +251,18 @@ struct PlayerMenuSheet: View {
     private func rowLabel(
         icon: String,
         title: String,
-        subtitle: String? = nil
+        subtitle: String? = nil,
+        destructive: Bool = false
     ) -> some View {
         HStack(spacing: 14) {
             Image(systemName: icon)
                 .font(.system(size: 18))
-                .foregroundStyle(settings.accentColor)
+                .foregroundStyle(destructive ? Color.red : settings.accentColor)
                 .frame(width: 26)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(.body)
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(destructive ? Color.red : .primary)
                 if let subtitle, !subtitle.isEmpty {
                     Text(subtitle)
                         .font(.footnote)
@@ -249,10 +281,11 @@ struct PlayerMenuSheet: View {
         icon: String,
         title: String,
         subtitle: String? = nil,
+        destructive: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            rowLabel(icon: icon, title: title, subtitle: subtitle)
+            rowLabel(icon: icon, title: title, subtitle: subtitle, destructive: destructive)
         }
         .buttonStyle(.plain)
     }

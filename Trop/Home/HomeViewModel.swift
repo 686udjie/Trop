@@ -278,7 +278,8 @@ final class HomeViewModel {
     private func mergeSections() {
         let serverSections = homePage?.sections.enumerated().map { mapServerSection($1, index: $0) } ?? []
         let all = cachedLocalSections + serverSections + cachedPhase2Sections
-        homeSections = orderSections(all)
+        let merged = orderSections(all)
+        homeSections = merged
     }
 
     private func mapServerSection(_ section: HomePage.Section, index: Int) -> HomeSection {
@@ -305,10 +306,18 @@ final class HomeViewModel {
             return f.items.isEmpty ? nil : f
         }
 
-        var seen = Set<String>()
-        let deduped = filtered.filter { seen.insert($0.id).inserted }
+        var byId: [String: HomeSection] = [:]
+        for section in filtered {
+            if let existing = byId[section.id] {
+                if section.items.count > existing.items.count {
+                    byId[section.id] = section
+                }
+            } else {
+                byId[section.id] = section
+            }
+        }
 
-        return deduped.sorted { a, b in
+        return byId.values.sorted { a, b in
             sectionWeight(a) > sectionWeight(b)
         }
     }

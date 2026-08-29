@@ -130,25 +130,33 @@ struct SongMenuSheet: View {
     // MARK: - Action Grid
 
     private var actionGrid: some View {
-        HStack(spacing: 1) {
+        HStack(spacing: 0) {
             actionButton(icon: "dot.radiowaves.left.and.right", label: "Start Radio") {
                 startRadio()
             }
+            separator
             actionButton(icon: "music.note.list", label: "Playlist") {
                 showPlaylistPicker = true
             }
+            separator
             actionButton(icon: "square.and.arrow.up", label: "Share") {
                 share()
             }
         }
+        .background(Color(.secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private var separator: some View {
+        Color(.separator)
+            .frame(width: 0.5, height: 28)
     }
 
     private func actionButton(icon: String, label: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            VStack(spacing: 8) {
+            VStack(spacing: 6) {
                 Image(systemName: icon)
-                    .font(.system(size: 19, weight: .medium))
+                    .font(.system(size: 20, weight: .medium))
                     .foregroundStyle(settings.accentColor)
                 Text(label)
                     .font(.caption)
@@ -159,7 +167,6 @@ struct SongMenuSheet: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .background(Color(.secondarySystemGroupedBackground))
     }
 
     // MARK: - Menu Rows
@@ -275,14 +282,16 @@ struct SongMenuSheet: View {
     }
 
     private func share() {
-        let activityVC = UIActivityViewController(
-            activityItems: [song.webUrl],
-            applicationActivities: nil
-        )
         guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
               let root = scene.keyWindow?.rootViewController else { return }
-        root.present(activityVC, animated: true)
         dismiss()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            let activityVC = UIActivityViewController(
+                activityItems: [self.song.webUrl],
+                applicationActivities: nil
+            )
+            root.present(activityVC, animated: true)
+        }
     }
 
     private func navigate(_ route: DetailRoute) {

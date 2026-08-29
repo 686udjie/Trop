@@ -432,15 +432,17 @@ final class NowPlaying {
     private func loadArtworkFromLocalFile(_ fileURL: URL, videoId: String) {
         Task {
             let asset = AVURLAsset(url: fileURL)
-            let artworkImage: UIImage? = await {
-                guard let metadata = try? await asset.load(.metadata) else { return nil }
-                for item in metadata where (item.key as? String) == AVMetadataKey.commonKeyArtwork.rawValue {
-                    if let data = item.value as? Data, let image = UIImage(data: data) {
-                        return image
+            let metadata = try? await asset.load(.metadata)
+            var artworkImage: UIImage?
+            if let metadata {
+                for item in metadata {
+                    if let data = try? await item.load(.dataValue),
+                       let image = UIImage(data: data) {
+                        artworkImage = image
+                        break
                     }
                 }
-                return nil
-            }()
+            }
 
             await MainActor.run {
                 guard lastLoadedVideoId == videoId else { return }

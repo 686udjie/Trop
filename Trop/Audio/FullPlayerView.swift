@@ -18,7 +18,11 @@ struct FullPlayerView: View {
     @State private var isEditingSlider = false
     @State private var collapseOffset: CGFloat = 0
 
-    @State private var isLiked = false
+    @ObservedObject private var likeStore = LikeStore.shared
+    private var isLiked: Bool {
+        guard let song = np.queueSongs.indices.contains(np.queueIndex) ? np.queueSongs[np.queueIndex] : nil else { return false }
+        return likeStore.isLiked(videoId: song.videoId)
+    }
     @State private var showLyrics = false
     @State private var showQueue = false
     @State private var pendingRoute: DetailRoute?
@@ -78,7 +82,6 @@ struct FullPlayerView: View {
                     QueueView(
                         showLyrics: $showLyrics,
                         showQueue: $showQueue,
-                        isLiked: $isLiked,
                         isShuffleOn: $np.isShuffleOn,
                         isRepeatOn: $np.isRepeatOn,
                         editingProgress: $editingProgress,
@@ -244,11 +247,8 @@ struct FullPlayerView: View {
 
             HStack(spacing: 12) {
                 Button {
-                    isLiked.toggle()
-                    if isLiked, SettingsStore.shared.autoDownloadOnLike,
-                       let song = np.queueSongs.indices.contains(np.queueIndex) ? np.queueSongs[np.queueIndex] : nil {
-                        Task { await DownloadManager.shared.download(song: song) }
-                    }
+                    guard let song = np.queueSongs.indices.contains(np.queueIndex) ? np.queueSongs[np.queueIndex] : nil else { return }
+                    Task { await likeStore.toggle(song: song) }
                 } label: {
                     Image(systemName: isLiked ? "heart.fill" : "heart")
                         .font(.system(size: 17, weight: .regular))

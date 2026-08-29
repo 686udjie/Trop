@@ -65,6 +65,15 @@ class DownloadManager: ObservableObject {
         }
         pathMonitor.start(queue: DispatchQueue(label: "com.trop.network"))
         Task { await refreshDownloadedCache() }
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.willEnterForegroundNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                await self?.reconcileDownloadedFiles()
+            }
+        }
     }
 
     private var isOnWiFi: Bool {
@@ -474,6 +483,23 @@ extension DownloadManager {
         downloadedVideoIds.contains(videoId)
     }
 
+    func reconcileDownloadedFiles() async {
+        let allTracks = await fetchAll()
+        var validIds = Set<String>()
+        for track in allTracks {
+            if localURL(for: track.id) != nil {
+                validIds.insert(track.id)
+            } else {
+                _ = try? await DatabaseService.shared.delete(track)
+            }
+        }
+        if validIds != downloadedVideoIds {
+            downloadedVideoIds = validIds
+            persistedDownloadCount = validIds.count
+            objectWillChange.send()
+        }
+    }
+
     func fetchAll() async -> [DownloadedTrackEntity] {
         (try? await DatabaseService.shared.fetchAll(DownloadedTrackEntity.self)) ?? []
     }
@@ -509,8 +535,8 @@ extension DownloadManager {
             try DownloadedTrackEntity.fetchAll(db)
         }) ?? []
         return tracks.reduce(0) { total, track in
-            let size = (try? URL(fileURLWithPath: track.localPath)
-                .resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+            guard let url = localURL(for: track.id) else { return total }
+            let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
             return total + Int64(size)
         }
     }

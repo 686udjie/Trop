@@ -21,9 +21,8 @@ actor CipherWebView: NSObject {
 
     private var playerDir: URL? {
         let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
-        let trop = documents?.appendingPathComponent("Trop", isDirectory: true)
-        let player = trop?.appendingPathComponent("Player", isDirectory: true)
-        return player
+        let dir = documents?.appendingPathComponent("Player", isDirectory: true)
+        return dir
     }
 
     private override init() {
