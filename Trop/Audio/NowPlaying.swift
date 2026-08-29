@@ -187,7 +187,6 @@ final class NowPlaying {
                 }
             }
             isResolvingNext = false
-            isRepeatOn = false
         }
         persistQueueState()
     }
