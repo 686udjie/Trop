@@ -408,11 +408,14 @@ final class NowPlaying {
         }
 
         thumbnailImage = nil
+        let requestedId = videoId
         Task {
             do {
                 let platformImage = try await ImagePipeline.shared.image(for: url)
                 let cropped = platformImage.centerCroppedSquare()
                 await MainActor.run {
+                    // Skip-spam: an older fetch must not overwrite newer art.
+                    guard lastLoadedVideoId == requestedId else { return }
                     thumbnailUIImage = cropped
                     thumbnailImage = Image(uiImage: cropped)
                     thumbnailVersion &+= 1
@@ -421,6 +424,7 @@ final class NowPlaying {
                 }
             } catch {
                 await MainActor.run {
+                    guard lastLoadedVideoId == requestedId else { return }
                     thumbnailImage = Image(systemName: "music.note")
                     thumbnailVersion &+= 1
                     updateDominantColors(from: nil)
