@@ -55,33 +55,49 @@ enum LyricsParsing {
     /// Split a raw LRC string into lines. Blank timestamped lines are kept —
     /// they mark instrumental spans (like Metrolist's isBlank entries).
     ///
-    /// A line may carry several leading tags (`[00:12.00][00:45.00]chorus`).
-    /// Each tag is its own timed line; using only the last tag dropped
-    /// earlier chorus hits and broke letter-sync.
+    /// A line may carry several leading tags (`[00:12.00][00:45.00]chorus`
+    /// or `[00:12.00] [00:45.00]chorus`). Each prefix tag is its own timed
+    /// line. Tags that appear later in the lyric text stay as text.
     static func parseLrc(_ raw: String) -> [LyricLine] {
         raw.split(whereSeparator: \.isNewline)
             .flatMap { parseLrcTaggedLine(String($0)) }
             .sorted { ($0.startTime ?? 0) < ($1.startTime ?? 0) }
     }
 
-    /// Expands leading `[mm:ss]` / `[mm:ss.xx]` tags on one LRC line.
+    /// Expands consecutive *prefix* `[mm:ss]` / `[mm:ss.xx]` tags on one LRC line.
+    /// Packed (`[00:01][00:02]text`) and space-separated (`[00:01] [00:02]text`)
+    /// prefixes both expand. A `[m:ss]` later in the lyric body is left as text.
     static func parseLrcTaggedLine(_ line: String) -> [LyricLine] {
         let tagPattern = #"\[(\d{1,2}):(\d{1,2})(?:\.(\d{1,3}))?\]"#
         guard let tagRegex = try? NSRegularExpression(pattern: tagPattern) else { return [] }
         let nsLine = line as NSString
-        let matches = tagRegex.matches(in: line, range: NSRange(line.startIndex..., in: line))
-        guard !matches.isEmpty else { return [] }
+        let length = nsLine.length
 
         var times: [TimeInterval] = []
-        var cursor = 0
-        for match in matches {
-            guard match.range.location == cursor else { break }
+        var cursor = skipLrcWhitespace(in: nsLine, from: 0)
+
+        while cursor < length {
+            let tagStart = skipLrcWhitespace(in: nsLine, from: cursor)
+            guard tagStart < length else { break }
+            let rest = NSRange(location: tagStart, length: length - tagStart)
+            guard let match = tagRegex.firstMatch(in: line, options: .anchored, range: rest) else { break }
             times.append(lrcTime(from: match, in: nsLine))
             cursor = match.range.location + match.range.length
         }
+
         guard !times.isEmpty else { return [] }
         let text = nsLine.substring(from: cursor).trimmingCharacters(in: .whitespaces)
         return times.map { LyricLine(text: text, startTime: $0) }
+    }
+
+    private static func skipLrcWhitespace(in nsLine: NSString, from index: Int) -> Int {
+        var i = index
+        while i < nsLine.length {
+            guard let scalar = UnicodeScalar(nsLine.character(at: i)),
+                  CharacterSet.whitespaces.contains(scalar) else { break }
+            i += 1
+        }
+        return i
     }
 
     private static func lrcTime(from match: NSTextCheckingResult, in nsLine: NSString) -> TimeInterval {
