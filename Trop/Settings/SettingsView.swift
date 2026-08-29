@@ -41,6 +41,16 @@ struct SettingsView: View {
             }
 
             Section {
+                SettingsNavigationRow("Integrations", icon: "link") {
+                    IntegrationsSettingsView()
+                }
+            } header: {
+                Text("Integrations")
+            } footer: {
+                Text("Last.fm scrobbling and Discord Rich Presence.")
+            }
+
+            Section {
                 SettingsNavigationRow("About", icon: "info.circle") {
                     AboutSettingsView()
                 }

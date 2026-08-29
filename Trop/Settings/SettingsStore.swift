@@ -306,6 +306,36 @@ final class SettingsStore {
         didSet { defaults.set(syncPlaylists, forKey: Keys.syncPlaylists) }
     }
 
+    // MARK: - Integrations
+
+    var lastFMEnabled: Bool {
+        didSet { defaults.set(lastFMEnabled, forKey: Keys.lastFMEnabled) }
+    }
+
+    var lastFMUpdateNowPlaying: Bool {
+        didSet { defaults.set(lastFMUpdateNowPlaying, forKey: Keys.lastFMUpdateNowPlaying) }
+    }
+
+    var lastFMScrobbleDelayPercent: Double {
+        didSet { defaults.set(lastFMScrobbleDelayPercent, forKey: Keys.lastFMScrobbleDelayPercent) }
+    }
+
+    var lastFMMinSongDuration: Double {
+        didSet { defaults.set(lastFMMinSongDuration, forKey: Keys.lastFMMinSongDuration) }
+    }
+
+    var lastFMScrobbleDelaySeconds: Double {
+        didSet { defaults.set(lastFMScrobbleDelaySeconds, forKey: Keys.lastFMScrobbleDelaySeconds) }
+    }
+
+    var discordRPCEnabled: Bool {
+        didSet { defaults.set(discordRPCEnabled, forKey: Keys.discordRPCEnabled) }
+    }
+
+    var discordApplicationId: String {
+        didSet { defaults.set(discordApplicationId, forKey: Keys.discordApplicationId) }
+    }
+
     // MARK: - Keys
 
     private enum Keys {
@@ -340,6 +370,13 @@ final class SettingsStore {
         static let autoDownloadOnLike = "settings.autoDownloadOnLike"
         static let syncArtists = "settings.syncArtists"
         static let syncPlaylists = "settings.syncPlaylists"
+        static let lastFMEnabled = "settings.lastFMEnabled"
+        static let lastFMUpdateNowPlaying = "settings.lastFMUpdateNowPlaying"
+        static let lastFMScrobbleDelayPercent = "settings.lastFMScrobbleDelayPercent"
+        static let lastFMMinSongDuration = "settings.lastFMMinSongDuration"
+        static let lastFMScrobbleDelaySeconds = "settings.lastFMScrobbleDelaySeconds"
+        static let discordRPCEnabled = "settings.discordRPCEnabled"
+        static let discordApplicationId = "settings.discordApplicationId"
     }
 
     private let defaults: UserDefaults = .standard
@@ -380,5 +417,15 @@ final class SettingsStore {
         autoDownloadOnLike = defaults.object(forKey: Keys.autoDownloadOnLike) as? Bool ?? false
         syncArtists = defaults.object(forKey: Keys.syncArtists) as? Bool ?? true
         syncPlaylists = defaults.object(forKey: Keys.syncPlaylists) as? Bool ?? true
+        lastFMEnabled = defaults.object(forKey: Keys.lastFMEnabled) as? Bool ?? false
+        lastFMUpdateNowPlaying = defaults.object(forKey: Keys.lastFMUpdateNowPlaying) as? Bool ?? true
+        lastFMScrobbleDelayPercent = defaults.object(forKey: Keys.lastFMScrobbleDelayPercent) as? Double
+            ?? LastFMClient.defaultScrobbleDelayPercent
+        lastFMMinSongDuration = defaults.object(forKey: Keys.lastFMMinSongDuration) as? Double
+            ?? LastFMClient.defaultScrobbleMinSongDuration
+        lastFMScrobbleDelaySeconds = defaults.object(forKey: Keys.lastFMScrobbleDelaySeconds) as? Double
+            ?? LastFMClient.defaultScrobbleDelaySeconds
+        discordRPCEnabled = defaults.object(forKey: Keys.discordRPCEnabled) as? Bool ?? false
+        discordApplicationId = defaults.string(forKey: Keys.discordApplicationId) ?? ""
     }
 }

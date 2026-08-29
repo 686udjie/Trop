@@ -17,6 +17,15 @@ struct TropApp: App {
         ensureDirectories()
         PlayerController.registerRemoteControlSupport()
         observePlaybackSettings()
+        bootstrapIntegrations()
+    }
+
+    /// Restores Last.fm client config and Discord gateway when RPC is enabled.
+    private func bootstrapIntegrations() {
+        _ = LastFMService.shared
+        if SettingsStore.shared.discordRPCEnabled {
+            Task { await DiscordRpcService.shared.connectIfNeeded() }
+        }
     }
 
     /// Re-applies mpv playback settings whenever the user changes the
