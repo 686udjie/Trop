@@ -308,7 +308,7 @@ struct LastFMSettingsView: View {
                     SecureField("Password", text: $password)
                 } footer: {
                     Text(loginError ?? "Uses Last.fm’s mobile session API. Your password is not stored.")
-                        .foregroundStyle(loginError == nil ? .secondary : .red)
+                        .foregroundStyle(loginError == nil ? Color.secondary : Color.red)
                 }
             }
             .navigationTitle("Last.fm Login")
