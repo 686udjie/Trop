@@ -5,6 +5,7 @@
 //  Created by 686udjie on 2/07/2026.
 //
 
+import AVFoundation
 import Foundation
 import Observation
 import Combine
@@ -106,10 +107,9 @@ final class NowPlaying {
 
     func setQueue(_ songs: [SongItem], startIndex: Int) {
         queueSongs = songs
-        queueIndex = startIndex
+        queueIndex = min(max(startIndex, 0), max(songs.count - 1, 0))
         originalQueue = nil
         isShuffleOn = false
-        repairQueueIndex()
         persistQueueState()
     }
 
@@ -379,6 +379,13 @@ final class NowPlaying {
     private func loadThumbnail(videoId: String) {
         guard videoId != lastLoadedVideoId else { return }
         lastLoadedVideoId = videoId
+
+        // For downloaded songs, try to extract embedded artwork from the local file first.
+        if let localURL = DownloadManager.shared.localURL(for: videoId) {
+            loadArtworkFromLocalFile(localURL, videoId: videoId)
+            return
+        }
+
         let urlString = Self.artworkURL(for: videoId)
         guard let url = URL(string: urlString) else {
             thumbnailUIImage = nil
@@ -390,6 +397,77 @@ final class NowPlaying {
 
         // Fast path: if the artwork was pre-warmed, swap it in synchronously so
         // swiping to the next/previous song shows the image with no placeholder.
+        if let cached = ImagePipeline.shared.cache.cachedImage(for: ImageRequest(url: url), caches: .all)?.image {
+            let cropped = cached.centerCroppedSquare()
+            thumbnailUIImage = cropped
+            thumbnailImage = Image(uiImage: cropped)
+            thumbnailVersion &+= 1
+            updateDominantColors(from: cropped)
+            PlayerController.shared.updateNowPlayingArtwork()
+            return
+        }
+
+        thumbnailImage = nil
+        Task {
+            do {
+                let platformImage = try await ImagePipeline.shared.image(for: url)
+                let cropped = platformImage.centerCroppedSquare()
+                await MainActor.run {
+                    thumbnailUIImage = cropped
+                    thumbnailImage = Image(uiImage: cropped)
+                    thumbnailVersion &+= 1
+                    updateDominantColors(from: cropped)
+                    PlayerController.shared.updateNowPlayingArtwork()
+                }
+            } catch {
+                await MainActor.run {
+                    thumbnailImage = Image(systemName: "music.note")
+                    thumbnailVersion &+= 1
+                    updateDominantColors(from: nil)
+                }
+            }
+        }
+    }
+
+    private func loadArtworkFromLocalFile(_ fileURL: URL, videoId: String) {
+        Task {
+            let asset = AVURLAsset(url: fileURL)
+            let artworkImage: UIImage? = await {
+                guard let metadata = try? await asset.load(.metadata) else { return nil }
+                for item in metadata where (item.key as? String) == AVMetadataKey.commonKeyArtwork.rawValue {
+                    if let data = item.value as? Data, let image = UIImage(data: data) {
+                        return image
+                    }
+                }
+                return nil
+            }()
+
+            await MainActor.run {
+                guard lastLoadedVideoId == videoId else { return }
+                if let artworkImage {
+                    let cropped = artworkImage.centerCroppedSquare()
+                    thumbnailUIImage = cropped
+                    thumbnailImage = Image(uiImage: cropped)
+                    thumbnailVersion &+= 1
+                    updateDominantColors(from: cropped)
+                    PlayerController.shared.updateNowPlayingArtwork()
+                } else {
+                    loadThumbnailFromCDN(videoId: videoId)
+                }
+            }
+        }
+    }
+
+    private func loadThumbnailFromCDN(videoId: String) {
+        let urlString = Self.artworkURL(for: videoId)
+        guard let url = URL(string: urlString) else {
+            thumbnailUIImage = nil
+            thumbnailImage = Image(systemName: "music.note")
+            thumbnailVersion &+= 1
+            updateDominantColors(from: nil)
+            return
+        }
+
         if let cached = ImagePipeline.shared.cache.cachedImage(for: ImageRequest(url: url), caches: .all)?.image {
             let cropped = cached.centerCroppedSquare()
             thumbnailUIImage = cropped

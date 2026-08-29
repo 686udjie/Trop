@@ -64,6 +64,8 @@ struct DownloadedSongRow: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 6)
         .contentShape(Rectangle())
-        .onTapGesture(perform: onPlay)
+        .onTapGesture {
+            onPlay()
+        }
     }
 }

@@ -21,6 +21,8 @@ struct AsyncImageView: View {
                     Image(uiImage: image)
                         .resizable()
                         .aspectRatio(contentMode: contentMode)
+                        .frame(width: geometry.size.width, height: geometry.size.height, alignment: .center)
+                        .clipped()
                 } else {
                     placeholderView
                 }
