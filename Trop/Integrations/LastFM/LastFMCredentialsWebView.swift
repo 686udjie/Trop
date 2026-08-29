@@ -4,6 +4,7 @@
 //
 
 @preconcurrency import SwiftUI
+import UIKit
 import WebKit
 
 /// Loads Last.fm's API account page and extracts API Key + Shared secret from the DOM.
@@ -13,7 +14,7 @@ struct LastFMCredentialsWebView: View {
 
     var body: some View {
         NavigationStack {
-            LastFMCredentialsWebRepresentable(onExtracted: { key, secret in
+            LastFMCredentialsPresenter(onExtracted: { key, secret in
                 onExtracted(key, secret)
                 dismiss()
             })
@@ -29,14 +30,27 @@ struct LastFMCredentialsWebView: View {
     }
 }
 
-private struct LastFMCredentialsWebRepresentable: UIViewControllerRepresentable {
+private struct LastFMCredentialsPresenter: UIViewControllerRepresentable {
+    typealias UIViewControllerType = LastFMCredentialsController
+
     var onExtracted: (String, String) -> Void
 
-    func makeUIViewController(context: Context) -> LastFMCredentialsController {
+    func makeUIViewController(
+        context: UIViewControllerRepresentableContext<LastFMCredentialsPresenter>
+    ) -> LastFMCredentialsController {
         LastFMCredentialsController(onExtracted: onExtracted)
     }
 
-    func updateUIViewController(_ uiViewController: LastFMCredentialsController, context: Context) {}
+    func updateUIViewController(
+        _ uiViewController: LastFMCredentialsController,
+        context: UIViewControllerRepresentableContext<LastFMCredentialsPresenter>
+    ) {}
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    final class Coordinator {}
 }
 
 final class LastFMCredentialsController: UIViewController {
@@ -59,14 +73,7 @@ final class LastFMCredentialsController: UIViewController {
 
         let webView = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
         webView.navigationDelegate = delegate
-        webView.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(webView)
-        NSLayoutConstraint.activate([
-            webView.topAnchor.constraint(equalTo: view.topAnchor),
-            webView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            webView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            webView.trailingAnchor.constraint(equalTo: view.trailingAnchor)
-        ])
+        view = webView
 
         let url = URL(string: "https://www.last.fm/api/account/create")!
         webView.load(URLRequest(url: url))

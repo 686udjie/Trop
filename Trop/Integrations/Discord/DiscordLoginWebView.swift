@@ -4,6 +4,7 @@
 //
 
 @preconcurrency import SwiftUI
+import UIKit
 import WebKit
 
 /// Loads Discord login and extracts the user token for classic gateway RPC.
@@ -13,7 +14,7 @@ struct DiscordLoginWebView: View {
 
     var body: some View {
         NavigationStack {
-            DiscordLoginWebRepresentable(onToken: { token, username in
+            DiscordLoginPresenter(onToken: { token, username in
                 onToken(token, username)
                 dismiss()
             })
@@ -29,14 +30,27 @@ struct DiscordLoginWebView: View {
     }
 }
 
-private struct DiscordLoginWebRepresentable: UIViewControllerRepresentable {
+private struct DiscordLoginPresenter: UIViewControllerRepresentable {
+    typealias UIViewControllerType = DiscordLoginController
+
     var onToken: (String, String?) -> Void
 
-    func makeUIViewController(context: Context) -> DiscordLoginController {
+    func makeUIViewController(
+        context: UIViewControllerRepresentableContext<DiscordLoginPresenter>
+    ) -> DiscordLoginController {
         DiscordLoginController(onToken: onToken)
     }
 
-    func updateUIViewController(_ uiViewController: DiscordLoginController, context: Context) {}
+    func updateUIViewController(
+        _ uiViewController: DiscordLoginController,
+        context: UIViewControllerRepresentableContext<DiscordLoginPresenter>
+    ) {}
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    final class Coordinator {}
 }
 
 final class DiscordLoginController: UIViewController {
@@ -66,14 +80,7 @@ final class DiscordLoginController: UIViewController {
             "AppleWebKit/605.1.15 (KHTML, like Gecko)",
             "Version/17.4 Mobile/15E148 Safari/604.1"
         ].joined(separator: " ")
-        webView.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(webView)
-        NSLayoutConstraint.activate([
-            webView.topAnchor.constraint(equalTo: view.topAnchor),
-            webView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            webView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            webView.trailingAnchor.constraint(equalTo: view.trailingAnchor)
-        ])
+        view = webView
 
         let url = URL(string: "https://discord.com/login")!
         webView.load(URLRequest(url: url))
@@ -154,11 +161,6 @@ private final class DiscordLoginNavigationDelegate: NSObject, WKNavigationDelega
             return '';
           }
           function findUsername() {
-            try {
-              if (window.localStorage && window.localStorage.user_id_cache) {
-                return null;
-              }
-            } catch (e) {}
             return null;
           }
           return JSON.stringify({ token: findToken() || '', username: findUsername() });
