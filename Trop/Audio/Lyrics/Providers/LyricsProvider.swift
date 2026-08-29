@@ -54,11 +54,43 @@ enum LyricsParsing {
 
     /// Split a raw LRC string into lines. Blank timestamped lines are kept —
     /// they mark instrumental spans (like Metrolist's isBlank entries).
+    ///
+    /// A line may carry several leading tags (`[00:12.00][00:45.00]chorus`).
+    /// Each tag is its own timed line; using only the last tag dropped
+    /// earlier chorus hits and broke letter-sync.
     static func parseLrc(_ raw: String) -> [LyricLine] {
-        raw.split(whereSeparator: \.isNewline).map(String.init).compactMap { line in
-            guard let (time, text) = parseLrcTimestamp(line) else { return nil }
-            return LyricLine(text: text, startTime: time)
+        raw.split(whereSeparator: \.isNewline)
+            .flatMap { parseLrcTaggedLine(String($0)) }
+            .sorted { ($0.startTime ?? 0) < ($1.startTime ?? 0) }
+    }
+
+    /// Expands leading `[mm:ss]` / `[mm:ss.xx]` tags on one LRC line.
+    static func parseLrcTaggedLine(_ line: String) -> [LyricLine] {
+        let tagPattern = #"\[(\d{1,2}):(\d{1,2})(?:\.(\d{1,3}))?\]"#
+        guard let tagRegex = try? NSRegularExpression(pattern: tagPattern) else { return [] }
+        let nsLine = line as NSString
+        let matches = tagRegex.matches(in: line, range: NSRange(line.startIndex..., in: line))
+        guard !matches.isEmpty else { return [] }
+
+        var times: [TimeInterval] = []
+        var cursor = 0
+        for match in matches {
+            guard match.range.location == cursor else { break }
+            times.append(lrcTime(from: match, in: nsLine))
+            cursor = match.range.location + match.range.length
         }
+        guard !times.isEmpty else { return [] }
+        let text = nsLine.substring(from: cursor).trimmingCharacters(in: .whitespaces)
+        return times.map { LyricLine(text: text, startTime: $0) }
+    }
+
+    private static func lrcTime(from match: NSTextCheckingResult, in nsLine: NSString) -> TimeInterval {
+        let mins = Int(nsLine.substring(with: match.range(at: 1))) ?? 0
+        let secs = Int(nsLine.substring(with: match.range(at: 2))) ?? 0
+        let fracRange = match.range(at: 3)
+        let fracStr = fracRange.location != NSNotFound ? nsLine.substring(with: fracRange) : "0"
+        let frac = Double("0.\(fracStr)") ?? 0
+        return TimeInterval(mins * 60 + secs) + frac
     }
 
     /// Parses stored lyrics text — LRC if timestamped, otherwise plain lines.
