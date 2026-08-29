@@ -440,9 +440,34 @@ extension DownloadManager {
     func localURL(for videoId: String) -> URL? {
         guard let entity = try? DatabaseService.shared.dbPool.read({ db in
             try DownloadedTrackEntity.fetchOne(db, key: videoId)
-        }) else { return nil }
-        let url = URL(fileURLWithPath: entity.localPath)
-        return fileManager.fileExists(atPath: url.path) ? url : nil
+        }) else {
+            Log.downloadManager.debug("localURL: no DB entity for \(videoId)")
+            return nil
+        }
+
+        // 1. Check stored absolute path first.
+        let storedURL = URL(fileURLWithPath: entity.localPath)
+        if fileManager.fileExists(atPath: storedURL.path) {
+            return storedURL
+        }
+
+        // 2. Path may be stale after app rebuild — resolve from current downloadsDir.
+        let currentURL = downloadsDir.appendingPathComponent(
+            sanitizedFileName("\(entity.artist) - \(entity.title).m4a")
+        )
+        if fileManager.fileExists(atPath: currentURL.path) {
+            Log.downloadManager.debug("localURL: \(videoId) resolved via current downloadsDir")
+            // Persist the corrected path so future lookups are fast.
+            try? DatabaseService.shared.dbPool.write { db in
+                var updated = entity
+                updated.localPath = currentURL.path
+                try updated.update(db)
+            }
+            return currentURL
+        }
+
+        Log.downloadManager.debug("localURL: \(videoId) file not found (stored=\(entity.localPath), current=\(currentURL.path))")
+        return nil
     }
 
     func isDownloaded(videoId: String) -> Bool {

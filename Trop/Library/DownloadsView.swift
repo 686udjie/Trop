@@ -135,15 +135,27 @@ struct DownloadsView: View {
     private func playAll() {
         let songs = viewModel.songs
         guard !songs.isEmpty else { return }
+        let first = songs[0]
         NowPlaying.shared.setQueue(songs, startIndex: 0)
-        Task { try? await PlaybackManager.shared.resolveAndPlay(videoId: songs[0].videoId) }
+        let displayArtist = first.artists.map(\.name).joined(separator: ", ")
+        NowPlaying.shared.update(
+            title: first.title, artist: displayArtist, videoId: first.videoId,
+            album: first.album, artists: first.artists
+        )
+        Task { await playLocal(first) }
     }
 
     private func shufflePlay() {
         let songs = viewModel.songs.shuffled()
         guard !songs.isEmpty else { return }
+        let first = songs[0]
         NowPlaying.shared.setQueue(songs, startIndex: 0)
-        Task { try? await PlaybackManager.shared.resolveAndPlay(videoId: songs[0].videoId) }
+        let displayArtist = first.artists.map(\.name).joined(separator: ", ")
+        NowPlaying.shared.update(
+            title: first.title, artist: displayArtist, videoId: first.videoId,
+            album: first.album, artists: first.artists
+        )
+        Task { await playLocal(first) }
     }
 
     private func playSong(_ song: SongItem) {
@@ -153,7 +165,29 @@ struct DownloadsView: View {
         } else {
             NowPlaying.shared.setQueue([song], startIndex: 0)
         }
-        Task { try? await PlaybackManager.shared.resolveAndPlay(videoId: song.videoId) }
+        let displayArtist = song.artists.map(\.name).joined(separator: ", ")
+        NowPlaying.shared.update(
+            title: song.title, artist: displayArtist, videoId: song.videoId,
+            album: song.album, artists: song.artists
+        )
+        Task { await playLocal(song) }
+    }
+
+    private func playLocal(_ song: SongItem) async {
+        guard let localURL = await DownloadManager.shared.localURL(for: song.videoId) else { return }
+        let artists = song.artists
+        let displayArtist = artists.map(\.name).joined(separator: ", ")
+        await PlayerController.shared.play(
+            url: localURL.absoluteString,
+            title: song.title,
+            artist: displayArtist,
+            videoId: song.videoId,
+            duration: TimeInterval(song.duration),
+            artists: artists
+        )
+        await MainActor.run {
+            NowPlaying.shared.updateVideoAvailability(hasVideoContent: false)
+        }
     }
 }
 
