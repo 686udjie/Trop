@@ -17,6 +17,7 @@ struct TropApp: App {
         ensureDirectories()
         PlayerController.registerRemoteControlSupport()
         observePlaybackSettings()
+        Task { @MainActor in DiscordIntegration.shared.start() }
     }
 
     /// Re-applies mpv playback settings whenever the user changes the

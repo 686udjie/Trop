@@ -41,6 +41,14 @@ struct SettingsView: View {
             }
 
             Section {
+                SettingsNavigationRow("Integrations", icon: "puzzlepiece.extension") {
+                    IntegrationsSettingsView()
+                }
+            } header: {
+                Text("Integrations")
+            }
+
+            Section {
                 SettingsNavigationRow("About", icon: "info.circle") {
                     AboutSettingsView()
                 }
