@@ -20,7 +20,16 @@ actor SearchService {
             try await innerTube.search(query: query, params: params, client: client)
         }
         searchTask = task
-        return try await task.value
+        return try await withTaskCancellationHandler {
+            try await task.value
+        } onCancel: {
+            task.cancel()
+        }
+    }
+
+    func cancelInFlightSearch() {
+        searchTask?.cancel()
+        searchTask = nil
     }
 
     func searchSuggestions(input: String, client: YouTubeClient = .webRemix) async throws -> [String] {
