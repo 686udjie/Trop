@@ -91,7 +91,7 @@ final class HistoryView {
             } else if ts >= thisWeekStart {
                 thisWeek.append(entry)
             } else {
-                let monthKey = monthDateFormatter.string(from: ts)
+                let monthKey = Self.formatMonth(ts)
                 older[monthKey, default: []].append(entry)
             }
         }
@@ -113,11 +113,11 @@ final class HistoryView {
         await loadLocal()
     }
 
-    private static let monthDateFormatter: DateFormatter = {
+    private static func formatMonth(_ date: Date) -> String {
         let f = DateFormatter()
         f.dateFormat = "MMMM yyyy"
-        return f
-    }()
+        return f.string(from: date)
+    }
 
     // MARK: - Remote history parse
 

@@ -11,6 +11,7 @@ import Foundation
 import GRDB
 import Network
 import Nuke
+import SwiftUI
 import UIKit
 import ffmpegkit
 
@@ -65,6 +66,15 @@ class DownloadManager: ObservableObject {
         }
         pathMonitor.start(queue: DispatchQueue(label: "com.trop.network"))
         Task { await refreshDownloadedCache() }
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.willEnterForegroundNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                await self?.reconcileDownloadedFiles()
+            }
+        }
     }
 
     private var isOnWiFi: Bool {
@@ -82,6 +92,8 @@ class DownloadManager: ObservableObject {
         }
     }
 }
+
+// MARK: - Download
 
 extension DownloadManager {
     func download(song: SongItem) async {
@@ -235,7 +247,11 @@ extension DownloadManager {
             objectWillChange.send()
         }
     }
+}
 
+    // MARK: - Validation & Errors
+
+extension DownloadManager {
     private func validateDownloadedFile(at url: URL) async throws {
         let values = try url.resourceValues(forKeys: [.fileSizeKey])
         let size = values.fileSize ?? 0
@@ -279,6 +295,8 @@ extension DownloadManager {
         }
         return "Download failed. Try again."
     }
+
+    // MARK: - Refresh & State
 
     private func refreshDownloadedCache() async {
         downloadedVideoIds = Set((await fetchAll()).map(\.id))
@@ -333,6 +351,8 @@ extension DownloadManager {
         guard let image = try? await ImagePipeline.shared.image(for: url) else { return nil }
         return image.jpegData(compressionQuality: 0.9)
     }
+
+    // MARK: - File Transfer (ffmpeg)
 
     private func downloadToFile(
         from url: URL,
@@ -421,6 +441,8 @@ extension DownloadManager {
         }
     }
 
+    // MARK: - Delete
+
     func delete(videoId: String) async {
         cancelledDownloadIds.insert(videoId)
         if let session = activeFFmpegSessions.removeValue(forKey: videoId) {
@@ -437,28 +459,27 @@ extension DownloadManager {
         objectWillChange.send()
     }
 
-    func localURL(for videoId: String) -> URL? {
-        guard let entity = try? DatabaseService.shared.dbPool.read({ db in
+    // MARK: - Local URL Resolution
+
+    func localURL(for videoId: String) async -> URL? {
+        guard let entity = try? await DatabaseService.shared.read({ db in
             try DownloadedTrackEntity.fetchOne(db, key: videoId)
         }) else {
             Log.downloadManager.debug("localURL: no DB entity for \(videoId)")
             return nil
         }
 
-        // 1. Check stored absolute path first.
         let storedURL = URL(fileURLWithPath: entity.localPath)
         if fileManager.fileExists(atPath: storedURL.path) {
             return storedURL
         }
 
-        // 2. Path may be stale after app rebuild — resolve from current downloadsDir.
         let currentURL = downloadsDir.appendingPathComponent(
             sanitizedFileName("\(entity.artist) - \(entity.title).m4a")
         )
         if fileManager.fileExists(atPath: currentURL.path) {
             Log.downloadManager.debug("localURL: \(videoId) resolved via current downloadsDir")
-            // Persist the corrected path so future lookups are fast.
-            try? DatabaseService.shared.dbPool.write { db in
+            try? await DatabaseService.shared.write { db in
                 var updated = entity
                 updated.localPath = currentURL.path
                 try updated.update(db)
@@ -470,8 +491,27 @@ extension DownloadManager {
         return nil
     }
 
+    // MARK: - Query Helpers
+
     func isDownloaded(videoId: String) -> Bool {
         downloadedVideoIds.contains(videoId)
+    }
+
+    func reconcileDownloadedFiles() async {
+        let allTracks = await fetchAll()
+        var validIds = Set<String>()
+        for track in allTracks {
+            if await localURL(for: track.id) != nil {
+                validIds.insert(track.id)
+            } else {
+                _ = try? await DatabaseService.shared.delete(track)
+            }
+        }
+        if validIds != downloadedVideoIds {
+            downloadedVideoIds = validIds
+            persistedDownloadCount = validIds.count
+            objectWillChange.send()
+        }
     }
 
     func fetchAll() async -> [DownloadedTrackEntity] {
@@ -504,15 +544,15 @@ extension DownloadManager {
         .sorted { $0.progress > $1.progress }
     }
 
-    func totalStorageBytes() -> Int64 {
-        let tracks = (try? DatabaseService.shared.dbPool.read { db in
-            try DownloadedTrackEntity.fetchAll(db)
-        }) ?? []
-        return tracks.reduce(0) { total, track in
-            let size = (try? URL(fileURLWithPath: track.localPath)
-                .resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
-            return total + Int64(size)
+    func totalStorageBytes() async -> Int64 {
+        let tracks = (try? await DatabaseService.shared.fetchAll(DownloadedTrackEntity.self)) ?? []
+        var total: Int64 = 0
+        for track in tracks {
+            guard let url = await localURL(for: track.id) else { continue }
+            let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+            total += Int64(size)
         }
+        return total
     }
 
     func deleteAll() async {
@@ -653,5 +693,18 @@ enum DownloadError: Error, LocalizedError {
         case .transcodeFailed:
             return "Could not convert this track for offline playback."
         }
+    }
+}
+
+// MARK: - Environment
+
+private struct DownloadManagerEnvironmentKey: EnvironmentKey {
+    @MainActor static var defaultValue: DownloadManager { .shared }
+}
+
+extension EnvironmentValues {
+    var downloadManager: DownloadManager {
+        get { self[DownloadManagerEnvironmentKey.self] }
+        set { self[DownloadManagerEnvironmentKey.self] = newValue }
     }
 }
