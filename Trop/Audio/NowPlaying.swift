@@ -379,23 +379,54 @@ final class NowPlaying {
     }
 
     private var lastLoadedVideoId: String?
+    /// Bumped on every *new* thumbnail request. Completions compare this, not
+    /// `lastLoadedVideoId`: A→B→A sets lastLoaded back to A, which would let
+    /// the first A fetch apply after a newer A load (or cache hit) had won.
+    private var thumbnailLoadGeneration = 0
+    private var thumbnailLoadTask: Task<Void, Never>?
 
     private func loadThumbnail(videoId: String) {
         guard videoId != lastLoadedVideoId else { return }
         lastLoadedVideoId = videoId
 
-        Task {
-            // For downloaded songs, try to extract embedded artwork from the local file first.
+        thumbnailLoadTask?.cancel()
+        thumbnailLoadGeneration += 1
+        let generation = thumbnailLoadGeneration
+
+        // For downloaded songs, try to extract embedded artwork from the local file first.
+        // localURL is async on this branch (sandbox path reconciliation).
+        thumbnailLoadTask = Task { [generation] in
             if let localURL = await DownloadManager.shared.localURL(for: videoId) {
-                loadArtworkFromLocalFile(localURL, videoId: videoId)
+                guard !Task.isCancelled, generation == thumbnailLoadGeneration else { return }
+                loadArtworkFromLocalFile(localURL, videoId: videoId, generation: generation)
                 return
             }
-            loadThumbnailFromCDN(videoId: videoId)
+            guard !Task.isCancelled, generation == thumbnailLoadGeneration else { return }
+            loadThumbnailFromCDN(videoId: videoId, generation: generation, clearOnMiss: true)
         }
     }
 
-    private func loadArtworkFromLocalFile(_ fileURL: URL, videoId: String) {
-        Task {
+    /// Placeholder until the current video's fetch or cache hit lands. Also
+    /// strips lock-screen artwork so MPNowPlayingInfo does not keep the last track.
+    private func clearDisplayedArtwork() {
+        thumbnailUIImage = nil
+        thumbnailImage = Image(systemName: "music.note")
+        thumbnailVersion &+= 1
+        updateDominantColors(from: nil)
+        PlayerController.shared.updateNowPlayingArtwork()
+    }
+
+    private func applyArtwork(_ image: UIImage) {
+        let cropped = image.centerCroppedSquare()
+        thumbnailUIImage = cropped
+        thumbnailImage = Image(uiImage: cropped)
+        thumbnailVersion &+= 1
+        updateDominantColors(from: cropped)
+        PlayerController.shared.updateNowPlayingArtwork()
+    }
+
+    private func loadArtworkFromLocalFile(_ fileURL: URL, videoId: String, generation: Int) {
+        thumbnailLoadTask = Task { [generation] in
             let asset = AVURLAsset(url: fileURL)
             let metadata = try? await asset.load(.metadata)
             var artworkImage: UIImage?
@@ -409,59 +440,52 @@ final class NowPlaying {
                 }
             }
 
+            guard !Task.isCancelled else { return }
             await MainActor.run {
-                guard lastLoadedVideoId == videoId else { return }
+                guard generation == thumbnailLoadGeneration else { return }
                 if let artworkImage {
-                    let cropped = artworkImage.centerCroppedSquare()
-                    thumbnailUIImage = cropped
-                    thumbnailImage = Image(uiImage: cropped)
-                    thumbnailVersion &+= 1
-                    updateDominantColors(from: cropped)
-                    PlayerController.shared.updateNowPlayingArtwork()
+                    applyArtwork(artworkImage)
                 } else {
-                    loadThumbnailFromCDN(videoId: videoId)
+                    loadThumbnailFromCDN(videoId: videoId, generation: generation, clearOnMiss: true)
                 }
             }
         }
     }
 
-    private func loadThumbnailFromCDN(videoId: String) {
+    private func loadThumbnailFromCDN(videoId: String, generation: Int, clearOnMiss: Bool) {
         let urlString = Self.artworkURL(for: videoId)
         guard let url = URL(string: urlString) else {
-            thumbnailUIImage = nil
-            thumbnailImage = Image(systemName: "music.note")
-            thumbnailVersion &+= 1
-            updateDominantColors(from: nil)
+            clearDisplayedArtwork()
             return
         }
 
+        // Fast path: if the artwork was pre-warmed, swap it in synchronously so
+        // swiping to the next/previous song shows the image with no placeholder.
+        // Generation already advanced, so any in-flight fetch for this same
+        // videoId (A→B→A) cannot overwrite the cached image on completion.
         if let cached = ImagePipeline.shared.cache.cachedImage(for: ImageRequest(url: url), caches: .all)?.image {
-            let cropped = cached.centerCroppedSquare()
-            thumbnailUIImage = cropped
-            thumbnailImage = Image(uiImage: cropped)
-            thumbnailVersion &+= 1
-            updateDominantColors(from: cropped)
-            PlayerController.shared.updateNowPlayingArtwork()
+            applyArtwork(cached)
             return
         }
 
-        thumbnailImage = nil
-        Task {
+        // Drop the previous track immediately. Mini player and lock screen
+        // read `thumbnailUIImage`; leaving it set flashes A's art on B.
+        if clearOnMiss {
+            clearDisplayedArtwork()
+        }
+        thumbnailLoadTask = Task { [generation] in
             do {
                 let platformImage = try await ImagePipeline.shared.image(for: url)
-                let cropped = platformImage.centerCroppedSquare()
+                guard !Task.isCancelled else { return }
                 await MainActor.run {
-                    thumbnailUIImage = cropped
-                    thumbnailImage = Image(uiImage: cropped)
-                    thumbnailVersion &+= 1
-                    updateDominantColors(from: cropped)
-                    PlayerController.shared.updateNowPlayingArtwork()
+                    guard generation == thumbnailLoadGeneration else { return }
+                    applyArtwork(platformImage)
                 }
             } catch {
+                guard !Task.isCancelled, !(error is CancellationError) else { return }
                 await MainActor.run {
-                    thumbnailImage = Image(systemName: "music.note")
-                    thumbnailVersion &+= 1
-                    updateDominantColors(from: nil)
+                    guard generation == thumbnailLoadGeneration else { return }
+                    clearDisplayedArtwork()
                 }
             }
         }
