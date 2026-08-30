@@ -482,20 +482,29 @@ extension DownloadManager {
             return storedURL
         }
 
-        let currentURL = downloadsDir.appendingPathComponent(
-            sanitizedFileName("\(entity.artist) - \(entity.title).m4a")
-        )
-        if fileManager.fileExists(atPath: currentURL.path) {
-            Log.downloadManager.debug("localURL: \(videoId) resolved via current downloadsDir")
-            try? await DatabaseService.shared.write { db in
-                var updated = entity
-                updated.localPath = currentURL.path
-                try updated.update(db)
+        // 2. Path may be stale after an app rebuild (new sandbox). Keep the
+        // filename that was actually written: new downloads are
+        // `<videoId>.m4a`; older rows still use `artist - title.m4a`.
+        // Do not rebuild a title-based name — that reintroduces collisions.
+        var seen = Set<String>()
+        let fallbacks = [
+            storedURL.lastPathComponent,
+            "\(videoId).m4a"
+        ]
+        for name in fallbacks where seen.insert(name).inserted && !name.isEmpty {
+            let currentURL = downloadsDir.appendingPathComponent(name)
+            if fileManager.fileExists(atPath: currentURL.path) {
+                Log.downloadManager.debug("localURL: \(videoId) resolved via current downloadsDir")
+                try? await DatabaseService.shared.write { db in
+                    var updated = entity
+                    updated.localPath = currentURL.path
+                    try updated.update(db)
+                }
+                return currentURL
             }
-            return currentURL
         }
 
-        Log.downloadManager.debug("localURL: \(videoId) file not found (stored=\(entity.localPath), current=\(currentURL.path))")
+        Log.downloadManager.debug("localURL: \(videoId) file not found (stored=\(entity.localPath))")
         return nil
     }
 
