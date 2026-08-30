@@ -310,31 +310,31 @@ final class SettingsStore {
     // MARK: - Integrations
 
     var lastFMEnabled: Bool {
-        didSet { defaults.set(lastFMEnabled, forKey: Keys.lastFMEnabled) }
+        didSet { Self.defaults.set(lastFMEnabled, forKey: Keys.lastFMEnabled) }
     }
 
     var lastFMUpdateNowPlaying: Bool {
-        didSet { defaults.set(lastFMUpdateNowPlaying, forKey: Keys.lastFMUpdateNowPlaying) }
+        didSet { Self.defaults.set(lastFMUpdateNowPlaying, forKey: Keys.lastFMUpdateNowPlaying) }
     }
 
     var lastFMScrobbleDelayPercent: Double {
-        didSet { defaults.set(lastFMScrobbleDelayPercent, forKey: Keys.lastFMScrobbleDelayPercent) }
+        didSet { Self.defaults.set(lastFMScrobbleDelayPercent, forKey: Keys.lastFMScrobbleDelayPercent) }
     }
 
     var lastFMMinSongDuration: Double {
-        didSet { defaults.set(lastFMMinSongDuration, forKey: Keys.lastFMMinSongDuration) }
+        didSet { Self.defaults.set(lastFMMinSongDuration, forKey: Keys.lastFMMinSongDuration) }
     }
 
     var lastFMScrobbleDelaySeconds: Double {
-        didSet { defaults.set(lastFMScrobbleDelaySeconds, forKey: Keys.lastFMScrobbleDelaySeconds) }
+        didSet { Self.defaults.set(lastFMScrobbleDelaySeconds, forKey: Keys.lastFMScrobbleDelaySeconds) }
     }
 
     var discordRPCEnabled: Bool {
-        didSet { defaults.set(discordRPCEnabled, forKey: Keys.discordRPCEnabled) }
+        didSet { Self.defaults.set(discordRPCEnabled, forKey: Keys.discordRPCEnabled) }
     }
 
     var discordApplicationId: String {
-        didSet { defaults.set(discordApplicationId, forKey: Keys.discordApplicationId) }
+        didSet { Self.defaults.set(discordApplicationId, forKey: Keys.discordApplicationId) }
     }
 
     // MARK: - Keys
@@ -403,35 +403,6 @@ final class SettingsStore {
         } else {
             equalizerGains = EqualizerPresets.all.first?.gains ?? Array(repeating: 0, count: equalizerFrequencies.count)
         }
-        audioQuality = AudioQuality(rawValue: defaults.string(forKey: Keys.audioQuality) ?? "") ?? .auto
-        audioNormalization = defaults.object(forKey: Keys.audioNormalization) as? Bool ?? false
-        gaplessPlayback = defaults.object(forKey: Keys.gaplessPlayback) as? Bool ?? true
-        autoplaySimilar = defaults.object(forKey: Keys.autoplaySimilar) as? Bool ?? true
-        persistQueue = defaults.object(forKey: Keys.persistQueue) as? Bool ?? false
-        playerVolume = defaults.object(forKey: Keys.playerVolume) as? Double ?? 1
-        artworkSwipeNavigation = defaults.object(forKey: Keys.artworkSwipeNavigation) as? Bool ?? true
-        hideExplicit = defaults.object(forKey: Keys.hideExplicit) as? Bool ?? false
-        showQuickPicks = defaults.object(forKey: Keys.showQuickPicks) as? Bool ?? true
-        topListsLength = defaults.object(forKey: Keys.topListsLength) as? Int ?? 8
-        contentCountry = defaults.string(forKey: Keys.contentCountry) ?? "US"
-        disabledLyricsProviders = Set(defaults.stringArray(forKey: Keys.disabledLyricsProviders) ?? [])
-        trackSearchHistory = defaults.object(forKey: Keys.trackSearchHistory) as? Bool ?? true
-        trackPlayHistory = defaults.object(forKey: Keys.trackPlayHistory) as? Bool ?? true
-        downloadQuality = DownloadQuality(rawValue: defaults.string(forKey: Keys.downloadQuality) ?? "") ?? .auto
-        wifiOnlyDownloads = defaults.object(forKey: Keys.wifiOnlyDownloads) as? Bool ?? false
-        autoDownloadOnLike = defaults.object(forKey: Keys.autoDownloadOnLike) as? Bool ?? false
-        syncArtists = defaults.object(forKey: Keys.syncArtists) as? Bool ?? true
-        syncPlaylists = defaults.object(forKey: Keys.syncPlaylists) as? Bool ?? true
-        lastFMEnabled = defaults.object(forKey: Keys.lastFMEnabled) as? Bool ?? false
-        lastFMUpdateNowPlaying = defaults.object(forKey: Keys.lastFMUpdateNowPlaying) as? Bool ?? true
-        lastFMScrobbleDelayPercent = defaults.object(forKey: Keys.lastFMScrobbleDelayPercent) as? Double
-            ?? LastFMDefaults.scrobbleDelayPercent
-        lastFMMinSongDuration = defaults.object(forKey: Keys.lastFMMinSongDuration) as? Double
-            ?? LastFMDefaults.scrobbleMinSongDuration
-        lastFMScrobbleDelaySeconds = defaults.object(forKey: Keys.lastFMScrobbleDelaySeconds) as? Double
-            ?? LastFMDefaults.scrobbleDelaySeconds
-        discordRPCEnabled = defaults.object(forKey: Keys.discordRPCEnabled) as? Bool ?? false
-        discordApplicationId = defaults.string(forKey: Keys.discordApplicationId) ?? ""
         audioQuality = AudioQuality(rawValue: d.string(forKey: Keys.audioQuality) ?? "") ?? .auto
         audioNormalization = d.object(forKey: Keys.audioNormalization) as? Bool ?? false
         gaplessPlayback = d.object(forKey: Keys.gaplessPlayback) as? Bool ?? true
@@ -451,6 +422,16 @@ final class SettingsStore {
         autoDownloadOnLike = d.object(forKey: Keys.autoDownloadOnLike) as? Bool ?? false
         syncArtists = d.object(forKey: Keys.syncArtists) as? Bool ?? true
         syncPlaylists = d.object(forKey: Keys.syncPlaylists) as? Bool ?? true
+        lastFMEnabled = d.object(forKey: Keys.lastFMEnabled) as? Bool ?? false
+        lastFMUpdateNowPlaying = d.object(forKey: Keys.lastFMUpdateNowPlaying) as? Bool ?? true
+        lastFMScrobbleDelayPercent = d.object(forKey: Keys.lastFMScrobbleDelayPercent) as? Double
+            ?? LastFMDefaults.scrobbleDelayPercent
+        lastFMMinSongDuration = d.object(forKey: Keys.lastFMMinSongDuration) as? Double
+            ?? LastFMDefaults.scrobbleMinSongDuration
+        lastFMScrobbleDelaySeconds = d.object(forKey: Keys.lastFMScrobbleDelaySeconds) as? Double
+            ?? LastFMDefaults.scrobbleDelaySeconds
+        discordRPCEnabled = d.object(forKey: Keys.discordRPCEnabled) as? Bool ?? false
+        discordApplicationId = d.string(forKey: Keys.discordApplicationId) ?? ""
     }
 }
 
