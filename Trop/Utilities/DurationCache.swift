@@ -9,6 +9,7 @@ import Foundation
 
 extension Notification.Name {
     static let durationDidUpdate = Notification.Name("durationDidUpdate")
+    static let personalizationDataUpdated = Notification.Name("personalizationDataUpdated")
 }
 
 enum DurationCache {

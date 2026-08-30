@@ -8,9 +8,11 @@
 import SwiftUI
 
 struct PlayerSettingsView: View {
-    @State private var settings = SettingsStore.shared
+    @Environment(\.settingsStore) private var settings
 
     var body: some View {
+        @Bindable var settings = settings
+
         List {
             Section {
                 SettingsNavigationRow("Equalizer", icon: "slider.vertical.3") {

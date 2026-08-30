@@ -31,8 +31,9 @@ struct TropApp: App {
                 _ = settings.audioNormalization
                 _ = settings.gaplessPlayback
             } onChange: {
-                PlayerController.shared.applyPlaybackSettings()
-                DispatchQueue.main.async { register() }
+                Task { @MainActor in
+                    PlayerController.shared.applyPlaybackSettings()
+                }
             }
         }
         register()
@@ -47,6 +48,7 @@ struct TropApp: App {
                 .onOpenURL { url in
                     _ = DiscordAuth.handleRedirectURL(url)
                 }
+                .environment(\.downloadManager, DownloadManager.shared)
         }
     }
 
