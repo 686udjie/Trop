@@ -13,7 +13,6 @@ struct QueueView<ProgressSlider: View>: View {
 
     @Binding var showLyrics: Bool
     @Binding var showQueue: Bool
-    @Binding var isLiked: Bool
     @Binding var isShuffleOn: Bool
     @Binding var isRepeatOn: Bool
     @Binding var editingProgress: Float
@@ -21,7 +20,13 @@ struct QueueView<ProgressSlider: View>: View {
     let pendingRoute: Binding<DetailRoute?>
     @ViewBuilder var progressSlider: () -> ProgressSlider
 
+    @ObservedObject private var likeStore = LikeStore.shared
     @State private var showSongMenu = false
+
+    private var isLiked: Bool {
+        guard let song = np.queueSongs.indices.contains(np.queueIndex) ? np.queueSongs[np.queueIndex] : nil else { return false }
+        return likeStore.isLiked(videoId: song.videoId)
+    }
 
     var body: some View {
         queueContent
@@ -128,7 +133,8 @@ struct QueueView<ProgressSlider: View>: View {
             Spacer()
 
             Button {
-                isLiked.toggle()
+                guard let song = np.queueSongs.indices.contains(np.queueIndex) ? np.queueSongs[np.queueIndex] : nil else { return }
+                Task { await likeStore.toggle(song: song) }
             } label: {
                 Image(systemName: isLiked ? "heart.fill" : "heart")
                     .font(.system(size: 18))

@@ -152,19 +152,20 @@ final class SettingsStore {
     // MARK: - Appearance
 
     var themeMode: ThemeMode {
-        didSet { defaults.set(themeMode.rawValue, forKey: Keys.themeMode) }
+        didSet { Self.defaults.set(themeMode.rawValue, forKey: Keys.themeMode) }
     }
+
+    var accentColor: Color = AccentPreset.all[0].color
 
     var accentName: String {
-        didSet { defaults.set(accentName, forKey: Keys.accentName) }
-    }
-
-    var accentColor: Color {
-        AccentPreset.all.first { $0.name == accentName }?.color ?? AccentPreset.all[0].color
+        didSet {
+            Self.defaults.set(accentName, forKey: Keys.accentName)
+            accentColor = AccentPreset.all.first { $0.name == accentName }?.color ?? AccentPreset.all[0].color
+        }
     }
 
     var playerBackgroundStyle: PlayerBackgroundStyle {
-        didSet { defaults.set(playerBackgroundStyle.rawValue, forKey: Keys.playerBackgroundStyle) }
+        didSet { Self.defaults.set(playerBackgroundStyle.rawValue, forKey: Keys.playerBackgroundStyle) }
     }
 
     var preferredColorScheme: ColorScheme? {
@@ -176,134 +177,134 @@ final class SettingsStore {
     }
 
     var defaultTab: Int {
-        didSet { defaults.set(defaultTab, forKey: Keys.defaultTab) }
+        didSet { Self.defaults.set(defaultTab, forKey: Keys.defaultTab) }
     }
 
     // MARK: - Lyrics appearance
 
     var lyricsFontSize: Double {
-        didSet { defaults.set(lyricsFontSize, forKey: Keys.lyricsFontSize) }
+        didSet { Self.defaults.set(lyricsFontSize, forKey: Keys.lyricsFontSize) }
     }
 
     var lyricsAlignment: LyricsAlignment {
-        didSet { defaults.set(lyricsAlignment.rawValue, forKey: Keys.lyricsAlignment) }
+        didSet { Self.defaults.set(lyricsAlignment.rawValue, forKey: Keys.lyricsAlignment) }
     }
 
     /// Shifts lyric timing by this many seconds (positive = later, negative = earlier).
     var lyricsOffsetSeconds: Double {
-        didSet { defaults.set(lyricsOffsetSeconds, forKey: Keys.lyricsOffsetSeconds) }
+        didSet { Self.defaults.set(lyricsOffsetSeconds, forKey: Keys.lyricsOffsetSeconds) }
     }
 
     /// Shows a progress ring during long instrumental gaps in synced lyrics.
     var showIntervalIndicator: Bool {
-        didSet { defaults.set(showIntervalIndicator, forKey: Keys.showIntervalIndicator) }
+        didSet { Self.defaults.set(showIntervalIndicator, forKey: Keys.showIntervalIndicator) }
     }
 
     /// Displays romanized lyrics for Japanese/Korean/Cyrillic lines when available.
     var romanizeCurrentTrack: Bool {
-        didSet { defaults.set(romanizeCurrentTrack, forKey: Keys.romanizeCurrentTrack) }
+        didSet { Self.defaults.set(romanizeCurrentTrack, forKey: Keys.romanizeCurrentTrack) }
     }
 
     // MARK: - Playback
 
     var equalizerEnabled: Bool {
-        didSet { defaults.set(equalizerEnabled, forKey: Keys.equalizerEnabled) }
+        didSet { Self.defaults.set(equalizerEnabled, forKey: Keys.equalizerEnabled) }
     }
 
     /// The id of the selected preset, or "custom" when the user edited bands manually.
     var equalizerPresetID: String {
-        didSet { defaults.set(equalizerPresetID, forKey: Keys.equalizerPresetID) }
+        didSet { Self.defaults.set(equalizerPresetID, forKey: Keys.equalizerPresetID) }
     }
 
     /// Current band gains in dB, one per `equalizerFrequencies`.
     var equalizerGains: [Double] {
-        didSet { defaults.set(equalizerGains, forKey: Keys.equalizerGains) }
+        didSet { Self.defaults.set(equalizerGains, forKey: Keys.equalizerGains) }
     }
 
     var audioQuality: AudioQuality {
-        didSet { defaults.set(audioQuality.rawValue, forKey: Keys.audioQuality) }
+        didSet { Self.defaults.set(audioQuality.rawValue, forKey: Keys.audioQuality) }
     }
 
     var audioNormalization: Bool {
-        didSet { defaults.set(audioNormalization, forKey: Keys.audioNormalization) }
+        didSet { Self.defaults.set(audioNormalization, forKey: Keys.audioNormalization) }
     }
 
     var gaplessPlayback: Bool {
-        didSet { defaults.set(gaplessPlayback, forKey: Keys.gaplessPlayback) }
+        didSet { Self.defaults.set(gaplessPlayback, forKey: Keys.gaplessPlayback) }
     }
 
     var autoplaySimilar: Bool {
-        didSet { defaults.set(autoplaySimilar, forKey: Keys.autoplaySimilar) }
+        didSet { Self.defaults.set(autoplaySimilar, forKey: Keys.autoplaySimilar) }
     }
 
     var persistQueue: Bool {
-        didSet { defaults.set(persistQueue, forKey: Keys.persistQueue) }
+        didSet { Self.defaults.set(persistQueue, forKey: Keys.persistQueue) }
     }
 
     var playerVolume: Double {
-        didSet { defaults.set(playerVolume, forKey: Keys.playerVolume) }
+        didSet { Self.defaults.set(playerVolume, forKey: Keys.playerVolume) }
     }
 
     var artworkSwipeNavigation: Bool {
-        didSet { defaults.set(artworkSwipeNavigation, forKey: Keys.artworkSwipeNavigation) }
+        didSet { Self.defaults.set(artworkSwipeNavigation, forKey: Keys.artworkSwipeNavigation) }
     }
 
     // MARK: - Content
 
     var hideExplicit: Bool {
-        didSet { defaults.set(hideExplicit, forKey: Keys.hideExplicit) }
+        didSet { Self.defaults.set(hideExplicit, forKey: Keys.hideExplicit) }
     }
 
     var showQuickPicks: Bool {
-        didSet { defaults.set(showQuickPicks, forKey: Keys.showQuickPicks) }
+        didSet { Self.defaults.set(showQuickPicks, forKey: Keys.showQuickPicks) }
     }
 
     var topListsLength: Int {
-        didSet { defaults.set(topListsLength, forKey: Keys.topListsLength) }
+        didSet { Self.defaults.set(topListsLength, forKey: Keys.topListsLength) }
     }
 
     var contentCountry: String {
-        didSet { defaults.set(contentCountry, forKey: Keys.contentCountry) }
+        didSet { Self.defaults.set(contentCountry, forKey: Keys.contentCountry) }
     }
 
     // MARK: - Lyrics providers
 
     var disabledLyricsProviders: Set<String> {
-        didSet { defaults.set(disabledLyricsProviders.sorted(), forKey: Keys.disabledLyricsProviders) }
+        didSet { Self.defaults.set(disabledLyricsProviders.sorted(), forKey: Keys.disabledLyricsProviders) }
     }
 
     // MARK: - Privacy
 
     var trackSearchHistory: Bool {
-        didSet { defaults.set(trackSearchHistory, forKey: Keys.trackSearchHistory) }
+        didSet { Self.defaults.set(trackSearchHistory, forKey: Keys.trackSearchHistory) }
     }
 
     var trackPlayHistory: Bool {
-        didSet { defaults.set(trackPlayHistory, forKey: Keys.trackPlayHistory) }
+        didSet { Self.defaults.set(trackPlayHistory, forKey: Keys.trackPlayHistory) }
     }
 
     // MARK: - Downloads & storage
 
     var downloadQuality: DownloadQuality {
-        didSet { defaults.set(downloadQuality.rawValue, forKey: Keys.downloadQuality) }
+        didSet { Self.defaults.set(downloadQuality.rawValue, forKey: Keys.downloadQuality) }
     }
 
     var wifiOnlyDownloads: Bool {
-        didSet { defaults.set(wifiOnlyDownloads, forKey: Keys.wifiOnlyDownloads) }
+        didSet { Self.defaults.set(wifiOnlyDownloads, forKey: Keys.wifiOnlyDownloads) }
     }
 
     var autoDownloadOnLike: Bool {
-        didSet { defaults.set(autoDownloadOnLike, forKey: Keys.autoDownloadOnLike) }
+        didSet { Self.defaults.set(autoDownloadOnLike, forKey: Keys.autoDownloadOnLike) }
     }
 
     // MARK: - Sync
 
     var syncArtists: Bool {
-        didSet { defaults.set(syncArtists, forKey: Keys.syncArtists) }
+        didSet { Self.defaults.set(syncArtists, forKey: Keys.syncArtists) }
     }
 
     var syncPlaylists: Bool {
-        didSet { defaults.set(syncPlaylists, forKey: Keys.syncPlaylists) }
+        didSet { Self.defaults.set(syncPlaylists, forKey: Keys.syncPlaylists) }
     }
 
     // MARK: - Keys
@@ -342,43 +343,60 @@ final class SettingsStore {
         static let syncPlaylists = "settings.syncPlaylists"
     }
 
-    private let defaults: UserDefaults = .standard
+    private static let defaults: UserDefaults = .standard
 
     private init() {
-        themeMode = ThemeMode(rawValue: defaults.string(forKey: Keys.themeMode) ?? "") ?? .system
-        accentName = defaults.string(forKey: Keys.accentName) ?? AccentPreset.all[0].name
-        playerBackgroundStyle = PlayerBackgroundStyle(rawValue: defaults.string(forKey: Keys.playerBackgroundStyle) ?? "") ?? .dynamic
-        defaultTab = defaults.object(forKey: Keys.defaultTab) as? Int ?? 0
-        lyricsFontSize = defaults.object(forKey: Keys.lyricsFontSize) as? Double ?? 17
-        lyricsAlignment = LyricsAlignment(rawValue: defaults.string(forKey: Keys.lyricsAlignment) ?? "") ?? .center
-        lyricsOffsetSeconds = defaults.object(forKey: Keys.lyricsOffsetSeconds) as? Double ?? 0
-        showIntervalIndicator = defaults.object(forKey: Keys.showIntervalIndicator) as? Bool ?? true
-        romanizeCurrentTrack = defaults.object(forKey: Keys.romanizeCurrentTrack) as? Bool ?? true
-        equalizerEnabled = defaults.object(forKey: Keys.equalizerEnabled) as? Bool ?? false
-        equalizerPresetID = defaults.string(forKey: Keys.equalizerPresetID) ?? "flat"
-        if let saved = defaults.array(forKey: Keys.equalizerGains) as? [Double], saved.count == equalizerFrequencies.count {
+        let d = Self.defaults
+        themeMode = ThemeMode(rawValue: d.string(forKey: Keys.themeMode) ?? "") ?? .system
+        accentColor = AccentPreset.all
+            .first { $0.name == (d.string(forKey: Keys.accentName) ?? AccentPreset.all[0].name) }?
+            .color ?? AccentPreset.all[0].color
+        accentName = d.string(forKey: Keys.accentName) ?? AccentPreset.all[0].name
+        playerBackgroundStyle = PlayerBackgroundStyle(rawValue: d.string(forKey: Keys.playerBackgroundStyle) ?? "") ?? .dynamic
+        defaultTab = d.object(forKey: Keys.defaultTab) as? Int ?? 0
+        lyricsFontSize = d.object(forKey: Keys.lyricsFontSize) as? Double ?? 17
+        lyricsAlignment = LyricsAlignment(rawValue: d.string(forKey: Keys.lyricsAlignment) ?? "") ?? .center
+        lyricsOffsetSeconds = d.object(forKey: Keys.lyricsOffsetSeconds) as? Double ?? 0
+        showIntervalIndicator = d.object(forKey: Keys.showIntervalIndicator) as? Bool ?? true
+        romanizeCurrentTrack = d.object(forKey: Keys.romanizeCurrentTrack) as? Bool ?? true
+        equalizerEnabled = d.object(forKey: Keys.equalizerEnabled) as? Bool ?? false
+        equalizerPresetID = d.string(forKey: Keys.equalizerPresetID) ?? "flat"
+        if let saved = d.array(forKey: Keys.equalizerGains) as? [Double], saved.count == equalizerFrequencies.count {
             equalizerGains = saved
         } else {
             equalizerGains = EqualizerPresets.all.first?.gains ?? Array(repeating: 0, count: equalizerFrequencies.count)
         }
-        audioQuality = AudioQuality(rawValue: defaults.string(forKey: Keys.audioQuality) ?? "") ?? .auto
-        audioNormalization = defaults.object(forKey: Keys.audioNormalization) as? Bool ?? false
-        gaplessPlayback = defaults.object(forKey: Keys.gaplessPlayback) as? Bool ?? true
-        autoplaySimilar = defaults.object(forKey: Keys.autoplaySimilar) as? Bool ?? true
-        persistQueue = defaults.object(forKey: Keys.persistQueue) as? Bool ?? false
-        playerVolume = defaults.object(forKey: Keys.playerVolume) as? Double ?? 1
-        artworkSwipeNavigation = defaults.object(forKey: Keys.artworkSwipeNavigation) as? Bool ?? true
-        hideExplicit = defaults.object(forKey: Keys.hideExplicit) as? Bool ?? false
-        showQuickPicks = defaults.object(forKey: Keys.showQuickPicks) as? Bool ?? true
-        topListsLength = defaults.object(forKey: Keys.topListsLength) as? Int ?? 8
-        contentCountry = defaults.string(forKey: Keys.contentCountry) ?? "US"
-        disabledLyricsProviders = Set(defaults.stringArray(forKey: Keys.disabledLyricsProviders) ?? [])
-        trackSearchHistory = defaults.object(forKey: Keys.trackSearchHistory) as? Bool ?? true
-        trackPlayHistory = defaults.object(forKey: Keys.trackPlayHistory) as? Bool ?? true
-        downloadQuality = DownloadQuality(rawValue: defaults.string(forKey: Keys.downloadQuality) ?? "") ?? .auto
-        wifiOnlyDownloads = defaults.object(forKey: Keys.wifiOnlyDownloads) as? Bool ?? false
-        autoDownloadOnLike = defaults.object(forKey: Keys.autoDownloadOnLike) as? Bool ?? false
-        syncArtists = defaults.object(forKey: Keys.syncArtists) as? Bool ?? true
-        syncPlaylists = defaults.object(forKey: Keys.syncPlaylists) as? Bool ?? true
+        audioQuality = AudioQuality(rawValue: d.string(forKey: Keys.audioQuality) ?? "") ?? .auto
+        audioNormalization = d.object(forKey: Keys.audioNormalization) as? Bool ?? false
+        gaplessPlayback = d.object(forKey: Keys.gaplessPlayback) as? Bool ?? true
+        autoplaySimilar = d.object(forKey: Keys.autoplaySimilar) as? Bool ?? true
+        persistQueue = d.object(forKey: Keys.persistQueue) as? Bool ?? false
+        playerVolume = d.object(forKey: Keys.playerVolume) as? Double ?? 1
+        artworkSwipeNavigation = d.object(forKey: Keys.artworkSwipeNavigation) as? Bool ?? true
+        hideExplicit = d.object(forKey: Keys.hideExplicit) as? Bool ?? false
+        showQuickPicks = d.object(forKey: Keys.showQuickPicks) as? Bool ?? true
+        topListsLength = d.object(forKey: Keys.topListsLength) as? Int ?? 8
+        contentCountry = d.string(forKey: Keys.contentCountry) ?? "US"
+        disabledLyricsProviders = Set(d.stringArray(forKey: Keys.disabledLyricsProviders) ?? [])
+        trackSearchHistory = d.object(forKey: Keys.trackSearchHistory) as? Bool ?? true
+        trackPlayHistory = d.object(forKey: Keys.trackPlayHistory) as? Bool ?? true
+        downloadQuality = DownloadQuality(rawValue: d.string(forKey: Keys.downloadQuality) ?? "") ?? .auto
+        wifiOnlyDownloads = d.object(forKey: Keys.wifiOnlyDownloads) as? Bool ?? false
+        autoDownloadOnLike = d.object(forKey: Keys.autoDownloadOnLike) as? Bool ?? false
+        syncArtists = d.object(forKey: Keys.syncArtists) as? Bool ?? true
+        syncPlaylists = d.object(forKey: Keys.syncPlaylists) as? Bool ?? true
+    }
+}
+
+// MARK: - Environment Key
+
+private struct SettingsStoreKey: EnvironmentKey {
+    static let defaultValue: SettingsStore = .shared
+}
+
+extension EnvironmentValues {
+    var settingsStore: SettingsStore {
+        get { self[SettingsStoreKey.self] }
+        set { self[SettingsStoreKey.self] = newValue }
     }
 }

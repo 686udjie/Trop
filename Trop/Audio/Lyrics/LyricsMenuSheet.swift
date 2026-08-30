@@ -10,7 +10,7 @@ import SwiftUI
 /// Shown from the lyrics page's ⋮ button.
 struct LyricsMenuSheet: View {
     @Environment(\.dismiss) private var dismiss
-    @State private var settings = SettingsStore.shared
+    @Environment(\.settingsStore) private var settings
     private let np = NowPlaying.shared
 
     @State private var showOffsetEditor = false
@@ -235,7 +235,7 @@ struct LyricsMenuSheet: View {
 /// reset button, then a −/+ stepper slider. Changes apply live.
 struct LyricsOffsetSheet: View {
     @Environment(\.dismiss) private var dismiss
-    @State private var settings = SettingsStore.shared
+    @Environment(\.settingsStore) private var settings
 
     /// Typed values may exceed the slider range, like Metrolist's ±9999ms.
     private let typeLimit: Double = 10

@@ -8,7 +8,7 @@ import SwiftUI
 struct DownloadsView: View {
     @Environment(SettingsStore.self) private var settings
     @State private var viewModel = DownloadsViewModel()
-    @ObservedObject private var downloadManager = DownloadManager.shared
+    @Environment(\.downloadManager) private var downloadManager
     @State private var pendingRoute: DetailRoute?
     @State private var showMoreSheet = false
 

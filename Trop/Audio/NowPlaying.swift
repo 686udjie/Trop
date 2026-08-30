@@ -79,6 +79,10 @@ final class NowPlaying {
         restoreQueueIfNeeded()
     }
 
+    deinit {
+        Task { @MainActor [weak self] in self?.stopTimer() }
+    }
+
     // MARK: - Persistent queue
 
     private func restoreQueueIfNeeded() {
@@ -380,67 +384,30 @@ final class NowPlaying {
         guard videoId != lastLoadedVideoId else { return }
         lastLoadedVideoId = videoId
 
-        // For downloaded songs, try to extract embedded artwork from the local file first.
-        if let localURL = DownloadManager.shared.localURL(for: videoId) {
-            loadArtworkFromLocalFile(localURL, videoId: videoId)
-            return
-        }
-
-        let urlString = Self.artworkURL(for: videoId)
-        guard let url = URL(string: urlString) else {
-            thumbnailUIImage = nil
-            thumbnailImage = Image(systemName: "music.note")
-            thumbnailVersion &+= 1
-            updateDominantColors(from: nil)
-            return
-        }
-
-        // Fast path: if the artwork was pre-warmed, swap it in synchronously so
-        // swiping to the next/previous song shows the image with no placeholder.
-        if let cached = ImagePipeline.shared.cache.cachedImage(for: ImageRequest(url: url), caches: .all)?.image {
-            let cropped = cached.centerCroppedSquare()
-            thumbnailUIImage = cropped
-            thumbnailImage = Image(uiImage: cropped)
-            thumbnailVersion &+= 1
-            updateDominantColors(from: cropped)
-            PlayerController.shared.updateNowPlayingArtwork()
-            return
-        }
-
-        thumbnailImage = nil
         Task {
-            do {
-                let platformImage = try await ImagePipeline.shared.image(for: url)
-                let cropped = platformImage.centerCroppedSquare()
-                await MainActor.run {
-                    thumbnailUIImage = cropped
-                    thumbnailImage = Image(uiImage: cropped)
-                    thumbnailVersion &+= 1
-                    updateDominantColors(from: cropped)
-                    PlayerController.shared.updateNowPlayingArtwork()
-                }
-            } catch {
-                await MainActor.run {
-                    thumbnailImage = Image(systemName: "music.note")
-                    thumbnailVersion &+= 1
-                    updateDominantColors(from: nil)
-                }
+            // For downloaded songs, try to extract embedded artwork from the local file first.
+            if let localURL = await DownloadManager.shared.localURL(for: videoId) {
+                loadArtworkFromLocalFile(localURL, videoId: videoId)
+                return
             }
+            loadThumbnailFromCDN(videoId: videoId)
         }
     }
 
     private func loadArtworkFromLocalFile(_ fileURL: URL, videoId: String) {
         Task {
             let asset = AVURLAsset(url: fileURL)
-            let artworkImage: UIImage? = await {
-                guard let metadata = try? await asset.load(.metadata) else { return nil }
-                for item in metadata where (item.key as? String) == AVMetadataKey.commonKeyArtwork.rawValue {
-                    if let data = item.value as? Data, let image = UIImage(data: data) {
-                        return image
+            let metadata = try? await asset.load(.metadata)
+            var artworkImage: UIImage?
+            if let metadata {
+                for item in metadata {
+                    if let data = try? await item.load(.dataValue),
+                       let image = UIImage(data: data) {
+                        artworkImage = image
+                        break
                     }
                 }
-                return nil
-            }()
+            }
 
             await MainActor.run {
                 guard lastLoadedVideoId == videoId else { return }

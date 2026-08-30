@@ -41,7 +41,7 @@ struct LyricsProviderOrderView: View {
             }
             order = merged
         }
-        .onDisappear { settings.providerOrder = order }
+        .onDisappear { settings.saveProviderOrder(order) }
     }
 
     private func move(from source: IndexSet, to destination: Int) {

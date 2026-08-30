@@ -8,32 +8,28 @@
 import Foundation
 
 @Observable
+@MainActor
 final class LyricsSettings {
     static let shared = LyricsSettings()
 
     private let orderKey = "lyricsProviderOrder"
 
     /// Ordered provider ids. Defaults to a sensible fallback chain.
-    var providerOrder: [String] {
-        get {
-            let saved: [String]
-            if let data = UserDefaults.standard.data(forKey: orderKey),
-               let decoded = try? JSONDecoder().decode([String].self, from: data),
-               !decoded.isEmpty {
-                saved = decoded
-            } else {
-                saved = LyricsProviderRegistry.defaultOrder
-            }
-            let merged = saved + LyricsProviderRegistry.defaultOrder.filter { !saved.contains($0) }
-            return merged
-        }
-        set {
-            let data = (try? JSONEncoder().encode(newValue)) ?? Data()
-            UserDefaults.standard.set(data, forKey: orderKey)
+    var providerOrder: [String] = LyricsProviderRegistry.defaultOrder
+
+    private init() {
+        if let data = UserDefaults.standard.data(forKey: orderKey),
+           let decoded = try? JSONDecoder().decode([String].self, from: data),
+           !decoded.isEmpty {
+            providerOrder = decoded + LyricsProviderRegistry.defaultOrder.filter { !decoded.contains($0) }
         }
     }
 
-    private init() {}
+    func saveProviderOrder(_ order: [String]) {
+        providerOrder = order
+        let data = (try? JSONEncoder().encode(order)) ?? Data()
+        UserDefaults.standard.set(data, forKey: orderKey)
+    }
 }
 
 /// Registry of all available providers.
@@ -86,7 +82,7 @@ actor LyricsManager {
 
     /// Queries every enabled provider concurrently and returns all matches.
     func searchAll(query: LyricsQuery) async -> [LyricSearchResult] {
-        let order = LyricsSettings.shared.providerOrder
+        let order = await LyricsSettings.shared.providerOrder
         let disabled = SettingsStore.shared.disabledLyricsProviders
         let providers = order
             .compactMap { LyricsProviderRegistry.provider(for: $0) }
@@ -109,7 +105,7 @@ actor LyricsManager {
     }
 
     func fetchLyricsReturningProvider(query: LyricsQuery) async throws -> ([LyricLine], providerName: String?) {
-        let order = LyricsSettings.shared.providerOrder
+        let order = await LyricsSettings.shared.providerOrder
         let disabled = SettingsStore.shared.disabledLyricsProviders
         var lastError: Error?
 

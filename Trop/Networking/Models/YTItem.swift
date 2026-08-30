@@ -371,7 +371,9 @@ struct SongItem: Codable, Hashable {
     var likeStatus: String?
 
     static func from(_ renderer: [String: Any]) -> SongItem? {
-        guard let videoId = extractVideoId(renderer) else { return nil }
+        guard let videoId = extractVideoId(renderer) else {
+            return nil
+        }
         let duration = parseDurationFromRenderer(renderer)
         let playlistId = extractPlaylistId(renderer)
 
@@ -722,7 +724,7 @@ extension EpisodeItem {
 extension SongItem {
     init(entity: SongEntity) {
         self.videoId = entity.id
-        self.title = entity.title
+        self.title = entity.title.isEmpty ? "Unknown" : entity.title
         self.artists = entity.artistName.map { [YTArtist(name: SongItem.cleanArtistName($0))] } ?? []
         self.album = entity.albumName
         self.albumId = nil

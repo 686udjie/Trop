@@ -171,7 +171,7 @@ actor PoTokenGenerator: NSObject {
 
                 // If the script never posts a message, fail rather than hang.
                 Task { [weak self] in
-                    try? await Task.sleep(nanoseconds: 20_000_000_000)
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
                     Log.poToken.error("PoToken JS evaluation timed out")
                     await self?.resolveContinuation(id, result: .failure(BotGuardError.descrambleFailed))
                 }

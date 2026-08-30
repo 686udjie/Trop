@@ -6,8 +6,8 @@
 import SwiftUI
 
 struct DownloadSettingsView: View {
-    @State private var settings = SettingsStore.shared
-    @ObservedObject private var downloadManager = DownloadManager.shared
+    @Environment(\.settingsStore) private var settings
+    @Environment(\.downloadManager) private var downloadManager
     @State private var storageBytes: Int64 = 0
     @State private var trackCount = 0
 
@@ -16,6 +16,8 @@ struct DownloadSettingsView: View {
     }
 
     var body: some View {
+        @Bindable var settings = settings
+
         List {
             Section {
                 storageCard
@@ -66,7 +68,7 @@ struct DownloadSettingsView: View {
     }
 
     private func refreshStats() async {
-        storageBytes = downloadManager.totalStorageBytes()
+        storageBytes = await downloadManager.totalStorageBytes()
         trackCount = downloadManager.persistedDownloadCount
     }
 }

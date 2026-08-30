@@ -30,8 +30,9 @@ struct TropApp: App {
                 _ = settings.audioNormalization
                 _ = settings.gaplessPlayback
             } onChange: {
-                PlayerController.shared.applyPlaybackSettings()
-                DispatchQueue.main.async { register() }
+                Task { @MainActor in
+                    PlayerController.shared.applyPlaybackSettings()
+                }
             }
         }
         register()
@@ -43,6 +44,7 @@ struct TropApp: App {
                 .preferredColorScheme(settings.preferredColorScheme)
                 .tint(settings.accentColor)
                 .environment(settings)
+                .environment(\.downloadManager, DownloadManager.shared)
         }
     }
 

@@ -287,9 +287,10 @@ actor PlaybackManager {
         )
     }
 
+    private static var sessionId: String = UUID().uuidString
+
     private func getSessionId() async -> String? {
-        // Use visitorData from InnerTube as session identifier
-        "SESSION"
+        Self.sessionId
     }
     /// Resolve a video without playing. Useful for previews / testing.
     func resolve(videoId: String, preferredFormat: Format? = nil, forDownload: Bool = false) async throws -> PlaybackResult {

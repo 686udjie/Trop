@@ -11,7 +11,7 @@ struct DownloadsMoreSheet: View {
     let songs: [SongItem]
 
     @Environment(\.dismiss) private var dismiss
-    @State private var settings = SettingsStore.shared
+    @Environment(\.settingsStore) private var settings
     @State private var showClearConfirmation = false
 
     var body: some View {

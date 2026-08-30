@@ -8,7 +8,7 @@
 import SwiftUI
 
 struct LyricsSettingsView: View {
-    @State private var settings = SettingsStore.shared
+    @Environment(\.settingsStore) private var settings
 
     var body: some View {
         @Bindable var settings = settings

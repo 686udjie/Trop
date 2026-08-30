@@ -26,7 +26,7 @@ class LikeStore: ObservableObject {
     func refresh() async {
         let songs = (try? await DatabaseService.shared.fetchAllLikedSongs()) ?? []
         var dict: [String: Bool] = [:]
-        for song in songs where song.inLibrary != nil {
+        for song in songs where song.liked {
             dict[song.id] = true
         }
         liked = dict
@@ -41,17 +41,13 @@ class LikeStore: ObservableObject {
         liked = updated
 
         do {
-            let entity = try await DatabaseService.shared.fetchOne(SongEntity.self, key: videoId)
             if target {
-                try await MutationService.shared.addToLibrary(
-                    videoId: videoId,
-                    addToken: entity?.libraryAddToken ?? ""
-                )
+                try await MutationService.shared.likeSong(videoId: videoId)
+                if SettingsStore.shared.autoDownloadOnLike {
+                    await DownloadManager.shared.download(song: song)
+                }
             } else {
-                try await MutationService.shared.removeFromLibrary(
-                    videoId: videoId,
-                    removeToken: entity?.libraryRemoveToken ?? ""
-                )
+                try await MutationService.shared.unlikeSong(videoId: videoId)
             }
         } catch {
             var reverted = liked

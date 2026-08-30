@@ -37,7 +37,7 @@ struct SettingsView: View {
                     LyricsSettingsView()
                 }
             } header: {
-                Text("Player & Content")
+                Text("Content & Lyrics")
             }
 
             Section {
