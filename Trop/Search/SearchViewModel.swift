@@ -76,6 +76,10 @@ final class SearchViewModel {
     private var suggestionsTask: Task<Void, Never>?
     private var localSearchTask: Task<Void, Never>?
     private var fetchTask: Task<Void, Never>?
+    /// Bumped on every submit and on clear. `submittedQuery` is only the
+    /// display string — a same-query resubmit must still invalidate the
+    /// previous fetch.
+    private var searchGeneration = 0
 
     private static let historyKey = "Search.history"
     private static let historyNewestFirstKey = "Search.historyNewestFirst"
@@ -131,8 +135,6 @@ final class SearchViewModel {
         let query = fieldText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return }
 
-        // Enter .loading FIRST so clearing the field below is treated as part
-        // of the submission rather than as new composition input.
         phase = .loading
         submittedQuery = query
         error = nil
@@ -141,33 +143,37 @@ final class SearchViewModel {
 
         updateHistory(query: query)
         cancelTasks()
+        searchGeneration += 1
+        let generation = searchGeneration
 
         fetchTask = Task { [weak self] in
-            await self?.fetchResults(for: query)
+            await self?.fetchResults(for: query, generation: generation)
         }
     }
 
-    private func fetchResults(for query: String) async {
+    private func fetchResults(for query: String, generation: Int) async {
         do {
             async let localResults = try? SearchService.shared.localSearch(query: query)
             let searchRaw = try await SearchService.shared.search(query: query)
+            guard isCurrentSearch(generation) else { return }
 
-            // A later submit must win even if this InnerTube call already finished.
-            guard !Task.isCancelled, submittedQuery == query else { return }
+            let parsed = SearchParser.parseSearchResults(from: searchRaw)
+            let local = await localResults
+            guard isCurrentSearch(generation) else { return }
 
-            if let local = await localResults {
+            if let local {
                 localSongs = local.songs
                 localArtists = local.artists
                 localAlbums = local.albums
                 localPlaylists = local.playlists
             }
 
-            results = SearchParser.parseSearchResults(from: searchRaw)
+            results = parsed
             selectedSectionFilter = nil
             isShowingLibrary = false
             phase = results.isEmpty ? .noResults : .results
         } catch {
-            guard !Task.isCancelled, submittedQuery == query else { return }
+            guard isCurrentSearch(generation) else { return }
             if !Self.isCancellation(error) {
                 Log.search.error("Submit failed: \(error)")
                 self.error = error
@@ -179,29 +185,34 @@ final class SearchViewModel {
     // MARK: - Field changes
 
     private func handleFieldTextChange() {
-        // While fetching, the field is owned by the submission flow.
+        let query = fieldText.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Empty field always abandons — including during .loading, which used
+        // to return early and leave the fetch task running.
+        if query.isEmpty {
+            abandonInFlightSearch()
+            return
+        }
+
+        // Non-empty edits while a submit is in flight stay on the submitted query.
         if phase == .loading {
             return
         }
 
-        let query = fieldText.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        // An emptied field (X button, or deleting the query) exits the current
-        // search: results are discarded and the screen returns to the
-        // recent-searches state.
-        if query.isEmpty {
-            cancelTasks()
-            clearTypingData()
-            submittedQuery = ""
-            results = []
-            selectedSectionFilter = nil
-            isShowingLibrary = false
-            error = nil
-            phase = .idle
-            return
-        }
-
         beginTyping(query)
+    }
+
+    /// Invalidates every in-flight fetch and returns to recent searches.
+    private func abandonInFlightSearch() {
+        searchGeneration += 1
+        cancelTasks()
+        clearTypingData()
+        submittedQuery = ""
+        results = []
+        selectedSectionFilter = nil
+        isShowingLibrary = false
+        error = nil
+        phase = .idle
     }
 
     private func beginTyping(_ query: String) {
@@ -298,6 +309,11 @@ final class SearchViewModel {
         suggestionsTask?.cancel()
         localSearchTask?.cancel()
         fetchTask?.cancel()
+        Task { await SearchService.shared.cancelInFlightSearch() }
+    }
+
+    private func isCurrentSearch(_ generation: Int) -> Bool {
+        !Task.isCancelled && generation == searchGeneration
     }
 
     private func clearTypingData() {
