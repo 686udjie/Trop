@@ -2,9 +2,11 @@
 
 A free and open source YouTube Music client for iOS.
 
-| | | |
-|:---:|:---:|:---:|
-| ![](.github/assets/1.jpg) | ![](.github/assets/2.jpg) | ![](.github/assets/3.jpg) |
+<p>
+	<img src=".github/assets/1.jpg" width="25%" alt="Homepage" />
+	<img src=".github/assets/2.jpg" width="25%" alt="Player" />
+	<img src=".github/assets/3.jpg" width="25%" alt="Queue" />
+</p>
 
 ## Features
 
