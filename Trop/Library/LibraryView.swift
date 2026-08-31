@@ -397,8 +397,14 @@ struct LibraryView: View {
             likedSongCount = try await countFetch
 
             let rows: [(String, Int)] = try await DatabaseService.shared.read { db in
-                try Row.fetchAll(db, sql: "SELECT playlist_id, COUNT(*) as cnt FROM playlist_song_map GROUP BY playlist_id")
-                    .map { ($0["playlist_id"] as String, $0["cnt"] as Int) }
+                try Row.fetchAll(
+                    db,
+                    sql: "SELECT playlist_id, COUNT(*) as cnt "
+                        + "FROM playlist_song_map "
+                        + "WHERE EXISTS (SELECT 1 FROM song WHERE id = song_id) "
+                        + "GROUP BY playlist_id"
+                )
+                .map { ($0["playlist_id"] as String, $0["cnt"] as Int) }
             }
             playlistSongCounts = Dictionary(uniqueKeysWithValues: rows)
 

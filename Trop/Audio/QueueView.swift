@@ -288,8 +288,35 @@ struct QueueView<ProgressSlider: View>: View {
 
     private func removeSong(at index: Int) {
         guard np.queueSongs.indices.contains(index) else { return }
+        let wasCurrent = index == np.queueIndex
+        let removedVideoId = np.queueSongs[index].videoId
         np.queueSongs.remove(at: index)
-        np.repairQueueIndex()
+        if wasCurrent {
+            if np.queueSongs.isEmpty {
+                np.queueIndex = 0
+                np.isPlaying = false
+                np.persistQueueState()
+                Task { @MainActor in PlayerController.shared.setPaused(true) }
+                return
+            }
+            let nextIndex = min(index, np.queueSongs.count - 1)
+            np.queueIndex = nextIndex
+            let song = np.queueSongs[nextIndex]
+            np.update(title: song.title, artist: song.artists.map(\.name).joined(separator: ", "), videoId: song.videoId, artists: song.artists)
+            Task {
+                do {
+                    try await PlaybackManager.shared.resolveAndPlay(videoId: song.videoId)
+                } catch {
+                    Log.nowPlaying.error("removeSong auto-play failed: \(error)")
+                }
+            }
+        } else {
+            np.repairQueueIndex()
+        }
+        np.persistQueueState()
+        if !wasCurrent && removedVideoId == np.videoId {
+            np.repairQueueIndex()
+        }
     }
 }
 

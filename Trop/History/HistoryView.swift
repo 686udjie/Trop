@@ -13,8 +13,32 @@ struct HistoryScreenView: View {
     @State private var isSelecting = false
     @State private var selectedEvents: Set<Event> = []
 
+    private var displayableSections: [(title: String, entries: [DatabaseService.HistoryEntry])] {
+        viewModel.groupedEntries.filter { !$0.entries.isEmpty }
+    }
+
     private var allEvents: [Event] {
-        viewModel.groupedEntries.flatMap(\.entries).map(\.event)
+        displayableSections.flatMap(\.entries).map(\.event)
+    }
+
+    private var allDisplayableSongs: [SongItem] {
+        displayableSections.flatMap(\.entries).map { entry in
+            if let entity = entry.song {
+                return SongItem(entity: entity)
+            } else {
+                return SongItem(
+                    videoId: entry.event.songId,
+                    title: entry.event.songId,
+                    artists: [],
+                    album: nil,
+                    albumId: nil,
+                    duration: 0,
+                    thumbnailUrl: "https://i.ytimg.com/vi/\(entry.event.songId)/hqdefault.jpg",
+                    isExplicit: false,
+                    playlistId: nil
+                )
+            }
+        }
     }
 
     var body: some View {
@@ -59,7 +83,7 @@ struct HistoryScreenView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        if viewModel.source == .local && !viewModel.groupedEntries.isEmpty {
+        if viewModel.source == .local && !displayableSections.isEmpty {
             if isSelecting {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button {
@@ -101,7 +125,7 @@ struct HistoryScreenView: View {
 
     private var localHistoryContent: some View {
         Group {
-            if viewModel.groupedEntries.isEmpty {
+            if displayableSections.isEmpty {
                 ContentUnavailableView(
                     "No History",
                     systemImage: "clock.arrow.circlepath",
@@ -115,8 +139,8 @@ struct HistoryScreenView: View {
 
     private var localList: some View {
         List {
-            ForEach(viewModel.groupedEntries.indices, id: \.self) { sectionIndex in
-                let section = viewModel.groupedEntries[sectionIndex]
+            ForEach(displayableSections.indices, id: \.self) { sectionIndex in
+                let section = displayableSections[sectionIndex]
                 Section {
                     ForEach(section.entries, id: \.event) { entry in
                         localRow(entry)
@@ -139,53 +163,68 @@ struct HistoryScreenView: View {
 
     @ViewBuilder
     private func localRow(_ entry: DatabaseService.HistoryEntry) -> some View {
-        if let song = entry.song.map({ SongItem(entity: $0) }) {
-            let allItems = viewModel.groupedEntries.flatMap(\.entries).compactMap { $0.song.map(SongItem.init(entity:)) }
-            let isSelected = selectedEvents.contains(entry.event)
-            HStack(spacing: 0) {
-                if isSelecting {
-                    Button {
-                        if isSelected {
-                            selectedEvents.remove(entry.event)
-                        } else {
-                            selectedEvents.insert(entry.event)
-                        }
-                    } label: {
-                        Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                            .font(.title3)
-                            .foregroundStyle(isSelected ? settings.accentColor : .secondary)
-                            .padding(.leading, 16)
-                            .padding(.trailing, 4)
-                    }
-                    .buttonStyle(.plain)
-                }
+        let song: SongItem = {
+            if let entity = entry.song {
+                return SongItem(entity: entity)
+            } else {
+                return SongItem(
+                    videoId: entry.event.songId,
+                    title: entry.event.songId,
+                    artists: [],
+                    album: nil,
+                    albumId: nil,
+                    duration: 0,
+                    thumbnailUrl: "https://i.ytimg.com/vi/\(entry.event.songId)/hqdefault.jpg",
+                    isExplicit: false,
+                    playlistId: nil
+                )
+            }
+        }()
+        let allItems = allDisplayableSongs
+        let isSelected = selectedEvents.contains(entry.event)
+        HStack(spacing: 0) {
+            if isSelecting {
                 Button {
-                    if isSelecting {
-                        if isSelected {
-                            selectedEvents.remove(entry.event)
-                        } else {
-                            selectedEvents.insert(entry.event)
-                        }
+                    if isSelected {
+                        selectedEvents.remove(entry.event)
                     } else {
-                        if let index = allItems.firstIndex(where: { $0.videoId == song.videoId }) {
-                            NowPlaying.shared.setQueue(allItems, startIndex: index)
-                        } else {
-                            NowPlaying.shared.setQueue([song], startIndex: 0)
-                        }
-                        Task {
-                            try? await PlaybackManager.shared.resolveAndPlay(videoId: song.videoId)
-                        }
+                        selectedEvents.insert(entry.event)
                     }
                 } label: {
-                    PlaylistSongRow(song: song)
+                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                        .font(.title3)
+                        .foregroundStyle(isSelected ? settings.accentColor : .secondary)
+                        .padding(.leading, 16)
+                        .padding(.trailing, 4)
                 }
                 .buttonStyle(.plain)
-                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                    Button(role: .destructive) {
-                        Task { await viewModel.deleteEvents([entry.event]) }
-                    } label: {
-                        Label("Delete", systemImage: "trash")
+            }
+            Button {
+                if isSelecting {
+                    if isSelected {
+                        selectedEvents.remove(entry.event)
+                    } else {
+                        selectedEvents.insert(entry.event)
                     }
+                } else {
+                    if let index = allItems.firstIndex(where: { $0.videoId == song.videoId }) {
+                        NowPlaying.shared.setQueue(allItems, startIndex: index)
+                    } else {
+                        NowPlaying.shared.setQueue([song], startIndex: 0)
+                    }
+                    Task {
+                        try? await PlaybackManager.shared.resolveAndPlay(videoId: song.videoId)
+                    }
+                }
+            } label: {
+                PlaylistSongRow(song: song)
+            }
+            .buttonStyle(.plain)
+            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                Button(role: .destructive) {
+                    Task { await viewModel.deleteEvents([entry.event]) }
+                } label: {
+                    Label("Delete", systemImage: "trash")
                 }
             }
         }

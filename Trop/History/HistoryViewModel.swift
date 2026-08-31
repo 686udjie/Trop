@@ -65,58 +65,42 @@ final class HistoryView {
     // MARK: - Local group by date
 
     private static func groupByDate(_ entries: [DatabaseService.HistoryEntry]) -> [(String, [DatabaseService.HistoryEntry])] {
-        let cal = Calendar.current
-        let now = Date()
+        guard !entries.isEmpty else { return [] }
 
-        let todayStart = cal.startOfDay(for: now)
-        let yesterdayStart = cal.date(byAdding: .day, value: -1, to: todayStart)!
+        let calendar = Calendar.current
+        let grouped = Dictionary(grouping: entries) { entry in
+            calendar.startOfDay(for: entry.event.timestamp)
+        }
 
-        var today: [DatabaseService.HistoryEntry] = []
-        var yesterday: [DatabaseService.HistoryEntry] = []
-        var thisWeek: [DatabaseService.HistoryEntry] = []
-        var older: [String: [DatabaseService.HistoryEntry]] = [:]
-
-        let thisWeekStart: Date = {
-            let weekday = cal.component(.weekday, from: now)
-            let daysFromSunday = weekday - 1
-            return cal.date(byAdding: .day, value: -daysFromSunday, to: todayStart) ?? todayStart
-        }()
-
-        for entry in entries {
-            let ts = entry.event.timestamp
-            if ts >= todayStart {
-                today.append(entry)
-            } else if ts >= yesterdayStart {
-                yesterday.append(entry)
-            } else if ts >= thisWeekStart {
-                thisWeek.append(entry)
-            } else {
-                let monthKey = Self.formatMonth(ts)
-                older[monthKey, default: []].append(entry)
+        return grouped.keys
+            .sorted(by: >)
+            .compactMap { day -> (String, [DatabaseService.HistoryEntry])? in
+                guard let dayEntries = grouped[day], !dayEntries.isEmpty else { return nil }
+                let sorted = dayEntries.sorted { $0.event.timestamp > $1.event.timestamp }
+                return (title(for: day), sorted)
             }
-        }
-
-        var result: [(String, [DatabaseService.HistoryEntry])] = []
-        if !today.isEmpty { result.append(("Today", today)) }
-        if !yesterday.isEmpty { result.append(("Yesterday", yesterday)) }
-        if !thisWeek.isEmpty { result.append(("This Week", thisWeek)) }
-        for key in older.keys.sorted(by: >) {
-            result.append((key, older[key]!))
-        }
-        return result
     }
+
+    private static func title(for day: Date) -> String {
+        let cal = Calendar.current
+        if cal.isDateInToday(day) { return "Today" }
+        if cal.isDateInYesterday(day) { return "Yesterday" }
+        return dayFormatter.string(from: day)
+    }
+
+    private static let dayFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale.current
+        f.dateStyle = .medium
+        f.timeStyle = .none
+        return f
+    }()
 
     func deleteEvents(_ events: [Event]) async {
         for event in events {
             _ = try? await db.delete(event)
         }
         await loadLocal()
-    }
-
-    private static func formatMonth(_ date: Date) -> String {
-        let f = DateFormatter()
-        f.dateFormat = "MMMM yyyy"
-        return f.string(from: date)
     }
 
     // MARK: - Remote history parse
