@@ -1,0 +1,50 @@
+{
+  "name": "Trop",
+  "subtitle": "YouTube Music client for iOS",
+  "description": "Free and open source YouTube Music client. Nightly builds from GitHub Actions — unsigned IPAs that Feather, AltStore, or SideStore re-sign with your Apple ID.",
+  "iconURL": "https://raw.githubusercontent.com/686udjie/Trop/main/.github/assets/1.jpg",
+  "headerURL": "https://raw.githubusercontent.com/686udjie/Trop/main/.github/assets/2.jpg",
+  "website": "https://github.com/686udjie/Trop",
+  "tintColor": "#E53935",
+  "featuredApps": [
+    "com.686udjie.Trop"
+  ],
+  "apps": [
+    {
+      "name": "Trop",
+      "bundleIdentifier": "com.686udjie.Trop",
+      "developerName": "686udjie",
+      "subtitle": "YouTube Music client for iOS",
+      "localizedDescription": "A free and open source YouTube Music client for iOS.\n\n• No ads\n• Stream songs and videos from YouTube Music\n• Synced lyrics (Musixmatch, Netease, Kugou, LRCLIB, Genius)\n• Library sync (playlists, albums, artists, podcasts)\n• Downloads\n• Equalizer\n• Custom app icons and themes\n• Queue management and listening history\n\nRequires iOS 26 or later and a YouTube Music account.",
+      "iconURL": "https://raw.githubusercontent.com/686udjie/Trop/main/.github/assets/1.jpg",
+      "tintColor": "#E53935",
+      "category": "entertainment",
+      "screenshots": [
+        "https://raw.githubusercontent.com/686udjie/Trop/main/.github/assets/1.jpg",
+        "https://raw.githubusercontent.com/686udjie/Trop/main/.github/assets/2.jpg",
+        "https://raw.githubusercontent.com/686udjie/Trop/main/.github/assets/3.jpg"
+      ],
+      "screenshotURLs": [
+        "https://raw.githubusercontent.com/686udjie/Trop/main/.github/assets/1.jpg",
+        "https://raw.githubusercontent.com/686udjie/Trop/main/.github/assets/2.jpg",
+        "https://raw.githubusercontent.com/686udjie/Trop/main/.github/assets/3.jpg"
+      ],
+      "versions": [
+        {
+          "version": "1.0.0",
+          "buildVersion": "1",
+          "date": "2026-08-25T22:41:58Z",
+          "localizedDescription": "Initial release.",
+          "downloadURL": "https://github.com/686udjie/Trop/releases/download/v1.0.0/Trop.ipa",
+          "size": 36936556,
+          "minOSVersion": "26.0"
+        }
+      ],
+      "appPermissions": {
+        "entitlements": [],
+        "privacy": {}
+      }
+    }
+  ],
+  "news": []
+}
