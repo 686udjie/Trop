@@ -8,6 +8,12 @@ on:
     branches:
       - main
 
+concurrency:
+  # Serialize main publishes so an older run cannot overwrite a newer nightly IPA/metadata.
+  # PRs each get their own group so they do not cancel one another.
+  group: trop-nightly-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || 'main' }}
+  cancel-in-progress: true
+
 env:
   FFMPEG_KIT_TAG: v9.0.0
 
@@ -94,9 +100,8 @@ jobs:
           if [ -z "$NOTES" ]; then
             NOTES="Nightly build #${RUN_NUMBER}"
           fi
-          gh release edit nightly --notes "Latest main build (#${RUN_NUMBER}).
-
-${NOTES}"
+          # Single-line notes avoid breaking the YAML run block indentation.
+          gh release edit nightly --notes "Latest main build (#${RUN_NUMBER}). ${NOTES}"
 
       - name: Update altstore.json
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -133,10 +138,9 @@ ${NOTES}"
               "size": int(os.environ["SIZE"]),
               "minOSVersion": "26.0",
           }
-          versions = [v for v in app.get("versions", []) if v.get("buildVersion") != entry["buildVersion"]]
-          versions.insert(0, entry)
-          # Keep a short history so clients can still see recent nightlies / the seed release.
-          app["versions"] = versions[:10]
+          # nightly/Trop.ipa is overwritten each run — keep only the current entry
+          # so retained history cannot point at a mismatched IPA.
+          app["versions"] = [entry]
           path.write_text(json.dumps(source, indent=2) + "\n")
           print(f"Updated altstore.json -> build {entry['buildVersion']} ({entry['size']} bytes)")
           PY
