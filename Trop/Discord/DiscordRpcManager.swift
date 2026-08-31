@@ -307,7 +307,9 @@ final class DiscordRpcManager: @unchecked Sendable {
         do {
             let json = DiscordPresence.buildPresenceUpdate(status: .online, activities: [])
             try gateway.presenceUpdate(json)
-        } catch {}
+        } catch {
+            Log.discord.error("Failed to clear presence: \(error)")
+        }
     }
 
     // MARK: - reconnect

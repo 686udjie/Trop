@@ -38,6 +38,7 @@ final class HomeViewModel {
 
     private var cachedLocalSections: [HomeSection] = []
     private var cachedPhase2Sections: [HomeSection] = []
+    private var chipTask: Task<Void, Never>?
 
     private var notificationObserver: NSObjectProtocol?
 
@@ -102,15 +103,17 @@ final class HomeViewModel {
         Task { await load() }
     }
 
-    func refresh() {
+    func refresh() async {
         guard !isRefreshing else { return }
         isRefreshing = true
-        Task {
-            cachedLocalSections = []
-            cachedPhase2Sections = []
-            await load()
-            isRefreshing = false
-        }
+        cachedLocalSections = []
+        cachedPhase2Sections = []
+        await load()
+        isRefreshing = false
+    }
+
+    func refreshInBackground() {
+        Task { await refresh() }
     }
 
     func restoreSession() async {
@@ -165,24 +168,36 @@ final class HomeViewModel {
     private func load() async {
         loadGeneration += 1
         let generation = loadGeneration
-        isLoading = true
+        let shouldShowShimmer = !isRefreshing
+        if shouldShowShimmer {
+            isLoading = true
+        }
         error = nil
 
         async let localTask: Void = storeLocalSections()
         _ = await localTask
         guard generation == loadGeneration else { return }
         await personalization.drainEnrichments()
-        mergeSections()
-        isLoading = false
 
-        Task { [generation] in
-            await fetchHomePage(generation: generation)
-            guard generation == self.loadGeneration else { return }
-            await self.ensureQuickPicksAvailable(generation: generation)
-            self.mergeSections()
+        async let phase2Work: Void = loadPhase2Sections()
+
+        await fetchHomePage(generation: generation)
+        guard generation == loadGeneration else {
+            await phase2Work
+            return
         }
+        await ensureQuickPicksAvailable(generation: generation)
+        guard generation == loadGeneration else {
+            await phase2Work
+            return
+        }
+        await phase2Work
 
-        Task { await loadPhase2Sections() }
+        guard generation == loadGeneration else { return }
+        mergeSections()
+        if shouldShowShimmer {
+            isLoading = false
+        }
     }
 
     private func ensureQuickPicksAvailable(generation: Int) async {
@@ -195,14 +210,18 @@ final class HomeViewModel {
               let continuation = homePage?.continuation {
             attempts += 1
             isLoadingMore = true
-            defer { isLoadingMore = false }
             do {
                 let json = try await InnerTube.shared.browse(continuation: continuation)
-                guard let (newSections, next) = HomePageParser.parseContinuationSections(from: json) else { break }
+                guard let (newSections, next) = HomePageParser.parseContinuationSections(from: json) else {
+                    isLoadingMore = false
+                    break
+                }
                 homePage?.sections.append(contentsOf: newSections)
                 homePage?.continuation = next
                 mergeSections()
+                isLoadingMore = false
             } catch {
+                isLoadingMore = false
                 break
             }
         }
@@ -269,6 +288,7 @@ final class HomeViewModel {
     }
 
     func toggleChip(_ chip: HomePage.Chip?) {
+        chipTask?.cancel()
         if chip == nil || chip?.title == selectedChip?.title {
             homePage = previousHomePage
             previousHomePage = nil
@@ -282,17 +302,21 @@ final class HomeViewModel {
         }
 
         selectedChip = chip
-        Task {
+        let generation = loadGeneration
+        chipTask = Task {
             do {
                 let json = try await InnerTube.shared.browse(
                     browseId: "FEmusic_home",
                     params: chip?.params
                 )
+                guard !Task.isCancelled, generation == loadGeneration else { return }
                 if let page = HomePageParser.parseHomePage(from: json) {
                     homePage?.sections = page.sections
                     mergeSections()
                 }
             } catch {
+                guard !Task.isCancelled else { return }
+                guard generation == loadGeneration else { return }
                 homePage = previousHomePage
                 previousHomePage = nil
                 selectedChip = nil
@@ -350,7 +374,7 @@ final class HomeViewModel {
     private func orderSections(_ sections: [HomeSection]) -> [HomeSection] {
         let filtered = sections.compactMap { section -> HomeSection? in
             let f = applyFilters(section)
-            if case .homePageSection = f { return f }
+            if case .quickPicks = f { return f }
             return f.items.isEmpty ? nil : f
         }
 
@@ -386,7 +410,20 @@ final class HomeViewModel {
         case .quickPicks: return .quickPicks(items: filteredItems)
         case .keepListening: return .keepListening(items: filteredItems)
         case .forgottenFavorites: return .forgottenFavorites(items: filteredItems)
-        case .homePageSection(let s, let i): return .homePageSection(s, index: i)
+        case .homePageSection(let sectionData, let index):
+            let filteredSectionItems = sectionData.items.filter { item in
+                if hideExplicit {
+                    switch item {
+                    case .song(let s) where s.isExplicit: return false
+                    case .album(let a) where a.isExplicit: return false
+                    default: break
+                    }
+                }
+                return true
+            }
+            var newSection = sectionData
+            newSection.items = filteredSectionItems
+            return .homePageSection(newSection, index: index)
         case .accountPlaylists: return .accountPlaylists(items: filteredItems)
         case .similarRecommendation(_, let t): return .similarRecommendation(items: filteredItems, title: t)
         case .dailyDiscover: return .dailyDiscover(items: filteredItems)

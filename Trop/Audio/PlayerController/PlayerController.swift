@@ -389,7 +389,7 @@ extension PlayerController {
             case MPV_EVENT_START_FILE:
                 Log.player.debug("TRANSITION START_FILE")
             case MPV_EVENT_END_FILE:
-                handleEndFile()
+                handleEndFile(event)
             default:
                 break
             }
@@ -429,10 +429,11 @@ extension PlayerController {
             self.playState.send(actuallyPlaying ? .playing : .paused)
             NowPlaying.shared.isPlaying = actuallyPlaying
             self.currentVideoId = pendingVideoId
+            self.pendingVideoId = nil
             self.assertAudioSession()
             self.setNowPlayingMetadata()
             self.applyPendingResumeIfNeeded()
-            let checkId = self.pendingVideoId
+            let checkId = pendingVideoId
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
                 guard self.currentVideoId == checkId else { return }
@@ -470,23 +471,31 @@ extension PlayerController {
         }
     }
 
-    nonisolated private func handleEndFile() {
+    nonisolated private func handleEndFile(_ event: UnsafeMutablePointer<mpv_event>) {
+        guard let data = event.pointee.data else { return }
+        let endFile = data.load(as: mpv_event_end_file.self)
+        let reason = endFile.reason
+        let isEof = reason == MPV_END_FILE_REASON_EOF
+        let isError = reason == MPV_END_FILE_REASON_ERROR
         let stoppedVideoId = self.currentVideoId
         Task { @MainActor [weak self] in
             guard let self else { return }
             let videoId = stoppedVideoId
-            let isEof = self.playState.value != .stopped && self.currentVideoId == nil
-            let isFailure = false
             Log.player.debug(
-                "TRANSITION END_FILE isEof=\(isEof) isFailure=\(isFailure) stoppedVideoId=\(videoId ?? "nil")"
+                "TRANSITION END_FILE reason=\(reason.rawValue) isEof=\(isEof) isError=\(isError) stoppedVideoId=\(videoId ?? "nil")"
             )
-            if isEof || isFailure, videoId != nil {
+            if isEof || isError, videoId != nil {
                 Task { await PlaybackStateService.shared.stopTracking() }
             }
             self.currentVideoId = nil
-            if isEof || isFailure {
+            if isEof {
                 self.playState.send(.stopped)
-                NowPlaying.shared.stopped(videoId: videoId, isEof: isEof)
+                NowPlaying.shared.stopped(videoId: videoId, isEof: true)
+            } else if isError {
+                self.playState.send(.stopped)
+                NowPlaying.shared.stopped(videoId: videoId, isEof: false)
+            } else {
+                Log.player.debug("END_FILE non-EOF ignored for auto-advance")
             }
         }
     }

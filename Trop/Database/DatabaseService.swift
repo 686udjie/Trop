@@ -51,6 +51,14 @@ actor DatabaseService {
         var migrator = DatabaseMigrator()
         registerMigrations(&migrator)
         guard let memoryPool = try? DatabasePool(path: ":memory:") else {
+            Log.db.error("Unable to create any database pool - attempting Configuration fallback")
+            var config = Configuration()
+            config.readonly = false
+            if let fallback = try? DatabasePool(path: ":memory:", configuration: config) {
+                try? migrator.migrate(fallback)
+                return fallback
+            }
+            Log.db.error("All in-memory fallbacks failed")
             fatalError("Unable to create any database pool")
         }
         try? migrator.migrate(memoryPool)
@@ -258,7 +266,14 @@ extension DatabaseService {
                 .fetchAll(db)
             guard !recentIds.isEmpty else { return [] }
             let placeholders = recentIds.map { _ in "?" }.joined(separator: ",")
-            return try SongEntity.fetchAll(db, sql: "SELECT * FROM song WHERE id IN (\(placeholders))", arguments: StatementArguments(recentIds))
+            let fetched = try SongEntity.fetchAll(
+                db,
+                sql: "SELECT * FROM song WHERE id IN (\(placeholders))",
+                arguments: StatementArguments(recentIds)
+            )
+            let byId = Dictionary(uniqueKeysWithValues: fetched.map { ($0.id, $0) })
+            // Preserve recency order from recentIds (distinct order by timestamp desc)
+            return recentIds.compactMap { byId[$0] }
         }
     }
 

@@ -216,7 +216,9 @@ final class SearchViewModel {
             try? await Task.sleep(for: .milliseconds(250))
             guard !Task.isCancelled else { return }
             do {
-                self?.suggestions = try await SearchService.shared.searchSuggestions(input: query)
+                let result = try await SearchService.shared.searchSuggestions(input: query)
+                guard !Task.isCancelled else { return }
+                self?.suggestions = result
             } catch {
                 if !Self.isCancellation(error) {
                     Log.search.error("Suggestions failed: \(error)")

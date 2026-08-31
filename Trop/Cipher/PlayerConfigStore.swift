@@ -63,8 +63,10 @@ actor PlayerConfigStore {
 
     /// The patterns are compile-time constants — a throw here can only be a typo.
     private static func lockedRegex(_ pattern: String) -> NSRegularExpression {
-        // swiftlint:disable:next force_try
-        try! NSRegularExpression(pattern: pattern)
+        if let regex = try? NSRegularExpression(pattern: pattern) { return regex }
+        Log.cipherConfig.error("Invalid regex pattern: \(pattern) – using never-match fallback")
+        if let fallback = try? NSRegularExpression(pattern: "(?!.*)") { return fallback }
+        return (try? NSRegularExpression(pattern: ""))!
     }
 
     /// Advances every time a remote refresh changes the table. The cipher WebView records

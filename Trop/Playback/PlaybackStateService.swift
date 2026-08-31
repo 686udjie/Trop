@@ -76,6 +76,8 @@ actor PlaybackStateService {
         }
         Log.playbackState.debug("Recording playback videoId=\(videoId) playTimeMs=\(playTimeMs)")
         do {
+            await ensureSongExists(for: videoId)
+
             var event = Event(id: nil, songId: videoId, timestamp: Date(), playTime: playTimeMs)
             event = try await db.insert(event, onConflict: .ignore)
             Log.playbackState.debug("Local event recorded id=\(event.id ?? 0)")
@@ -106,6 +108,69 @@ actor PlaybackStateService {
             return url
         }
         return nil
+    }
+
+    private func ensureSongExists(for videoId: String) async {
+        if (try? await db.fetchOne(SongEntity.self, key: videoId)) != nil {
+            return
+        }
+
+        let queueSong: SongItem? = await MainActor.run {
+            NowPlaying.shared.queueSongs.first(where: { $0.videoId == videoId })
+        }
+
+        if let s = queueSong {
+            let entity = SongEntity(
+                id: s.videoId,
+                title: s.title,
+                artistName: s.artists.first?.name ?? s.artistNamesDisplay,
+                albumName: s.album,
+                duration: s.duration,
+                thumbnailUrl: s.thumbnailUrl ?? "https://i.ytimg.com/vi/\(videoId)/hqdefault.jpg",
+                liked: false,
+                totalPlayTime: 0,
+                inLibrary: nil,
+                libraryAddToken: "",
+                libraryRemoveToken: "",
+                isEpisode: false,
+                isUploaded: false,
+                isVideo: false,
+                createDate: Date(),
+                modifyDate: Date()
+            )
+            do {
+                _ = try await db.insert(entity, onConflict: .ignore)
+                Log.playbackState.debug("Ensured SongEntity for \(videoId) from queue: \(entity.title)")
+            } catch {
+                Log.playbackState.error("Failed to ensure SongEntity for \(videoId): \(error)")
+            }
+            return
+        }
+
+        let placeholder = SongEntity(
+            id: videoId,
+            title: videoId,
+            artistName: nil,
+            albumName: nil,
+            duration: 0,
+            thumbnailUrl: "https://i.ytimg.com/vi/\(videoId)/hqdefault.jpg",
+            liked: false,
+            totalPlayTime: 0,
+            inLibrary: nil,
+            libraryAddToken: "",
+            libraryRemoveToken: "",
+            isEpisode: false,
+            isUploaded: false,
+            isVideo: false,
+            createDate: Date(),
+            modifyDate: Date()
+        )
+        do {
+            _ = try await db.insert(placeholder, onConflict: .ignore)
+            Log.playbackState.debug("Ensured placeholder SongEntity for \(videoId)")
+        } catch {
+            Log.playbackState.error("Failed to ensure placeholder SongEntity for \(videoId): \(error)")
+        }
     }
 
     private func reset() {
