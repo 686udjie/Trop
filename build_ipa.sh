@@ -228,6 +228,7 @@ if [ -n "${MARKETING_VERSION:-}" ]; then
 fi
 
 # shellcheck disable=SC2086
+# Empty arrays + `set -u` explode on macOS bash 3.2; expand only when populated.
 xcodebuild -project "$WORKING_LOCATION/$PROJECT_NAME.xcodeproj" \
     -scheme "$APPLICATION_NAME" \
     -configuration Release \
@@ -236,8 +237,8 @@ xcodebuild -project "$WORKING_LOCATION/$PROJECT_NAME.xcodeproj" \
     $XCODEBUILD_ACTION \
     SKIP_SWIFTLINT=YES \
     CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGN_ENTITLEMENTS="" CODE_SIGNING_ALLOWED="NO" \
-    "${XCODE_LASTFM_ARGS[@]}" \
-    "${XCODE_VERSION_ARGS[@]}"
+    ${XCODE_LASTFM_ARGS[@]+"${XCODE_LASTFM_ARGS[@]}"} \
+    ${XCODE_VERSION_ARGS[@]+"${XCODE_VERSION_ARGS[@]}"}
 
 DD_APP_PATH="$DERIVED_DATA_PATH/Build/Products/Release-iphoneos/$APPLICATION_NAME.app"
 
