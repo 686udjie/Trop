@@ -45,6 +45,8 @@ jobs:
         run: ./build_ipa.sh
         env:
           FFMPEG_KIT_TAG: ${{ env.FFMPEG_KIT_TAG }}
+          LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
+          LASTFM_SECRET: ${{ secrets.LASTFM_SECRET }}
 
       - name: Upload iOS IPA artifact
         uses: actions/upload-artifact@v7.0.1

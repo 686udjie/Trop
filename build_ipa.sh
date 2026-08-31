@@ -191,6 +191,32 @@ if [ "${CLEAN_BUILD:-0}" = "1" ]; then
     XCODEBUILD_ACTION="clean build"
 fi
 
+# Inject Last.fm secrets from GH Secrets -> Info.plist
+# Trim whitespace/newlines (secrets pasted with newline cause error 6)
+LASTFM_API_KEY_TRIMMED="$(echo "${LASTFM_API_KEY:-}" | tr -d '\r\n' | xargs 2>/dev/null || echo "${LASTFM_API_KEY:-}")"
+LASTFM_SECRET_TRIMMED="$(echo "${LASTFM_SECRET:-}" | tr -d '\r\n' | xargs 2>/dev/null || echo "${LASTFM_SECRET:-}")"
+if [ -n "$LASTFM_API_KEY_TRIMMED" ]; then
+    echo "Injecting LASTFM_API_KEY (len=${#LASTFM_API_KEY_TRIMMED})"
+    /usr/libexec/PlistBuddy -c "Add :LASTFM_API_KEY string $LASTFM_API_KEY_TRIMMED" "$WORKING_LOCATION/Trop/Resources/Info.plist" 2>/dev/null \
+        || /usr/libexec/PlistBuddy -c "Set :LASTFM_API_KEY string $LASTFM_API_KEY_TRIMMED" "$WORKING_LOCATION/Trop/Resources/Info.plist" 2>/dev/null || true
+else
+    echo "Warning: LASTFM_API_KEY empty - Last.fm login will fail with error 6"
+fi
+if [ -n "$LASTFM_SECRET_TRIMMED" ]; then
+    echo "Injecting LASTFM_SECRET (len=${#LASTFM_SECRET_TRIMMED})"
+    /usr/libexec/PlistBuddy -c "Add :LASTFM_SECRET string $LASTFM_SECRET_TRIMMED" "$WORKING_LOCATION/Trop/Resources/Info.plist" 2>/dev/null \
+        || /usr/libexec/PlistBuddy -c "Set :LASTFM_SECRET string $LASTFM_SECRET_TRIMMED" "$WORKING_LOCATION/Trop/Resources/Info.plist" 2>/dev/null || true
+else
+    echo "Warning: LASTFM_SECRET empty - Last.fm login will fail with error 6"
+fi
+XCODE_LASTFM_ARGS=()
+if [ -n "$LASTFM_API_KEY_TRIMMED" ]; then
+    XCODE_LASTFM_ARGS+=("INFOPLIST_KEY_LASTFM_API_KEY=$LASTFM_API_KEY_TRIMMED")
+fi
+if [ -n "$LASTFM_SECRET_TRIMMED" ]; then
+    XCODE_LASTFM_ARGS+=("INFOPLIST_KEY_LASTFM_SECRET=$LASTFM_SECRET_TRIMMED")
+fi
+
 # shellcheck disable=SC2086
 xcodebuild -project "$WORKING_LOCATION/$PROJECT_NAME.xcodeproj" \
     -scheme "$APPLICATION_NAME" \
@@ -199,7 +225,8 @@ xcodebuild -project "$WORKING_LOCATION/$PROJECT_NAME.xcodeproj" \
     -destination 'generic/platform=iOS' \
     $XCODEBUILD_ACTION \
     SKIP_SWIFTLINT=YES \
-    CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGN_ENTITLEMENTS="" CODE_SIGNING_ALLOWED="NO"
+    CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGN_ENTITLEMENTS="" CODE_SIGNING_ALLOWED="NO" \
+    "${XCODE_LASTFM_ARGS[@]}"
 
 DD_APP_PATH="$DERIVED_DATA_PATH/Build/Products/Release-iphoneos/$APPLICATION_NAME.app"
 
