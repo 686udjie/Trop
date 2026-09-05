@@ -8,6 +8,11 @@ on:
     branches:
       - main
 
+concurrency:
+  # PRs each get their own group so they do not cancel one another
+  group: trop-nightly-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || 'main' }}
+  cancel-in-progress: true
+
 env:
   FFMPEG_KIT_TAG: v9.0.0
 
@@ -15,6 +20,13 @@ jobs:
   build-ios:
     name: Build iOS IPA
     runs-on: macos-26
+    # Skip bot commits that only refresh altstore.json after a nightly publish
+    if: >-
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'push' &&
+       !contains(github.event.head_commit.message, '[skip ci]'))
+    permissions:
+      contents: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6.0.2
@@ -47,9 +59,103 @@ jobs:
           FFMPEG_KIT_TAG: ${{ env.FFMPEG_KIT_TAG }}
           LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
           LASTFM_SECRET: ${{ secrets.LASTFM_SECRET }}
+          CURRENT_PROJECT_VERSION: ${{ github.run_number }}
 
       - name: Upload iOS IPA artifact
         uses: actions/upload-artifact@v7.0.1
         with:
           name: Trop-iOS
           path: build/Trop.ipa
+
+      - name: Publish nightly release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_NUMBER: ${{ github.run_number }}
+          COMMIT_SUBJECT: ${{ github.event.head_commit.message }}
+        run: |
+          set -euo pipefail
+          IPA_PATH="build/Trop.ipa"
+          test -f "$IPA_PATH"
+
+          # Create the floating nightly prerelease if missing, then replace the IPA asset.
+          if ! gh release view nightly >/dev/null 2>&1; then
+            gh release create nightly \
+              --prerelease \
+              --title "Nightly" \
+              --notes "Floating nightly IPA from the latest successful main build. Replaced on each push to main."
+          fi
+
+          # Remove prior Trop.ipa so upload is a clean overwrite.
+          EXISTING_ASSET_ID="$(gh api "repos/${{ github.repository }}/releases/tags/nightly" \
+            --jq '.assets[] | select(.name == "Trop.ipa") | .id' || true)"
+          if [ -n "${EXISTING_ASSET_ID:-}" ]; then
+            gh api -X DELETE "repos/${{ github.repository }}/releases/assets/${EXISTING_ASSET_ID}"
+          fi
+
+          gh release upload nightly "$IPA_PATH" --clobber
+
+          NOTES="$(printf '%s' "$COMMIT_SUBJECT" | head -n 1 | tr -d '\r')"
+          if [ -z "$NOTES" ]; then
+            NOTES="Nightly build #${RUN_NUMBER}"
+          fi
+          # Single-line notes avoid breaking the YAML run block indentation.
+          gh release edit nightly --notes "Latest main build (#${RUN_NUMBER}). ${NOTES} (real)"
+
+      - name: Update altstore.json
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_NUMBER: ${{ github.run_number }}
+          COMMIT_SUBJECT: ${{ github.event.head_commit.message }}
+        run: |
+          set -euo pipefail
+          IPA_PATH="build/Trop.ipa"
+          export SIZE="$(stat -f%z "$IPA_PATH" 2>/dev/null || stat -c%s "$IPA_PATH")"
+          export DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          export DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/nightly/Trop.ipa"
+          NOTES="$(printf '%s' "$COMMIT_SUBJECT" | head -n 1 | tr -d '\r')"
+          if [ -z "$NOTES" ]; then
+            NOTES="Nightly build #${RUN_NUMBER}"
+          fi
+          export NOTES="${NOTES}"
+
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          path = Path("altstore.json")
+          source = json.loads(path.read_text())
+          app = source["apps"][0]
+          entry = {
+              "version": "0.0.1",
+              "buildVersion": str(os.environ["RUN_NUMBER"]),
+              "date": os.environ["DATE"],
+              "localizedDescription": os.environ["NOTES"],
+              "downloadURL": os.environ["DOWNLOAD_URL"],
+              "size": int(os.environ["SIZE"]),
+              "minOSVersion": "26.0",
+          }
+          # nightly/Trop.ipa is overwritten each run — keep only the current entry
+          # so retained history cannot point at a mismatched IPA.
+          app["versions"] = [entry]
+          path.write_text(json.dumps(source, indent=2) + "\n")
+          print(f"Updated altstore.json -> build {entry['buildVersion']} ({entry['size']} bytes)")
+          PY
+
+      - name: Commit altstore.json
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add altstore.json
+          if git diff --cached --quiet; then
+            echo "altstore.json unchanged"
+            exit 0
+          fi
+          git commit -m "altstore.json: sync nightly build ${RUN_NUMBER} [skip ci]"
+          git push origin HEAD:main
