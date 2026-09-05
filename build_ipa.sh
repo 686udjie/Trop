@@ -217,7 +217,18 @@ if [ -n "$LASTFM_SECRET_TRIMMED" ]; then
     XCODE_LASTFM_ARGS+=("INFOPLIST_KEY_LASTFM_SECRET=$LASTFM_SECRET_TRIMMED")
 fi
 
+# CI sets CURRENT_PROJECT_VERSION to the run number
+# so AltStore/Feather can detect nightly updates while marketing version stays put.
+XCODE_VERSION_ARGS=()
+if [ -n "${CURRENT_PROJECT_VERSION:-}" ]; then
+    XCODE_VERSION_ARGS+=("CURRENT_PROJECT_VERSION=$CURRENT_PROJECT_VERSION")
+fi
+if [ -n "${MARKETING_VERSION:-}" ]; then
+    XCODE_VERSION_ARGS+=("MARKETING_VERSION=$MARKETING_VERSION")
+fi
+
 # shellcheck disable=SC2086
+# Empty arrays + `set -u` explode on macOS bash 3.2; expand only when populated.
 xcodebuild -project "$WORKING_LOCATION/$PROJECT_NAME.xcodeproj" \
     -scheme "$APPLICATION_NAME" \
     -configuration Release \
@@ -226,7 +237,8 @@ xcodebuild -project "$WORKING_LOCATION/$PROJECT_NAME.xcodeproj" \
     $XCODEBUILD_ACTION \
     SKIP_SWIFTLINT=YES \
     CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGN_ENTITLEMENTS="" CODE_SIGNING_ALLOWED="NO" \
-    "${XCODE_LASTFM_ARGS[@]}"
+    ${XCODE_LASTFM_ARGS[@]+"${XCODE_LASTFM_ARGS[@]}"} \
+    ${XCODE_VERSION_ARGS[@]+"${XCODE_VERSION_ARGS[@]}"}
 
 DD_APP_PATH="$DERIVED_DATA_PATH/Build/Products/Release-iphoneos/$APPLICATION_NAME.app"
 

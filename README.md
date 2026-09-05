@@ -2,9 +2,11 @@
 
 A free and open source YouTube Music client for iOS.
 
-| | | |
-|:---:|:---:|:---:|
-| ![](.github/assets/1.jpg) | ![](.github/assets/2.jpg) | ![](.github/assets/3.jpg) |
+<p>
+	<img src=".github/assets/1.jpg" width="25%" alt="Homepage" />
+	<img src=".github/assets/2.jpg" width="25%" alt="Player" />
+	<img src=".github/assets/3.jpg" width="25%" alt="Queue" />
+</p>
 
 ## Features
 
@@ -21,9 +23,22 @@ A free and open source YouTube Music client for iOS.
 
 Requires iOS 26 or later and a YouTube Music account (sign in through the in-app web view).
 
+### Feather / AltStore / SideStore
+
+Add the Trop source, then install the nightly IPA (unsigned — your client re-signs it with your Apple ID):
+
+```
+https://raw.githubusercontent.com/686udjie/Trop/main/altstore.json
+```
+
+
+> **Note:** AltStore PAL is not supported.
+
+Nightlies are published from each successful push to `main` as the floating [`nightly`](../../releases/tag/nightly) release.
+
 ### Manual Installation
 
-The latest ipa file is available from the [releases page](../../releases). Nightly ipas are also built on each commit via [Actions](../../actions). You can also build an unsigned IPA yourself with `./build_ipa.sh` (output at `build/Trop.ipa`).
+The latest stable IPA is on the [releases page](../../releases). Nightly IPAs are also built on each commit via [Actions](../../actions). You can also build an unsigned IPA yourself with `./build_ipa.sh` (output at `build/Trop.ipa`).
 
 ## Notable mentions
 

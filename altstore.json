@@ -1,0 +1,39 @@
+{
+  "name": "Trop",
+  "subtitle": "YouTube Music client for iOS",
+  "description": "Free and open source YouTube Music client. Nightly builds from GitHub Actions \u2014 unsigned IPAs that Feather, AltStore, or SideStore re-sign with your Apple ID.",
+  "iconURL": "https://raw.githubusercontent.com/686udjie/Trop/main/.github/assets/icon.png",
+  "website": "https://github.com/686udjie/Trop",
+  "tintColor": "#007AFF",
+  "featuredApps": [
+    "com.686udjie.Trop"
+  ],
+  "apps": [
+    {
+      "name": "Trop",
+      "bundleIdentifier": "com.686udjie.Trop",
+      "developerName": "686udjie",
+      "subtitle": "YouTube Music client for iOS",
+      "localizedDescription": "A free and open source YouTube Music client for iOS.\n\n\u2022 No ads\n\u2022 Stream songs and videos from YouTube Music\n\u2022 Background playback with lock screen controls\n\u2022 Equalizer & audio normalization\n\u2022 Video mode\n\u2022 Queue management & listening history\n\u2022 Discord status \u2013 show current song\n\u2022 Last.fm scrobbling\n\u2022 Synced lyrics (Musixmatch, Netease, Kugou, LRCLIB, Genius)\n\u2022 Library sync (playlists, albums, artists, podcasts)\n\u2022 Downloads\n\u2022 Custom app icons\n\nRequires iOS 26 or later and a YouTube Music account.",
+      "iconURL": "https://raw.githubusercontent.com/686udjie/Trop/main/.github/assets/icon.png",
+      "tintColor": "#007AFF",
+      "category": "entertainment",
+      "screenshotURLs": [
+        "https://raw.githubusercontent.com/686udjie/Trop/main/.github/assets/1.jpg",
+        "https://raw.githubusercontent.com/686udjie/Trop/main/.github/assets/2.jpg",
+        "https://raw.githubusercontent.com/686udjie/Trop/main/.github/assets/3.jpg"
+      ],
+      "versions": [
+        {
+          "version": "0.0.1",
+          "buildVersion": "84",
+          "date": "2026-08-31T18:26:15Z",
+          "localizedDescription": "Initial release (real)",
+          "downloadURL": "https://github.com/686udjie/Trop/releases/download/nightly/Trop.ipa",
+          "size": 47062812,
+          "minOSVersion": "26.0"
+        }
+      ]
+    }
+  ]
+}
