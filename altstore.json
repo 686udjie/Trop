@@ -26,11 +26,11 @@
       "versions": [
         {
           "version": "0.0.1",
-          "buildVersion": "84",
-          "date": "2026-08-31T18:26:15Z",
+          "buildVersion": "89",
+          "date": "2026-09-05T19:16:51Z",
           "localizedDescription": "Initial release (real)",
           "downloadURL": "https://github.com/686udjie/Trop/releases/download/nightly/Trop.ipa",
-          "size": 47062812,
+          "size": 47063863,
           "minOSVersion": "26.0"
         }
       ]
