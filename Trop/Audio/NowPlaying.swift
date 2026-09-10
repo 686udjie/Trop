@@ -47,6 +47,7 @@ final class NowPlaying {
 
     var hasVideo: Bool = false
     var isVideoMode: Bool = false
+    var isVideoReady: Bool = false
     var musicVideoType: String?
 
     private var originalQueue: [SongItem]?
@@ -264,6 +265,7 @@ final class NowPlaying {
         self.videoId = videoId
         self.hasVideo = false
         self.isVideoMode = false
+        self.isVideoReady = false
         startTimer()
         loadThumbnail(videoId: videoId)
         preloadNextTrack()

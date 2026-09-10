@@ -47,21 +47,36 @@ final class MpvVideoUIView: UIView {
         let mpvLayer = PlayerController.shared.videoLayer
         guard mpvLayer.superlayer === layer else { return }
         guard bounds.width > 0, bounds.height > 0 else { return }
-        let scale = window?.windowScene?.screen.nativeScale ?? traitCollection.displayScale
-        let drawableWidth = max(1, Int((bounds.width * scale).rounded(.down)) - 1)
-        let drawableHeight = max(1, Int((bounds.height * scale).rounded(.down)) - 1)
-        let logicalSize = CGSize(
-            width: CGFloat(drawableWidth) / scale,
-            height: CGFloat(drawableHeight) / scale
-        )
-        mpvLayer.bounds = CGRect(origin: .zero, size: logicalSize)
-        mpvLayer.position = CGPoint(x: bounds.midX, y: bounds.midY)
+        var scale: CGFloat = 3
+        if let native = window?.windowScene?.screen.nativeScale, native > 0 {
+            scale = native
+        } else {
+            let trait = traitCollection.displayScale
+            let current = UITraitCollection.current.displayScale
+            if trait > 0 {
+                scale = trait
+            } else if current > 0 {
+                scale = current
+            }
+        }
+        let drawableWidth = max(1, Int((bounds.width * scale).rounded()))
+        let drawableHeight = max(1, Int((bounds.height * scale).rounded()))
+        mpvLayer.frame = bounds
         mpvLayer.contentsScale = scale
-        mpvLayer.drawableSize = CGSize(width: drawableWidth, height: drawableHeight)
+        let newDrawable = CGSize(width: drawableWidth, height: drawableHeight)
+        if mpvLayer.drawableSize != newDrawable {
+            mpvLayer.drawableSize = newDrawable
+        }
+        PlayerController.shared.refreshVideoGeometryIfNeeded()
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        syncLayer()
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
         syncLayer()
     }
 }

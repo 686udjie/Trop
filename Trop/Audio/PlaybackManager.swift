@@ -251,6 +251,45 @@ actor PlaybackManager {
         return try await resolveVideoStream(videoId: videoId)
     }
 
+    func resolveVideoOnlyURL(videoId: String) async throws -> String {
+        for fb in ClientFallbackChain.preferred {
+            do {
+                let signatureTimestamp: Int?
+                if fb.client.useSignatureTimestamp {
+                    signatureTimestamp = try? await PlayerJsFetcher.shared.getSignatureTimestamp()
+                } else {
+                    signatureTimestamp = nil
+                }
+
+                let response = try await InnerTube.shared.playerResponse(
+                    videoId: videoId,
+                    client: fb.client,
+                    signatureTimestamp: signatureTimestamp,
+                    poToken: nil
+                )
+
+                guard let streamingData = response.streamingData else {
+                    continue
+                }
+
+                let allFormats = (streamingData.formats ?? []) + (streamingData.adaptiveFormats ?? [])
+
+                if let muxed = FormatSelector.bestVideoFormat(from: allFormats),
+                   let url = muxed.url {
+                    return url
+                }
+
+                if let video = FormatSelector.bestVideoOnlyFormat(from: allFormats) {
+                    return try await Self.resolveStreamURL(video)
+                }
+            } catch {
+                Log.playbackManager.error("Video-only resolution failed for \(fb.client.clientName): \(error)")
+            }
+        }
+
+        throw StreamError.noSuitableFormat
+    }
+
     /// Resolves a format's stream URL, going through the cipher if needed.
     private static func resolveStreamURL(_ format: Format) async throws -> String {
         if let url = format.url, !url.isEmpty { return url }

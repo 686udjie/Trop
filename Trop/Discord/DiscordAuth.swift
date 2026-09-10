@@ -210,7 +210,8 @@ final class DiscordAuth: NSObject {
         if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
             errorCode = json["error"] as? String ?? ""
         }
-        if status == 400, errorCode == "invalid_grant" {
+        if status == 400 || status == 401,
+           ["invalid_grant", "invalid_client", "invalid_request", "unauthorized_client"].contains(errorCode) {
             throw DiscordAuthError.invalidGrant
         }
         throw DiscordAuthError.networkFailure(
