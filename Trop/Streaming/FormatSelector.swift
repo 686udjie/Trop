@@ -149,13 +149,7 @@ enum FormatSelector {
         let codecScore = scoreCodec(format.codec) * 100
         let bitrateScore = (format.bitrate ?? 0) / 1000  // normalize to kbps for readability
 
-        let total = qualityScore + channelsScore + codecScore + bitrateScore
-        Log.formatSelector.debug(
-            "  Scoring itag=\(format.itag ?? 0): quality=\(qualityScore) channels=\(channelsScore) " +
-                "codec=\(codecScore) bitrate=\(bitrateScore) total=\(total)"
-        )
-
-        return total
+        return qualityScore + channelsScore + codecScore + bitrateScore
     }
 
     private static func scoreCodec(_ codec: String) -> Int {
@@ -206,8 +200,6 @@ enum FormatSelector {
         let pool = h264.isEmpty ? muxedFormats : h264
         if h264.isEmpty {
             Log.formatSelector.debug("No H.264 muxed format; falling back to any muxed format")
-        } else {
-            Log.formatSelector.debug("Using \(h264.count) H.264 muxed format(s)")
         }
 
         let selected = pool.max { a, b in
@@ -247,16 +239,12 @@ enum FormatSelector {
         let poolBase = h264.isEmpty ? videoOnlyFormats : h264
         if h264.isEmpty {
             Log.formatSelector.debug("No H.264 video-only format; falling back to any video-only format")
-        } else {
-            Log.formatSelector.debug("Using \(h264.count) H.264 video-only format(s)")
         }
 
         let capped = poolBase.filter { ($0.height ?? 0) <= 720 }
         let pool = capped.isEmpty ? poolBase : capped
         if capped.isEmpty {
             Log.formatSelector.debug("No video-only format ≤720p; using higher-resolution pool")
-        } else {
-            Log.formatSelector.debug("Using \(capped.count) video-only format(s) ≤720p")
         }
 
         let selected = pool.max { a, b in

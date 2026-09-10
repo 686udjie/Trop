@@ -276,30 +276,20 @@ struct FullPlayerView: View {
     private var artwork: some View {
         Group {
             if np.isVideoMode, np.hasVideo {
-                VideoPlayerView()
-                    .aspectRatio(16 / 9, contentMode: .fit)
-                    .onTapGesture {
-                        np.isVideoMode = false
-                    }
-            } else {
                 ZStack {
-                    if let uiImage = np.thumbnailUIImage {
-                        let cropped = uiImage.centerCroppedSquare()
-                        GeometryReader { geo in
-                            Image(uiImage: cropped)
-                                .resizable()
-                                .scaledToFill()
-                                .frame(width: geo.size.width, height: geo.size.height)
-                        }
-                    } else {
-                        ZStack {
-                            Color.white.opacity(0.1)
-                            Image(systemName: "music.note")
-                                .font(.system(size: 64))
-                                .foregroundStyle(.white.opacity(0.4))
-                        }
+                    VideoPlayerView()
+                    if !np.isVideoReady {
+                        artworkImage
+                            .transition(.opacity)
                     }
                 }
+                .aspectRatio(16 / 9, contentMode: .fit)
+                .animation(.easeOut(duration: 0.2), value: np.isVideoReady)
+                .onTapGesture {
+                    np.isVideoMode = false
+                }
+            } else {
+                artworkImage
                 .aspectRatio(1, contentMode: .fit)
                 .onTapGesture {
                     guard np.hasVideo else { return }
@@ -309,6 +299,28 @@ struct FullPlayerView: View {
         }
         .offset(x: artworkEntryOffset)
         .gesture(artworkSwipe)
+    }
+
+    /// Song artwork (or placeholder), filling its container.
+    private var artworkImage: some View {
+        ZStack {
+            if let uiImage = np.thumbnailUIImage {
+                let cropped = uiImage.centerCroppedSquare()
+                GeometryReader { geo in
+                    Image(uiImage: cropped)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: geo.size.width, height: geo.size.height)
+                }
+            } else {
+                ZStack {
+                    Color.white.opacity(0.1)
+                    Image(systemName: "music.note")
+                        .font(.system(size: 64))
+                        .foregroundStyle(.white.opacity(0.4))
+                }
+            }
+        }
     }
 
     private var progressSlider: some View {

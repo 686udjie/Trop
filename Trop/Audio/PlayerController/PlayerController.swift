@@ -48,9 +48,16 @@ final class PlayerController {
     /// synchronously before dispatching work to the main actor.
     nonisolated(unsafe) var videoModeSwitchInFlight = false
     nonisolated(unsafe) var loadedMuxedURL: String?
+    nonisolated(unsafe) var loadedVideoOnlyURL: String?
+    nonisolated(unsafe) var voWarmedVideoId: String?
     nonisolated(unsafe) var muxedActive = false
     nonisolated(unsafe) var muxedVideoId: String?
     nonisolated(unsafe) var hasPresentedVideo = false
+    nonisolated(unsafe) var voInitDrawableSize: CGSize = .zero
+    private var lastGeometryRefreshAt = Date.distantPast
+    nonisolated(unsafe) var videoFlipAwaitingRestart = false
+    private var videoAttachTask: Task<Bool, Never>?
+    private var videoAttachTaskId: String?
 
     var videoLayer: CAMetalLayer = {
         let layer = CAMetalLayer()
@@ -169,11 +176,15 @@ extension PlayerController {
             await PlaybackStateService.shared.stopTracking()
         }
         loadedMuxedURL = nil
+        loadedVideoOnlyURL = nil
+        voWarmedVideoId = nil
         muxedActive = false
         muxedVideoId = nil
         pendingResumeAt = 0
         videoModeSwitchInFlight = false
+        videoFlipAwaitingRestart = false
         NowPlaying.shared.isVideoMode = false
+        NowPlaying.shared.isVideoReady = false
         if hasPresentedVideo { clearVideoLayer() }
         if let videoId { await PlaybackStateService.shared.startTracking(videoId: videoId) }
 
@@ -196,7 +207,9 @@ extension PlayerController {
         let cmdResult = withMpv { mpv in
             ["loadfile", absoluteString, "replace"].withUnsafeCArg { mpv_command(mpv, $0) }
         } ?? -1
-        Log.player.info("mpv_command loadfile result=\(cmdResult)")
+        if cmdResult != 0 {
+            Log.player.error("mpv_command loadfile failed result=\(cmdResult)")
+        }
         NowPlaying.shared.isPlaying = true
         NowPlaying.shared.currentTime = 0
         if let duration, duration > 0 { NowPlaying.shared.duration = duration }
@@ -293,6 +306,8 @@ extension PlayerController {
                 return
             }
 
+            _ = setenv("MVK_CONFIG_LOG_LEVEL", "1", 1)
+
             mpv_request_log_messages(mpv, "warn")
             Self.applyMpvStartupOptions(mpv)
 
@@ -339,6 +354,7 @@ extension PlayerController {
         mpv_set_option_string(mpv, "vo", "null")
         mpv_set_option_string(mpv, "vid", "no")
         mpv_set_option_string(mpv, "force-window", "no")
+        mpv_set_option_string(mpv, "msg-level", "all=error")
 
         #if targetEnvironment(simulator)
         mpv_set_option_string(mpv, "hwdec", "no")
@@ -372,6 +388,7 @@ extension PlayerController {
     nonisolated private static func applyObservedProperties(_ mpv: OpaquePointer) {
         mpv_observe_property(mpv, 0, "duration", MPV_FORMAT_DOUBLE)
         mpv_observe_property(mpv, 1, "video-params/w", MPV_FORMAT_INT64)
+        mpv_observe_property(mpv, 2, "video-out-params", MPV_FORMAT_NODE)
     }
 
     nonisolated fileprivate func eventLoop(_ mpv: OpaquePointer) {
@@ -390,6 +407,10 @@ extension PlayerController {
                 Log.player.debug("TRANSITION START_FILE")
             case MPV_EVENT_END_FILE:
                 handleEndFile(event)
+            case MPV_EVENT_VIDEO_RECONFIG:
+                handleVideoReconfig()
+            case MPV_EVENT_PLAYBACK_RESTART:
+                handlePlaybackRestart()
             default:
                 break
             }
@@ -406,6 +427,7 @@ extension PlayerController {
             let level = prop.level.map { String(cString: $0) } ?? ""
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty {
+                if trimmed.range(of: "primitive restart", options: .caseInsensitive) != nil { return }
                 Log.mpv.debug("[\(prefix)] [\(level)] \(trimmed)")
                 if let crop = detectedCrop(from: trimmed) {
                     Task { @MainActor in self.applyDetectedCrop(crop) }
@@ -419,13 +441,11 @@ extension PlayerController {
         mpv_get_property(mpv, "pause", MPV_FORMAT_FLAG, &pauseFlag)
         let actuallyPlaying = pauseFlag == 0
         let aoPtr = mpv_get_property_string(mpv, "current-ao")
-        let aoName = aoPtr.map { String(cString: $0) } ?? "nil"
         if let aoPtr { mpv_free(aoPtr) }
         let pendingVideoId = self.pendingVideoId
         Task { @MainActor [weak self] in
             guard let self else { return }
             Log.player.debug("TRANSITION FILE_LOADED videoId=\(pendingVideoId ?? "nil") playing=\(actuallyPlaying)")
-            Log.player.info("MPV_AO current-ao=\(aoName)")
             self.playState.send(actuallyPlaying ? .playing : .paused)
             NowPlaying.shared.isPlaying = actuallyPlaying
             self.currentVideoId = pendingVideoId
@@ -459,15 +479,47 @@ extension PlayerController {
         } else if name == "video-params/w", prop.format == MPV_FORMAT_INT64 {
             let width: Int64 = prop.data?.load(as: Int64.self) ?? 0
             if width > 0 {
-                Log.player.debug("TRANSITION video-params/w=\(width) videoId=\(self.currentVideoId ?? "nil")")
                 Task { @MainActor in
                     let ok = self.muxedActive && NowPlaying.shared.videoId == self.muxedVideoId
                     guard ok else { return }
                     if self.hasPresentedVideo { self.clearVideoLayer() }
-                    NowPlaying.shared.isVideoMode = true
+                    // Only the flip owns the mount; background prerender must
+                    // never pop the UI (ready is still recorded below).
+                    if self.videoModeSwitchInFlight { NowPlaying.shared.isVideoMode = true }
                     self.hasPresentedVideo = true
                 }
             }
+        } else if name == "video-out-params", prop.format == MPV_FORMAT_NODE {
+            Task { @MainActor in
+                let ok = self.muxedActive && NowPlaying.shared.videoId == self.muxedVideoId
+                guard ok else { return }
+                if self.videoModeSwitchInFlight { NowPlaying.shared.isVideoMode = true }
+                NowPlaying.shared.isVideoReady = true
+                self.hasPresentedVideo = true
+            }
+        }
+    }
+
+    nonisolated private func handleVideoReconfig() {
+        Task { @MainActor in
+            let ok = self.muxedActive && NowPlaying.shared.videoId == self.muxedVideoId
+            guard ok else { return }
+            if self.videoModeSwitchInFlight { NowPlaying.shared.isVideoMode = true }
+            NowPlaying.shared.isVideoReady = true
+            self.hasPresentedVideo = true
+        }
+    }
+
+    nonisolated private func handlePlaybackRestart() {
+        let flipPending = self.videoFlipAwaitingRestart
+        Task { @MainActor in
+            guard flipPending else { return }
+            let ok = self.muxedActive && NowPlaying.shared.videoId == self.muxedVideoId
+            self.videoFlipAwaitingRestart = false
+            guard ok else { return }
+            if self.videoModeSwitchInFlight { NowPlaying.shared.isVideoMode = true }
+            NowPlaying.shared.isVideoReady = true
+            self.hasPresentedVideo = true
         }
     }
 
@@ -508,13 +560,47 @@ extension PlayerController {
         guard let videoId = NowPlaying.shared.videoId else { return }
         if muxedActive {
             NowPlaying.shared.isVideoMode = true
+            NowPlaying.shared.isVideoReady = true
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 100_000_000)
+                guard NowPlaying.shared.videoId == videoId,
+                      NowPlaying.shared.isVideoMode else { return }
+                guard self.videoLayerDrifted() else { return }
+                NowPlaying.shared.isVideoReady = false
+                self.setVideoTrack()
+                try? await Task.sleep(nanoseconds: 4_000_000_000)
+                guard NowPlaying.shared.videoId == videoId,
+                      NowPlaying.shared.isVideoMode,
+                      !NowPlaying.shared.isVideoReady else { return }
+                NowPlaying.shared.isVideoReady = true
+            }
             return
         }
         guard !videoModeSwitchInFlight else { return }
         videoModeSwitchInFlight = true
+        NowPlaying.shared.isVideoMode = true
+        NowPlaying.shared.isVideoReady = false
         Task {
             defer { videoModeSwitchInFlight = false }
+            if loadedVideoOnlyURL != nil {
+                try? await Task.sleep(nanoseconds: 100_000_000)
+                guard NowPlaying.shared.videoId == videoId else { return }
+            }
             do {
+                guard await ensureVideoAttached(videoId: videoId) else {
+                    throw StreamError.noSuitableFormat
+                }
+                guard NowPlaying.shared.videoId == videoId, NowPlaying.shared.isVideoMode else { return }
+                try? await Task.sleep(nanoseconds: 250_000_000)
+                guard NowPlaying.shared.videoId == videoId, NowPlaying.shared.isVideoMode else { return }
+                Log.player.debug("TRANSITION video flipped videoId=\(videoId)")
+                NowPlaying.shared.isVideoReady = true
+                return
+            } catch {
+                Log.player.debug("video attach failed, falling back to EDL replace: \(error)")
+            }
+            do {
+                videoFlipAwaitingRestart = false
                 let resumeAt = currentTime
                 let url: String
                 if let loaded = loadedMuxedURL {
@@ -528,43 +614,158 @@ extension PlayerController {
                 setVideoTrack()
                 Log.player.debug("TRANSITION entering video mode videoId=\(videoId) url=\(url.prefix(80))")
                 muxedVideoId = videoId
+                pendingVideoId = videoId
                 loadFileReplacing(url, startAt: resumeAt)
                 muxedActive = true
             } catch {
                 Log.player.error("setVideoMode failed: \(error)")
                 NowPlaying.shared.isVideoMode = false
+                NowPlaying.shared.isVideoReady = false
             }
         }
     }
 
-    func preloadVideoURL() {
-        guard loadedMuxedURL == nil else { return }
-        guard let videoId = NowPlaying.shared.videoId else { return }
-        Task {
-            do {
-                let url = try await PlaybackManager.shared.resolveMuxedURL(videoId: videoId)
-                guard NowPlaying.shared.videoId == videoId, loadedMuxedURL == nil else { return }
-                loadedMuxedURL = url
-            } catch {
-                Log.player.error("Video preload failed: \(error)")
-            }
+    func ensureVideoAttached(videoId: String) async -> Bool {
+        if muxedActive, muxedVideoId == videoId { return true }
+        if let task = videoAttachTask, videoAttachTaskId == videoId {
+            return await task.value
         }
+        let task = Task<Bool, Never> { [weak self] in
+            guard let self else { return false }
+            return await self.attachVideoTrack(videoId: videoId)
+        }
+        videoAttachTask = task
+        videoAttachTaskId = videoId
+        let result = await task.value
+        if videoAttachTaskId == videoId {
+            videoAttachTask = nil
+            videoAttachTaskId = nil
+        }
+        return result
+    }
+
+    private func attachVideoTrack(videoId: String) async -> Bool {
+        do {
+            // Already initialized at the right size by preload? Don't churn.
+            if voWarmedVideoId != videoId || videoLayerDrifted() {
+                setVideoTrack()
+            }
+            let videoURL: String
+            if let preloaded = loadedVideoOnlyURL {
+                videoURL = preloaded
+            } else {
+                videoURL = try await PlaybackManager.shared.resolveVideoOnlyURL(videoId: videoId)
+                guard NowPlaying.shared.videoId == videoId else { return false }
+                loadedVideoOnlyURL = videoURL
+            }
+            guard NowPlaying.shared.videoId == videoId else { return false }
+            let addResult = withMpv { mpv in
+                ["video-add", videoURL, "select"].withUnsafeCArg { mpv_command(mpv, $0) }
+            } ?? -1
+            guard addResult == 0 else { throw StreamError.noSuitableFormat }
+            guard await waitForVideoTrack(videoId: videoId) else { throw StreamError.noSuitableFormat }
+            guard NowPlaying.shared.videoId == videoId else { return false }
+            muxedVideoId = videoId
+            muxedActive = true
+            voInitDrawableSize = videoLayer.drawableSize
+            // video-add starts at 0 while audio is live — seek both to now.
+            let syncAt = currentTime
+            videoFlipAwaitingRestart = true
+            let seekResult = withMpv { mpv in
+                ["seek", String(syncAt), "absolute+exact"].withUnsafeCArg { mpv_command(mpv, $0) }
+            } ?? -1
+            guard seekResult == 0 else {
+                videoFlipAwaitingRestart = false
+                throw StreamError.noSuitableFormat
+            }
+            _ = await waitForFlipRestart(videoId: videoId)
+            guard NowPlaying.shared.videoId == videoId else { return false }
+            videoFlipAwaitingRestart = false
+            return true
+        } catch {
+            videoFlipAwaitingRestart = false
+            Log.player.debug("video attach failed videoId=\(videoId): \(error)")
+            return false
+        }
+    }
+
+    private func waitForVideoTrack(videoId: String) async -> Bool {
+        for _ in 0..<60 {
+            guard NowPlaying.shared.videoId == videoId else { return false }
+            let width: Int64 = withMpv { mpv in
+                var w = Int64(0)
+                mpv_get_property(mpv, "video-params/w", MPV_FORMAT_INT64, &w)
+                return w
+            } ?? 0
+            if width > 0 { return true }
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+        return false
+    }
+
+    private func waitForFlipRestart(videoId: String) async -> Bool {
+        for _ in 0..<50 {
+            guard NowPlaying.shared.videoId == videoId else { return false }
+            if !videoFlipAwaitingRestart { return true }
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+        return false
+    }
+
+    func preloadVideoURL() {
+        guard let videoId = NowPlaying.shared.videoId else { return }
+        guard !isVideoPrerendered(videoId: videoId) else { return }
+        Task {
+            if loadedVideoOnlyURL == nil {
+                do {
+                    let url = try await PlaybackManager.shared.resolveVideoOnlyURL(videoId: videoId)
+                    guard NowPlaying.shared.videoId == videoId, loadedVideoOnlyURL == nil else { return }
+                    loadedVideoOnlyURL = url
+                } catch {
+                    Log.player.error("Video preload failed: \(error)")
+                    return
+                }
+            }
+            guard NowPlaying.shared.videoId == videoId else { return }
+            if voWarmedVideoId != videoId {
+                setVideoTrack()
+                voWarmedVideoId = videoId
+                Log.player.debug("TRANSITION video preloaded videoId=\(videoId)")
+            }
+            guard !ProcessInfo.processInfo.isLowPowerModeEnabled else { return }
+            guard NowPlaying.shared.videoId == videoId else { return }
+            _ = await ensureVideoAttached(videoId: videoId)
+        }
+    }
+
+    private func isVideoPrerendered(videoId: String) -> Bool {
+        loadedVideoOnlyURL != nil && voWarmedVideoId == videoId
+            && muxedActive && muxedVideoId == videoId
     }
 
     func handleVideoStreamFailure() {
         guard muxedActive || videoModeSwitchInFlight else { return }
         loadedMuxedURL = nil
+        loadedVideoOnlyURL = nil
+        voWarmedVideoId = nil
         muxedActive = false
         muxedVideoId = nil
         videoModeSwitchInFlight = false
+        videoFlipAwaitingRestart = false
         NowPlaying.shared.isVideoMode = false
+        NowPlaying.shared.isVideoReady = false
     }
 
     private func setVideoTrack() {
         lastDetectedCrop = nil
         detectedCropRepeatCount = 0
+        if videoLayer.superlayer == nil {
+            presizeVideoLayerForExpectedFrame()
+        }
+        voInitDrawableSize = videoLayer.drawableSize
         let wid: Int64 = unsafeBitCast(videoLayer, to: Int64.self)
         withMpv { mpv in
+            mpv_set_property_string(mpv, "vo", "null")
             mpv_set_property_string(mpv, "vo", "gpu-next")
             mpv_set_property_string(mpv, "gpu-api", "vulkan")
             mpv_set_property_string(mpv, "gpu-context", "moltenvk")
@@ -573,6 +774,36 @@ extension PlayerController {
             mpv_set_property_string(mpv, "vid", "auto")
         }
         setVideoCrop(.none)
+    }
+
+    private func presizeVideoLayerForExpectedFrame() {
+        let windows = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap { $0.windows }
+        guard let window = windows.first(where: { $0.isKeyWindow }) ?? windows.first else { return }
+        let width = window.bounds.width - 64
+        guard width > 0 else { return }
+        let height = width * 9 / 16
+        let scale = window.screen.nativeScale > 0 ? window.screen.nativeScale : 3
+        videoLayer.frame = CGRect(x: 0, y: 0, width: width, height: height)
+        videoLayer.contentsScale = scale
+        videoLayer.drawableSize = CGSize(width: (width * scale).rounded(), height: (height * scale).rounded())
+    }
+
+    func videoLayerDrifted() -> Bool {
+        let baseline = voInitDrawableSize
+        guard baseline.width > 0, baseline.height > 0 else { return false }
+        let current = videoLayer.drawableSize
+        return abs(current.width - baseline.width) > 2 || abs(current.height - baseline.height) > 2
+    }
+
+    func refreshVideoGeometryIfNeeded() {
+        guard muxedActive || hasPresentedVideo else { return }
+        guard videoLayerDrifted() else { return }
+        guard Date().timeIntervalSince(lastGeometryRefreshAt) > 0.5 else { return }
+        lastGeometryRefreshAt = Date()
+        Log.player.debug("TRANSITION video VO restart for geometry")
+        setVideoTrack()
     }
 
     nonisolated private func detectedCrop(from log: String) -> DetectedCrop? {
@@ -657,10 +888,6 @@ extension PlayerController {
         do {
             try session.setCategory(.playback, mode: .default, policy: .longFormAudio)
             try session.setActive(true)
-            Log.player.info(
-                "AUDIO_SESSION category=\(session.category.rawValue) active=\(session.isOtherAudioPlaying ? "yes(otherPlaying)" : "yes") " +
-                "outputs=\(session.currentRoute.outputs.map(\.portName).joined(separator: ","))"
-            )
         } catch {
             Log.player.error("Failed to assert audio session: \(error)")
         }
