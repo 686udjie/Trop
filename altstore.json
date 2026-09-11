@@ -26,11 +26,11 @@
       "versions": [
         {
           "version": "0.0.1",
-          "buildVersion": "89",
-          "date": "2026-09-05T19:16:51Z",
-          "localizedDescription": "Initial release (real)",
+          "buildVersion": "91",
+          "date": "2026-09-11T09:28:43Z",
+          "localizedDescription": "feat(explore): add Explore tab with new releases, charts and moods",
           "downloadURL": "https://github.com/686udjie/Trop/releases/download/nightly/Trop.ipa",
-          "size": 47063863,
+          "size": 47166798,
           "minOSVersion": "26.0"
         }
       ]
