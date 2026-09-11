@@ -131,6 +131,198 @@ extension HomePageParser {
     }
 }
 
+// MARK: - Explore
+
+extension HomePageParser {
+    static let exploreBrowseId = "FEmusic_explore"
+    static let moodsCategoryBrowseId = "FEmusic_moods_and_genres_category"
+
+    /// Parses `FEmusic_explore` into categorized sections. Logs the raw
+    /// structure at every level so the mapping can be tailored from logs:
+    /// renderer keys per section, header browseIds, item counts and the
+    /// first item's renderer keys.
+    static func parseExploreSections(from json: [String: Any]) -> [ExploreSection] {
+        guard let contents = json["contents"] as? [String: Any] else {
+            Log.explore.error("Explore parse failed: missing contents, top keys=\(json.keys.sorted())")
+            return []
+        }
+        guard let singleColumn = contents["singleColumnBrowseResultsRenderer"] as? [String: Any],
+              let tabs = singleColumn["tabs"] as? [[String: Any]],
+              let firstTab = tabs.first,
+              let tabRenderer = firstTab["tabRenderer"] as? [String: Any],
+              let content = tabRenderer["content"] as? [String: Any],
+              let sectionList = content["sectionListRenderer"] as? [String: Any],
+              let sections = sectionList["contents"] as? [[String: Any]] else {
+            Log.explore.error("Explore parse failed: bad section path, contents keys=\(contents.keys.sorted())")
+            return []
+        }
+        Log.explore.debug("Explore raw: \(sections.count) sections")
+        var output: [ExploreSection] = []
+        for (index, sectionDict) in sections.enumerated() {
+            let keys = sectionDict.keys.sorted()
+            Log.explore.debug("Explore section[\(index)] keys=\(keys)")
+            if let parsed = parseExploreSection(sectionDict, index: index) {
+                output.append(parsed)
+            }
+        }
+        Log.explore.debug(
+            "Explore parsed: " + output.map { "\($0.title):\($0.items.count)+\($0.moods.count)moods" }.joined(separator: ", ")
+        )
+        return output
+    }
+
+    private static func parseExploreSection(
+        _ sectionDict: [String: Any],
+        index: Int
+    ) -> ExploreSection? {
+        if let carousel = sectionDict["musicCarouselShelfRenderer"] as? [String: Any] {
+            return parseExploreCarousel(carousel, index: index)
+        }
+        if let shelf = sectionDict["musicShelfRenderer"] as? [String: Any] {
+            let title = shelfTitle(shelf) ?? "Songs"
+            let items = parseItems(from: shelf["contents"] as? [[String: Any]] ?? [])
+            Log.explore.debug("Explore section[\(index)] shelf title='\(title)' items=\(items.count)")
+            guard !items.isEmpty else { return nil }
+            return ExploreSection(title: title, kind: .rows, items: items, moods: [])
+        }
+        if let immersive = sectionDict["musicImmersiveCarouselShelfRenderer"] as? [String: Any] {
+            let contents = immersive["contents"] as? [[String: Any]] ?? []
+            let items = parseItems(from: contents)
+            Log.explore.debug(
+                "Explore section[\(index)] immersive keys=\((immersive.keys.sorted())) items=\(items.count)"
+            )
+            guard !items.isEmpty else { return nil }
+            return ExploreSection(title: "Featured", kind: .cards, items: items, moods: [])
+        }
+        if let grid = sectionDict["gridRenderer"] as? [String: Any] {
+            let rawItems = grid["items"] as? [[String: Any]] ?? []
+            let items = parseItems(from: rawItems)
+            Log.explore.debug(
+                "Explore section[\(index)] grid keys=\(grid.keys.sorted()) items=\(items.count) " +
+                "first=\(rawItems.first?.keys.sorted() ?? [])"
+            )
+            guard !items.isEmpty else { return nil }
+            return ExploreSection(title: "More", kind: .cards, items: items, moods: [])
+        }
+        return nil
+    }
+
+    private static func parseExploreCarousel(
+        _ carousel: [String: Any],
+        index: Int
+    ) -> ExploreSection? {
+        guard let header = carousel["header"] as? [String: Any],
+              let basicHeader = header["musicCarouselShelfBasicHeaderRenderer"] as? [String: Any],
+              let title = extractRunsText(basicHeader["title"] as? [String: Any]) else {
+            Log.explore.debug("Explore section[\(index)] carousel skipped: no basic header")
+            return nil
+        }
+        let headerBrowseId = exploreHeaderBrowseId(basicHeader)
+        let rawItems = carousel["contents"] as? [[String: Any]] ?? []
+        Log.explore.debug(
+            "Explore section[\(index)] carousel title='\(title)' browseId=\(headerBrowseId ?? "none") rawItems=\(rawItems.count)"
+        )
+
+        // Moods & genres: title + params shortcuts, no playable items.
+        if headerBrowseId == "FEmusic_moods_and_genres" {
+            let moods = rawItems.compactMap { parseMood(from: $0, sectionIndex: index) }
+            Log.explore.debug("Explore section[\(index)] moods parsed=\(moods.count)")
+            guard !moods.isEmpty else { return nil }
+            return ExploreSection(title: title, kind: .moods, items: [], moods: moods)
+        }
+
+        let items = parseItems(from: rawItems)
+        if let first = rawItems.first {
+            Log.explore.debug("Explore section[\(index)] first item keys=\(first.keys.sorted()) parsed=\(items.count)")
+        }
+        if items.isEmpty, !rawItems.isEmpty {
+            // Shelf dropped: log why the first item didn't parse so the
+            // shape can be mapped (pageType / browse prefix / endpoints).
+            Log.explore.debug("Explore section[\(index)] dropped: " + describeUnparsed(rawItems.first ?? [:]))
+        }
+        guard !items.isEmpty else { return nil }
+
+        // Videos and chart shelves have machine-readable header browseIds;
+        // anything song-only renders as rows, mixed content as cards.
+        let kind: ExploreSection.Kind
+        if headerBrowseId == "FEmusic_new_releases_videos"
+            || headerBrowseId?.hasPrefix("VLPL") == true
+            || headerBrowseId?.hasPrefix("VLOLA") == true
+            || items.allSatisfy({ if case .song = $0 { true } else { false } }) {
+            kind = .rows
+        } else {
+            kind = .cards
+        }
+        return ExploreSection(title: title, kind: kind, items: items, moods: [])
+    }
+
+    /// Header identity per ytmusic-rs: the title runs' navigation endpoint,
+    /// falling back to the more-content button.
+    private static func exploreHeaderBrowseId(_ basicHeader: [String: Any]) -> String? {
+        if let title = basicHeader["title"] as? [String: Any],
+           let runs = title["runs"] as? [[String: Any]],
+           let first = runs.first,
+           let nav = first["navigationEndpoint"] as? [String: Any],
+           let browse = nav["browseEndpoint"] as? [String: Any],
+           let bid = browse["browseId"] as? String {
+            return bid
+        }
+        return extractBrowseEndpoint(basicHeader)?.browseId
+    }
+
+    private static func shelfTitle(_ shelf: [String: Any]) -> String? {
+        guard let header = shelf["header"] as? [String: Any],
+              let basicHeader = header["musicShelfHeaderRenderer"] as? [String: Any] else { return nil }
+        return extractRunsText(basicHeader["title"] as? [String: Any])
+    }
+
+    /// Best-effort mood shortcut parsing (title + category params).
+    /// Raw item keys are logged so unknown shapes can be mapped later.
+    private static func parseMood(from item: [String: Any], sectionIndex: Int) -> MoodItem? {
+        if let twoRow = item["musicTwoRowItemRenderer"] as? [String: Any] {
+            let title = extractRunsText(twoRow["title"] as? [String: Any])
+            let params = moodParams(from: twoRow["navigationEndpoint"] as? [String: Any])
+            if let title {
+                return MoodItem(title: title, params: params)
+            }
+        }
+        if let button = item["musicNavigationButtonRenderer"] as? [String: Any] {
+            let title = extractRunsText(button["buttonText"] as? [String: Any])
+            let params = moodParams(from: button["clickCommand"] as? [String: Any])
+            if let title {
+                return MoodItem(title: title, params: params)
+            }
+        }
+        Log.explore.debug("Explore section[\(sectionIndex)] unparsed mood keys=\(item.keys.sorted())")
+        return nil
+    }
+
+    private static func moodParams(from endpoint: [String: Any]?) -> String? {
+        guard let browse = endpoint?["browseEndpoint"] as? [String: Any],
+              (browse["browseId"] as? String) == moodsCategoryBrowseId else { return nil }
+        return browse["params"] as? String
+    }
+
+    /// One-line fingerprint of an unparseable item for log mapping.
+    private static func describeUnparsed(_ item: [String: Any]) -> String {
+        let inner: [String: Any]
+        if let twoRow = item["musicTwoRowItemRenderer"] as? [String: Any] {
+            inner = twoRow
+        } else if let responsive = item["musicResponsiveListItemRenderer"] as? [String: Any] {
+            inner = responsive
+        } else {
+            return "keys=\(item.keys.sorted())"
+        }
+        let pageType = extractPageType(inner) ?? "none"
+        let nav = inner["navigationEndpoint"] as? [String: Any]
+        let watch = nav?["watchEndpoint"] as? [String: Any]
+        let browse = nav?["browseEndpoint"] as? [String: Any]
+        return "renderer=\(item.keys.sorted()) pageType=\(pageType) " +
+            "watch=\(watch?["videoId"] as? String ?? "none") " +
+            "browse=\(browse?["browseId"] as? String ?? "none")"
+    }
+}
+
 // MARK: - Extract Helpers
 
 extension HomePageParser {

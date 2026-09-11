@@ -24,7 +24,11 @@ struct ContentView: View {
                 LibraryView()
             }
 
-            Tab("Search", systemImage: "magnifyingglass", value: 2, role: .search) {
+            Tab("Explore", systemImage: "flame", value: 2) {
+                ExploreView()
+            }
+
+            Tab("Search", systemImage: "magnifyingglass", value: 3, role: .search) {
                 SearchView()
             }
         }

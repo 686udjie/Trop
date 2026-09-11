@@ -33,6 +33,31 @@ struct HomePage {
     }
 }
 
+/// One Explore (`FEmusic_explore`) shelf.
+struct ExploreSection: Identifiable {
+    enum Kind {
+        /// Vertical song/video rows.
+        case rows
+        /// Horizontal two-row cards (albums, artists, playlists).
+        case cards
+        /// Mood & genre tiles (title + browse params, no artwork).
+        case moods
+    }
+
+    let id = UUID()
+    var title: String
+    var kind: Kind
+    var items: [YTItem]
+    var moods: [MoodItem]
+}
+
+/// Mood/genre shortcut: drills into `FEmusic_moods_and_genres_category`.
+struct MoodItem: Identifiable, Hashable {
+    let id = UUID()
+    var title: String
+    var params: String?
+}
+
 enum HomeSection: Identifiable {
     case quickPicks(items: [YTItem])
     case keepListening(items: [YTItem])
