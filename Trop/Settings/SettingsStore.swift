@@ -353,7 +353,9 @@ final class SettingsStore {
             .color ?? AccentPreset.all[0].color
         accentName = d.string(forKey: Keys.accentName) ?? AccentPreset.all[0].name
         playerBackgroundStyle = PlayerBackgroundStyle(rawValue: d.string(forKey: Keys.playerBackgroundStyle) ?? "") ?? .dynamic
-        defaultTab = d.object(forKey: Keys.defaultTab) as? Int ?? 0
+        // Migrated when Explore took index 2 (was Search): stored 2 → 3.
+        let storedTab = d.object(forKey: Keys.defaultTab) as? Int ?? 0
+        defaultTab = storedTab == 2 ? 3 : storedTab
         lyricsFontSize = d.object(forKey: Keys.lyricsFontSize) as? Double ?? 17
         lyricsAlignment = LyricsAlignment(rawValue: d.string(forKey: Keys.lyricsAlignment) ?? "") ?? .center
         lyricsOffsetSeconds = d.object(forKey: Keys.lyricsOffsetSeconds) as? Double ?? 0

@@ -112,7 +112,7 @@ struct SearchView: View {
     /// Focuses the field (raising the keyboard) whenever the Search tab
     /// becomes active.
     private func focusIfSearchTab() {
-        if AppRouter.shared.selectedTabIndex == 2 {
+        if AppRouter.shared.selectedTabIndex == 3 {
             fieldFocused = true
         }
     }

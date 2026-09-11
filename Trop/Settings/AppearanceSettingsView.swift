@@ -71,7 +71,8 @@ struct AppearanceSettingsView: View {
                 Picker("Default Tab", selection: $settings.defaultTab) {
                     Text("Home").tag(0)
                     Text("Library").tag(1)
-                    Text("Search").tag(2)
+                    Text("Explore").tag(2)
+                    Text("Search").tag(3)
                 }
             } header: {
                 Text("General")

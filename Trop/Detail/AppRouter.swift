@@ -17,6 +17,7 @@ final class AppRouter: ObservableObject {
 
     @Published var homePath = NavigationPath()
     @Published var libraryPath = NavigationPath()
+    @Published var explorePath = NavigationPath()
     @Published var searchPath = NavigationPath()
     @Published var selectedTabIndex = 0
 
@@ -26,7 +27,8 @@ final class AppRouter: ObservableObject {
     func open(_ route: DetailRoute) {
         switch selectedTabIndex {
         case 1: libraryPath.append(route)
-        case 2: searchPath.append(route)
+        case 2: explorePath.append(route)
+        case 3: searchPath.append(route)
         default: homePath.append(route)
         }
         activeRoute = route
