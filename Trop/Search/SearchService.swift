@@ -23,11 +23,6 @@ actor SearchService {
         return try await task.value
     }
 
-    func searchSuggestions(input: String, client: YouTubeClient = .webRemix) async throws -> [String] {
-        let json = try await innerTube.searchSuggestions(input: input, client: client)
-        return parseSuggestions(from: json)
-    }
-
     struct LocalSearchResults {
         var songs: [SongEntity] = []
         var artists: [ArtistEntity] = []
@@ -80,22 +75,6 @@ actor SearchService {
                 try entity.save(db)
             }
         }
-    }
-
-    private func parseSuggestions(from json: [String: Any]) -> [String] {
-        // Navigate to search suggestion contents
-        guard let contents = json["contents"] as? [[String: Any]] else { return [] }
-        var suggestions: [String] = []
-        for item in contents {
-            if let suggestion = item["searchSuggestionRenderer"] as? [String: Any],
-               let runs = suggestion["suggestion"] as? [String: Any],
-               let textRuns = runs["runs"] as? [[String: Any]],
-               let first = textRuns.first,
-               let text = first["text"] as? String {
-                suggestions.append(text)
-            }
-        }
-        return suggestions
     }
 
     private func extractRadioItems(from json: [String: Any]) -> [[String: Any]] {

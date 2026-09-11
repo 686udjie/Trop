@@ -8,12 +8,26 @@
 import Foundation
 import SwiftUI
 
+/// Result ordering for the search screen.
+enum SearchSort: String, CaseIterable {
+    case relevant
+    case date
+    case recent
+    case rating
+
+    var title: String {
+        switch self {
+        case .relevant: return "Most Relevant"
+        case .date: return "Date Released"
+        case .recent: return "Recently Played"
+        case .rating: return "Rating"
+        }
+    }
+}
 /// Drives the search screen.
 ///
-/// The native search field owns its text lifecycle and may clear itself at any
-/// moment (e.g. right after submitting, when the search session ends). Results
-/// are therefore decoupled from the live field text: they belong to the last
-/// *submitted* query and stay visible until a new submission replaces them.
+/// Results belong to the last *submitted* query and stay visible until a
+/// new submission replaces them.
 @MainActor
 @Observable
 final class SearchViewModel {
@@ -23,8 +37,6 @@ final class SearchViewModel {
     enum Phase {
         /// Nothing submitted yet: recent searches / empty state.
         case idle
-        /// Composing a query: live suggestions + local library matches.
-        case typing
         /// Fetching results for the submitted query.
         case loading
         /// Showing results for the submitted query.
@@ -52,18 +64,42 @@ final class SearchViewModel {
 
     private(set) var results: [SearchSection] = []
 
-    // MARK: - Typing state
+    // MARK: - Local matches (populated per submission, for Library filter)
 
-    var suggestions: [String] = []
     var localSongs: [SongEntity] = []
     var localArtists: [ArtistEntity] = []
     var localAlbums: [AlbumEntity] = []
     var localPlaylists: [PlaylistEntity] = []
 
-    // MARK: - Filtering
+    // MARK: - Filtering & sorting
 
     var selectedSectionFilter: String?
     var isShowingLibrary = false
+
+    /// Active result ordering (persisted).
+    var sort: SearchSort {
+        didSet {
+            guard sort != oldValue else { return }
+            UserDefaults.standard.set(sort.rawValue, forKey: Self.sortKey)
+            if sort == .recent {
+                preloadRecencyMap()
+            }
+        }
+    }
+
+    /// Artist hero for artist queries (top result is an artist).
+    private(set) var heroArtist: ArtistItem?
+    private(set) var heroSongs: [SongItem] = []
+
+    /// Latest play timestamp per videoId, for Recently Played sorting.
+    /// Shared across instances — the search view model is recreated on tab
+    /// visits, and without this every visit refetched + relogged.
+    private static var sharedRecencyMap: [String: Date]?
+    private static var recencyFetchInFlight = false
+    private var recencyMap: [String: Date]? {
+        get { Self.sharedRecencyMap }
+        set { Self.sharedRecencyMap = newValue }
+    }
 
     // MARK: - Submission outcome
 
@@ -73,34 +109,51 @@ final class SearchViewModel {
 
     var searchHistory: [SearchHistoryEntity] = []
 
-    private var suggestionsTask: Task<Void, Never>?
-    private var localSearchTask: Task<Void, Never>?
     private var fetchTask: Task<Void, Never>?
 
     private static let historyKey = "Search.history"
     private static let historyNewestFirstKey = "Search.historyNewestFirst"
+    private static let sortKey = "Search.sort"
     private static let maxHistoryEntries = 20
 
     init() {
+        let raw = UserDefaults.standard.string(forKey: Self.sortKey)
+        sort = SearchSort(rawValue: raw ?? "") ?? .relevant
         loadSearchHistory()
+        if sort == .recent {
+            preloadRecencyMap()
+        }
     }
 
     // MARK: - Derived content
 
+    /// Canonical display order: songs first, then albums, artists, videos.
+    static let displayOrder = ["Songs", "Albums", "Artists", "Videos", "Playlists", "Podcasts", "Episodes"]
+
     var availableFilters: [String] {
         var filters = ["Library"]
-        let order = ["Songs", "Albums", "Artists", "Playlists", "Podcasts", "Episodes", "Videos"]
         let titles = Set(results.map(\.title))
-        filters.append(contentsOf: order.filter { titles.contains($0) })
+        filters.append(contentsOf: Self.displayOrder.filter { titles.contains($0) })
         return filters
+    }
+
+    /// Results ordered for display, with the active sort applied to
+    /// Songs/Videos (and Albums for Date Released).
+    var displaySections: [SearchSection] {
+        let ordered = Self.displayOrder.compactMap { title in
+            results.first { $0.title == title }
+        } + results.filter { !Self.displayOrder.contains($0.title) }
+        return ordered.map { section in
+            SearchSection(title: section.title, items: sortedItems(section))
+        }
     }
 
     var filteredResults: [SearchSection] {
         if isShowingLibrary {
             return librarySections
         }
-        guard let filter = selectedSectionFilter else { return results }
-        return results.filter { $0.title == filter }
+        guard let filter = selectedSectionFilter else { return displaySections }
+        return displaySections.filter { $0.title == filter }
     }
 
     private var librarySections: [SearchSection] {
@@ -120,6 +173,89 @@ final class SearchViewModel {
         return sections
     }
 
+    // MARK: - Sorting
+
+    private func sortedItems(_ section: SearchSection) -> [YTItem] {
+        switch section.title {
+        case "Songs", "Videos":
+            return sortSongs(section.items)
+        case "Albums":
+            // Only Date Released applies to albums (parsed release year).
+            guard sort == .date else { return section.items }
+            return stable(section.items) { year(of: $0) > year(of: $1) }
+        default:
+            return section.items
+        }
+    }
+
+    private func sortSongs(_ items: [YTItem]) -> [YTItem] {
+        switch sort {
+        case .relevant:
+            return items
+        case .rating:
+            // Search results expose view counts (not likes) — most-watched first.
+            return stable(items) { rating(of: $0) > rating(of: $1) }
+        case .date:
+            return stable(items) { year(of: $0) > year(of: $1) }
+        case .recent:
+            return stable(items) { recency(of: $0) > recency(of: $1) }
+        }
+    }
+
+    /// Stable sort: ties keep their original (relevance) order.
+    private func stable(_ items: [YTItem], by areInIncreasingOrder: (YTItem, YTItem) -> Bool) -> [YTItem] {
+        items.enumerated()
+            .sorted { lhs, rhs in
+                if areInIncreasingOrder(lhs.element, rhs.element) { return true }
+                if areInIncreasingOrder(rhs.element, lhs.element) { return false }
+                return lhs.offset < rhs.offset
+            }
+            .map(\.element)
+    }
+
+    private func rating(of item: YTItem) -> Int64 {
+        switch item {
+        case .song(let s): return s.viewCount ?? -1
+        default: return -1
+        }
+    }
+
+    private func year(of item: YTItem) -> Int {
+        switch item {
+        case .song(let s): return s.year ?? -1
+        case .album(let a): return a.year ?? -1
+        default: return -1
+        }
+    }
+
+    private func recency(of item: YTItem) -> Date {
+        guard let id = item.videoId, let map = recencyMap else { return .distantPast }
+        return map[id] ?? .distantPast
+    }
+
+    private func preloadRecencyMap() {
+        guard recencyMap == nil, !Self.recencyFetchInFlight else { return }
+        Self.recencyFetchInFlight = true
+        Task { [weak self] in
+            defer { Self.recencyFetchInFlight = false }
+            guard let entries = try? await DatabaseService.shared.fetchHistory(limit: 200) else {
+                Log.search.error("Recency map failed: history fetch threw")
+                return
+            }
+            var map: [String: Date] = [:]
+            for entry in entries {
+                let id = entry.event.songId
+                let date = entry.event.timestamp
+                if let existing = map[id] {
+                    map[id] = max(existing, date)
+                } else {
+                    map[id] = date
+                }
+            }
+            self?.recencyMap = map
+        }
+    }
+
     // MARK: - Submission
 
     /// Submits the given text (or the current field text).
@@ -131,6 +267,8 @@ final class SearchViewModel {
         let query = fieldText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return }
 
+        Log.search.debug("Submit query='\(query)' sort=\(sort.title)")
+
         // Enter .loading FIRST so clearing the field below is treated as part
         // of the submission rather than as new composition input.
         phase = .loading
@@ -138,6 +276,8 @@ final class SearchViewModel {
         error = nil
         selectedSectionFilter = nil
         isShowingLibrary = false
+        heroArtist = nil
+        heroSongs = []
 
         updateHistory(query: query)
         cancelTasks()
@@ -163,7 +303,10 @@ final class SearchViewModel {
             results = SearchParser.parseSearchResults(from: searchRaw)
             selectedSectionFilter = nil
             isShowingLibrary = false
-            phase = results.isEmpty ? .noResults : .results
+            extractHero()
+            let summary = results.map { "\($0.title):\($0.items.count)" }.joined(separator: ", ")
+            Log.search.debug("Results for '\(query)': [\(summary)] hero=\(heroArtist?.name ?? "none") heroSongs=\(heroSongs.count)")
+            phase = results.isEmpty && heroArtist == nil ? .noResults : .results
         } catch {
             guard query == submittedQuery else { return }
             if !Self.isCancellation(error) {
@@ -174,76 +317,61 @@ final class SearchViewModel {
         }
     }
 
+    /// Artist-first layout: when the top result is an artist, lift it (plus
+    /// its top songs from the same card) into the hero and remove them from
+    /// the flat sections so nothing shows twice.
+    private func extractHero() {
+        heroArtist = nil
+        heroSongs = []
+        guard let index = results.firstIndex(where: { section in
+            if case .artist = section.items.first { return true }
+            return false
+        }) else { return }
+        guard case .artist(let artist) = results[index].items.first else { return }
+        heroArtist = artist
+        heroSongs = results[index].items.dropFirst().compactMap { item in
+            if case .song(let song) = item { return song }
+            return nil
+        }
+        let remaining = results[index].items.filter { item in
+            if case .artist = item { return false }
+            if case .song(let song) = item { return !heroSongs.contains(where: { $0.videoId == song.videoId }) }
+            return true
+        }
+        if remaining.isEmpty {
+            results.remove(at: index)
+        } else {
+            results[index].items = remaining
+        }
+    }
+
     // MARK: - Field changes
 
     private func handleFieldTextChange() {
         // While fetching, the field is owned by the submission flow.
+        // Otherwise any edit returns to recent searches — results only
+        // ever come from an explicit submission (return key).
         if phase == .loading {
             return
         }
-
-        let query = fieldText.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        // An emptied field (X button, or deleting the query) exits the current
-        // search: results are discarded and the screen returns to the
-        // recent-searches state.
-        if query.isEmpty {
-            cancelTasks()
-            clearTypingData()
-            submittedQuery = ""
-            results = []
-            selectedSectionFilter = nil
-            isShowingLibrary = false
-            error = nil
-            phase = .idle
-            return
-        }
-
-        beginTyping(query)
+        resetToIdle()
     }
 
-    private func beginTyping(_ query: String) {
-        phase = .typing
+    /// Clears any shown results and returns to the recent-searches state.
+    private func resetToIdle() {
         cancelTasks()
-        scheduleSuggestions(for: query)
-        scheduleLocalSearch(for: query)
-    }
-
-    // MARK: - Suggestions & local search
-
-    private func scheduleSuggestions(for query: String) {
-        suggestionsTask = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(250))
-            guard !Task.isCancelled else { return }
-            do {
-                let result = try await SearchService.shared.searchSuggestions(input: query)
-                guard !Task.isCancelled else { return }
-                self?.suggestions = result
-            } catch {
-                if !Self.isCancellation(error) {
-                    Log.search.error("Suggestions failed: \(error)")
-                }
-            }
-        }
-    }
-
-    private func scheduleLocalSearch(for query: String) {
-        localSearchTask = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(150))
-            guard !Task.isCancelled else { return }
-            do {
-                let results = try await SearchService.shared.localSearch(query: query)
-                guard !Task.isCancelled else { return }
-                self?.localSongs = results.songs
-                self?.localArtists = results.artists
-                self?.localAlbums = results.albums
-                self?.localPlaylists = results.playlists
-            } catch {
-                if !Self.isCancellation(error) {
-                    Log.search.error("Local search failed: \(error)")
-                }
-            }
-        }
+        submittedQuery = ""
+        results = []
+        localSongs = []
+        localArtists = []
+        localAlbums = []
+        localPlaylists = []
+        selectedSectionFilter = nil
+        isShowingLibrary = false
+        heroArtist = nil
+        heroSongs = []
+        error = nil
+        phase = .idle
     }
 
     // MARK: - History
@@ -295,17 +423,7 @@ final class SearchViewModel {
     // MARK: - Private helpers
 
     private func cancelTasks() {
-        suggestionsTask?.cancel()
-        localSearchTask?.cancel()
         fetchTask?.cancel()
-    }
-
-    private func clearTypingData() {
-        suggestions = []
-        localSongs = []
-        localArtists = []
-        localAlbums = []
-        localPlaylists = []
     }
 
     private static func isCancellation(_ error: Error) -> Bool {
