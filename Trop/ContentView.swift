@@ -31,6 +31,13 @@ struct ContentView: View {
         .tabBarMinimizeBehavior(.onScrollDown)
             .tabViewBottomAccessory(isEnabled: nowPlaying.isBarPresented) {
                 MiniPlayerBarView(onExpand: {
+                    // Dismiss the keyboard before expanding the player so the reveal is visible on the first tap.
+                    UIApplication.shared.sendAction(
+                        #selector(UIResponder.resignFirstResponder),
+                        to: nil,
+                        from: nil,
+                        for: nil
+                    )
                     withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
                         isExpanded = true
                     }

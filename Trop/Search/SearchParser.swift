@@ -106,9 +106,9 @@ enum SearchParser {
         let sectionOrder = [
             "Top result",
             "Songs",
-            "Videos",
             "Albums",
             "Artists",
+            "Videos",
             "Playlists",
             "Podcasts",
             "Episodes",
@@ -117,13 +117,14 @@ enum SearchParser {
 
         let grouped = Dictionary(grouping: allSections, by: { $0.title })
 
-        return grouped.map { key, value in
+        let merged = grouped.map { key, value in
             SearchSection(title: key, items: value.flatMap { $0.items })
         }
         .sorted {
             (sectionOrder.firstIndex(of: $0.title) ?? 999) <
             (sectionOrder.firstIndex(of: $1.title) ?? 999)
         }
+        return merged
     }
 
     // MARK: - Private
@@ -135,7 +136,7 @@ enum SearchParser {
             let key: String
 
             switch item {
-            case .song: key = "Songs"
+            case .song(let s): key = s.isMusicVideo ? "Videos" : "Songs"
             case .album: key = "Albums"
             case .artist: key = "Artists"
             case .playlist: key = "Playlists"
@@ -146,7 +147,7 @@ enum SearchParser {
             groups[key, default: []].append(item)
         }
 
-        return ["Songs", "Albums", "Artists", "Playlists", "Podcasts", "Episodes"].compactMap { name in
+        return ["Songs", "Albums", "Artists", "Videos", "Playlists", "Podcasts", "Episodes"].compactMap { name in
             guard let items = groups[name], !items.isEmpty else { return nil }
             return SearchSection(title: name, items: items)
         }

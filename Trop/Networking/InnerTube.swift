@@ -450,13 +450,6 @@ actor InnerTube {
         return try await post(endpoint: "subscription/unsubscribe", body: body, client: client, session: session)
     }
 
-    // Get search suggestions (autocomplete)
-    func searchSuggestions(input: String, client: YouTubeClient = .webRemix, locale: YouTubeLocale = .default) async throws -> [String: Any] {
-        let session = Session(cookies: cookies, sapisid: sapisid, visitorData: visitorData, dataSyncId: dataSyncId)
-        let body: [String: Any] = ["context": buildContextDict(client: client, locale: locale, visitorData: visitorData), "input": input]
-        return try await post(endpoint: "music/get_search_suggestions", body: body, client: client, session: session)
-    }
-
     // Builds the inner context dictionary sent with every API request
     private func buildContextDict(
         client: YouTubeClient,

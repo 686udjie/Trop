@@ -110,6 +110,58 @@ private func parseTime(_ text: String) -> Int? {
     return parts[0] * 3600 + parts[1] * 60 + parts[2]
 }
 
+/// Parses compact view counts like "1.2M views", "500K views", "12,345 views".
+private func parseViewCount(_ text: String) -> Int64? {
+    let pattern = "^([\\d,.]+)\\s*([KMBT]?)\\s*views?$"
+    guard let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) else { return nil }
+    let trimmed = text.trimmingCharacters(in: .whitespaces)
+    let range = NSRange(trimmed.startIndex..., in: trimmed)
+    guard let match = regex.firstMatch(in: trimmed, range: range),
+          match.numberOfRanges == 3,
+          let numRange = Range(match.range(at: 1), in: trimmed) else { return nil }
+    let numStr = String(trimmed[numRange]).replacingOccurrences(of: ",", with: "")
+    guard let number = Double(numStr) else { return nil }
+    var multiplier: Double = 1
+    if let sufRange = Range(match.range(at: 2), in: trimmed), !sufRange.isEmpty {
+        switch trimmed[sufRange].uppercased() {
+        case "K": multiplier = 1_000
+        case "M": multiplier = 1_000_000
+        case "B": multiplier = 1_000_000_000
+        case "T": multiplier = 1_000_000_000_000
+        default: break
+        }
+    }
+    return Int64(number * multiplier)
+}
+
+/// Bare 4-digit release year segment.
+private func parseYear(_ text: String) -> Int? {
+    let trimmed = text.trimmingCharacters(in: .whitespaces)
+    guard trimmed.count == 4, let year = Int(trimmed), year > 1900, year < 2100 else { return nil }
+    return year
+}
+
+/// Subtitle stats scraped from a result's runs.
+private struct ItemStats {
+    var viewCount: Int64?
+    var year: Int?
+    var startsWithVideo = false
+}
+
+/// Scans subtitle segments for view counts and years.
+private func extractItemStats(from segments: [[String]]) -> ItemStats {
+    var stats = ItemStats()
+    for seg in segments {
+        for text in seg {
+            if stats.viewCount == nil, let v = parseViewCount(text) { stats.viewCount = v }
+            if stats.year == nil, let y = parseYear(text) { stats.year = y }
+        }
+    }
+    stats.startsWithVideo = segments.first?.first?
+        .trimmingCharacters(in: .whitespaces).lowercased() == "video"
+    return stats
+}
+
 enum YTItem {
     case song(SongItem)
     case album(AlbumItem)
@@ -369,6 +421,14 @@ struct SongItem: Codable, Hashable {
     var isExplicit: Bool
     var playlistId: String?
     var likeStatus: String?
+    /// Parsed subtitle stats (search results only; nil when absent).
+    /// Optional so previously persisted queues keep decoding.
+    var viewCount: Int64?
+    var year: Int?
+    var isVideo: Bool?
+
+    /// True for music-video results (subtitle starts with "Video").
+    var isMusicVideo: Bool { isVideo == true }
 
     static func from(_ renderer: [String: Any]) -> SongItem? {
         guard let videoId = extractVideoId(renderer) else {
@@ -504,9 +564,11 @@ struct SongItem: Codable, Hashable {
             artists = []
         }
         let thumbnailUrl = extractResponsiveThumbnail(renderer)
+        let stats = extractItemStats(from: segments)
         return SongItem(
             videoId: videoId, title: title, artists: artists, album: album, albumId: albumId,
-            duration: duration, thumbnailUrl: thumbnailUrl, isExplicit: false, playlistId: playlistId
+            duration: duration, thumbnailUrl: thumbnailUrl, isExplicit: false, playlistId: playlistId,
+            viewCount: stats.viewCount, year: stats.year, isVideo: stats.startsWithVideo ? true : nil
         )
     }
 
@@ -539,9 +601,22 @@ struct SongItem: Codable, Hashable {
                 }
             }
         }
+        let subTexts = (renderer["subtitle"] as? [String: Any])
+            .flatMap { $0["runs"] as? [[String: Any]] }?
+            .compactMap { ($0["text"] as? String)?.trimmingCharacters(in: .whitespaces) } ?? []
+        var subSegments: [[String]] = [[]]
+        for text in subTexts {
+            if text == "•" || text == "·" {
+                subSegments.append([])
+            } else if !text.isEmpty {
+                subSegments[subSegments.count - 1].append(text)
+            }
+        }
+        let stats = extractItemStats(from: subSegments)
         return SongItem(
             videoId: videoId, title: title, artists: artists, album: album, albumId: albumId,
-            duration: duration, thumbnailUrl: thumbnailUrl, isExplicit: false, playlistId: playlistId
+            duration: duration, thumbnailUrl: thumbnailUrl, isExplicit: false, playlistId: playlistId,
+            viewCount: stats.viewCount, year: stats.year, isVideo: stats.startsWithVideo ? true : nil
         )
     }
 }
