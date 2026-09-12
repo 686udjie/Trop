@@ -226,6 +226,16 @@ struct ArtistDetailView: View {
     @State private var viewModel: ArtistDetailViewModel
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+    @State private var scrollOffset: CGFloat = 0
+
+    private static let barFadeStart: CGFloat = 80
+    private static let barFadeDistance: CGFloat = 120
+
+    private var barProgress: CGFloat {
+        min(max((scrollOffset - Self.barFadeStart) / Self.barFadeDistance, 0), 1)
+    }
 
     init(browseId: String) {
         self.browseId = browseId
@@ -233,41 +243,96 @@ struct ArtistDetailView: View {
     }
 
     var body: some View {
-        ScrollView {
-            Group {
-                if viewModel.isLoading {
-                    loadingView
+        ZStack(alignment: .top) {
+            ScrollView {
+                Group {
+                    if viewModel.isLoading {
+                        loadingView
+                            .containerRelativeFrame(.vertical)
+                    } else if let error = viewModel.error {
+                        ContentUnavailableView(
+                            "Couldn't load artist",
+                            systemImage: "exclamationmark.circle",
+                            description: Text(error.localizedDescription)
+                        )
                         .containerRelativeFrame(.vertical)
-                } else if let error = viewModel.error {
-                    ContentUnavailableView(
-                        "Couldn't load artist",
-                        systemImage: "exclamationmark.circle",
-                        description: Text(error.localizedDescription)
-                    )
-                    .containerRelativeFrame(.vertical)
-                } else if let artist = viewModel.artist {
-                    artistContent(for: artist)
-                } else {
-                    ContentUnavailableView(
-                        "No artist data",
-                        systemImage: "music.mic",
-                        description: Text("Could not parse artist details")
-                    )
-                    .containerRelativeFrame(.vertical)
+                    } else if let artist = viewModel.artist {
+                        artistContent(for: artist)
+                    } else {
+                        ContentUnavailableView(
+                            "No artist data",
+                            systemImage: "music.mic",
+                            description: Text("Could not parse artist details")
+                        )
+                        .containerRelativeFrame(.vertical)
+                    }
                 }
             }
+            .scrollDisabled(viewModel.isLoading || viewModel.error != nil || viewModel.artist == nil)
+            .miniPlayerTracksScroll()
+            .onScrollGeometryChange(
+                for: CGFloat.self,
+                of: { $0.contentOffset.y },
+                action: { _, newOffset in
+                    scrollOffset = newOffset
+                }
+            )
+            .ignoresSafeArea(edges: .top)
+            .toolbar(.hidden, for: .navigationBar)
+            .task {
+                guard viewModel.isLoading else { return }
+                await viewModel.load()
+            }
+
+            customTopBar
         }
-        .scrollDisabled(viewModel.isLoading || viewModel.error != nil || viewModel.artist == nil)
-        .miniPlayerTracksScroll()
-        .ignoresSafeArea(edges: .top)
-        .navigationTitle("")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(.hidden, for: .navigationBar)
-        .toolbarColorScheme(.dark, for: .navigationBar)
-        .task {
-            guard viewModel.isLoading else { return }
-            await viewModel.load()
+    }
+
+    private var customTopBar: some View {
+        HStack(spacing: 8) {
+            topBarBackButton
+
+            if let artist = viewModel.artist {
+                Text(artist.name)
+                    .font(.headline)
+                    .lineLimit(1)
+                    .opacity(barProgress)
+            }
+
+            Spacer(minLength: 0)
         }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(
+            Color(.systemBackground)
+                .opacity(barProgress)
+                .ignoresSafeArea(edges: .top)
+                .allowsHitTesting(false)
+        )
+        .overlay(alignment: .bottom) {
+            Divider()
+                .opacity(barProgress)
+        }
+    }
+
+    private var topBarBackButton: some View {
+        Button(action: { dismiss() }, label: {
+            ZStack {
+                Image(systemName: "chevron.left")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .shadow(color: .black.opacity(0.5), radius: 3, y: 1)
+                    .opacity(1 - barProgress)
+                Image(systemName: "chevron.left")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .opacity(barProgress)
+            }
+            .frame(width: 40, height: 40)
+            .contentShape(Rectangle())
+        })
+        .buttonStyle(.plain)
+        .accessibilityLabel("Back")
     }
 
     private var loadingView: some View {
@@ -311,74 +376,92 @@ struct ArtistDetailView: View {
 
     @ViewBuilder
     private func header(for artist: ArtistDetailInfo) -> some View {
-        GeometryReader { proxy in
-            ZStack(alignment: .bottomLeading) {
-                Color(.systemGray5)
-
-                AsyncImageView(
-                    url: metrolistArtworkURL(from: artist.thumbnailUrl),
-                    contentMode: .fill
+        if horizontalSizeClass == .regular {
+            GeometryReader { proxy in
+                headerBanner(
+                    for: artist,
+                    size: CGSize(width: proxy.size.width, height: Self.iPadBannerHeight)
                 )
-                .frame(width: proxy.size.width, height: proxy.size.height)
-                .clipped()
-
-                LinearGradient(
-                    colors: [.clear, .black.opacity(0.18), .black.opacity(0.78)],
-                    startPoint: .center,
-                    endPoint: .bottom
-                )
-
-                VStack(alignment: .leading, spacing: 14) {
-                    Text(artist.name)
-                        .font(.system(size: 34, weight: .bold, design: .rounded))
-                        .foregroundStyle(.white)
-                        .lineLimit(2)
-                        .shadow(color: .black.opacity(0.35), radius: 4, y: 2)
-
-                    HStack(spacing: 12) {
-                                                Button(action: { toggleSubscribe(artist) }, label: {
-                            Text(artist.isSubscribed ? "Subscribed" : "Subscribe")
-                                .font(.subheadline.weight(.bold))
-                                .foregroundStyle(artist.isSubscribed ? Color.white : Color.black)
-                                .padding(.horizontal, 20)
-                                .frame(height: 44)
-                                .background(
-                                    Capsule()
-                                        .fill(artist.isSubscribed ? Color.clear : Color.white)
-                                )
-                                .overlay(
-                                    Capsule()
-                                        .stroke(.white, lineWidth: artist.isSubscribed ? 1.5 : 0)
-                                )
-                        })
-                        .buttonStyle(.plain)
-
-                        Spacer(minLength: 0)
-
-                        if let subText = artist.subscriberCountText, !subText.isEmpty {
-                            Text(subscriberLabel(for: subText))
-                                .font(.subheadline)
-                                .foregroundStyle(.white.opacity(0.88))
-                                .lineLimit(1)
-                        }
-
-                                                Button(action: { shufflePlay(artist) }, label: {
-                            Image(systemName: "shuffle")
-                                .font(.title3.weight(.bold))
-                                .foregroundStyle(.white)
-                                .frame(width: 52, height: 52)
-                                .background(Circle().fill(Color.accentColor))
-                        })
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Shuffle artist")
-                    }
-                }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 24)
             }
+            .frame(height: Self.iPadBannerHeight)
+            .accessibilityElement(children: .contain)
+        } else {
+            // iPhone: full-width square banner.
+            GeometryReader { proxy in
+                headerBanner(for: artist, size: proxy.size)
+            }
+            .aspectRatio(1, contentMode: .fit)
+            .accessibilityElement(children: .contain)
         }
-        .aspectRatio(1, contentMode: .fit)
-        .accessibilityElement(children: .contain)
+    }
+
+    private static let iPadBannerHeight: CGFloat = 400
+
+    private func headerBanner(for artist: ArtistDetailInfo, size: CGSize) -> some View {
+        ZStack(alignment: .bottomLeading) {
+            Color(.systemGray5)
+
+            AsyncImageView(
+                url: metrolistArtworkURL(from: artist.thumbnailUrl),
+                contentMode: .fill
+            )
+            .frame(width: size.width, height: size.height)
+            .clipped()
+
+            LinearGradient(
+                colors: [.clear, .black.opacity(0.18), .black.opacity(0.78)],
+                startPoint: .center,
+                endPoint: .bottom
+            )
+
+            VStack(alignment: .leading, spacing: 14) {
+                Text(artist.name)
+                    .font(.system(size: 34, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+                    .shadow(color: .black.opacity(0.35), radius: 4, y: 2)
+
+                HStack(spacing: 12) {
+                    Button(action: { toggleSubscribe(artist) }, label: {
+                        Text(artist.isSubscribed ? "Subscribed" : "Subscribe")
+                            .font(.subheadline.weight(.bold))
+                            .foregroundStyle(artist.isSubscribed ? Color.white : Color.black)
+                            .padding(.horizontal, 20)
+                            .frame(height: 44)
+                            .background(
+                                Capsule()
+                                    .fill(artist.isSubscribed ? Color.clear : Color.white)
+                            )
+                            .overlay(
+                                Capsule()
+                                    .stroke(.white, lineWidth: artist.isSubscribed ? 1.5 : 0)
+                            )
+                    })
+                    .buttonStyle(.plain)
+
+                    Spacer(minLength: 0)
+
+                    if let subText = artist.subscriberCountText, !subText.isEmpty {
+                        Text(subscriberLabel(for: subText))
+                            .font(.subheadline)
+                            .foregroundStyle(.white.opacity(0.88))
+                            .lineLimit(1)
+                    }
+
+                    Button(action: { shufflePlay(artist) }, label: {
+                        Image(systemName: "shuffle")
+                            .font(.title3.weight(.bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 52, height: 52)
+                            .background(Circle().fill(Color.accentColor))
+                    })
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Shuffle artist")
+                }
+            }
+            .padding(.horizontal, horizontalSizeClass == .regular ? 32 : 20)
+            .padding(.bottom, 24)
+        }
     }
 
     private func subscriberLabel(for count: String) -> String {
