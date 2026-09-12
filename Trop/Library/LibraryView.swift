@@ -25,12 +25,17 @@ struct LibraryView: View {
     @ObservedObject private var router = AppRouter.shared
     @Environment(\.downloadManager) private var downloadManager
 
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
     @State private var accountName = "Guest"
     @State private var accountImageUrl: String?
     @State private var isLoginSheetPresented = false
     @State private var isAccountSheetPresented = false
 
-    private let gridColumns = [GridItem(.adaptive(minimum: 160), spacing: 16)]
+    private var gridColumns: [GridItem] {
+        let count = horizontalSizeClass == .regular ? 3 : 2
+        return Array(repeating: GridItem(.flexible(), spacing: 16), count: count)
+    }
     private var autoPlaylists: [AutoPlaylistInfo] {
         [
             AutoPlaylistInfo(id: "liked", title: "Liked Songs", icon: "heart.fill", subtitle: "\(likedSongCount) songs", route: .likedSongs),
@@ -66,9 +71,7 @@ struct LibraryView: View {
 
                 Group {
                     if isLoading {
-                        Spacer()
-                        ProgressView("Loading library...")
-                        Spacer()
+                        librarySkeleton
                     } else {
                         feedContent
                     }
@@ -182,16 +185,16 @@ struct LibraryView: View {
                 case .playlists:
                     playlistsSection
                 case .albums:
-                    albumsSection
+                    if !albums.isEmpty { albumsSection }
                 case .artists:
-                    artistsSection
+                    if !artists.isEmpty { artistsSection }
                 case .podcasts:
-                    podcastsSection
+                    if !podcasts.isEmpty { podcastsSection }
                 case nil:
                     playlistsSection
-                    albumsSection
-                    artistsSection
-                    podcastsSection
+                    if !albums.isEmpty { albumsSection }
+                    if !artists.isEmpty { artistsSection }
+                    if !podcasts.isEmpty { podcastsSection }
                 }
             }
         }
@@ -202,7 +205,7 @@ struct LibraryView: View {
     // MARK: - Playlists (Auto + User)
 
     private var playlistsSection: some View {
-        LazyVGrid(columns: gridColumns, spacing: 16) {
+        librarySection(title: "Playlists", count: playlists.count) {
             ForEach(autoPlaylists) { info in
                 if let detailRoute = info.detailRoute {
                     NavigationLink(value: detailRoute) {
@@ -236,33 +239,21 @@ struct LibraryView: View {
                     }
                 }
             }
-
         }
-        .padding(.horizontal, 16)
-        .padding(.bottom, 16)
     }
 
     // MARK: - Artists
 
     private var artistsSection: some View {
-        Group {
-            if artists.isEmpty {
-                emptyState("No subscribed artists yet")
-                    .padding(.top, 40)
-            } else {
-                LazyVGrid(columns: gridColumns, spacing: 16) {
-                    ForEach(artists, id: \.id) { artist in
-                        NavigationLink(value: DetailRoute.artist(browseId: artist.id)) {
-                            artistCell(
-                                url: artist.thumbnailUrl,
-                                name: artist.name
-                            )
-                        }
-                        .buttonStyle(.plain)
-                    }
+        librarySection(title: "Artists", count: artists.count) {
+            ForEach(artists, id: \.id) { artist in
+                NavigationLink(value: DetailRoute.artist(browseId: artist.id)) {
+                    artistCell(
+                        url: artist.thumbnailUrl,
+                        name: artist.name
+                    )
                 }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 16)
+                .buttonStyle(.plain)
             }
         }
     }
@@ -270,25 +261,16 @@ struct LibraryView: View {
     // MARK: - Albums
 
     private var albumsSection: some View {
-        Group {
-            if albums.isEmpty {
-                emptyState("No saved albums yet")
-                    .padding(.top, 40)
-            } else {
-                LazyVGrid(columns: gridColumns, spacing: 16) {
-                    ForEach(albums, id: \.id) { album in
-                        NavigationLink(value: DetailRoute.album(browseId: album.id)) {
-                            itemCell(
-                                url: album.thumbnailUrl,
-                                title: album.title,
-                                subtitle: album.songCount > 0 ? "\(album.songCount) songs" : nil
-                            )
-                        }
-                        .buttonStyle(.plain)
-                    }
+        librarySection(title: "Albums", count: albums.count) {
+            ForEach(albums, id: \.id) { album in
+                NavigationLink(value: DetailRoute.album(browseId: album.id)) {
+                    itemCell(
+                        url: album.thumbnailUrl,
+                        title: album.title,
+                        subtitle: album.songCount > 0 ? "\(album.songCount) songs" : nil
+                    )
                 }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 16)
+                .buttonStyle(.plain)
             }
         }
     }
@@ -296,30 +278,55 @@ struct LibraryView: View {
     // MARK: - Podcasts
 
     private var podcastsSection: some View {
-        Group {
-            if podcasts.isEmpty {
-                emptyState("No subscribed podcasts yet")
-                    .padding(.top, 40)
-            } else {
-                LazyVGrid(columns: gridColumns, spacing: 16) {
-                    ForEach(podcasts, id: \.id) { podcast in
-                        NavigationLink(value: DetailRoute.podcast(browseId: podcast.id)) {
-                            itemCell(
-                                url: podcast.thumbnailUrl,
-                                title: podcast.name,
-                                subtitle: nil
-                            )
-                        }
-                        .buttonStyle(.plain)
-                    }
+        librarySection(title: "Podcasts", count: podcasts.count) {
+            ForEach(podcasts, id: \.id) { podcast in
+                NavigationLink(value: DetailRoute.podcast(browseId: podcast.id)) {
+                    itemCell(
+                        url: podcast.thumbnailUrl,
+                        title: podcast.name,
+                        subtitle: nil
+                    )
                 }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 16)
+                .buttonStyle(.plain)
             }
         }
     }
 
     // MARK: - Components
+
+    private func librarySection<Content: View>(
+        title: String,
+        count: Int,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionTitle(title, count: count)
+
+            LazyVGrid(columns: gridColumns, spacing: 16) {
+                content()
+            }
+            .padding(.horizontal, 16)
+        }
+        .padding(.bottom, 24)
+    }
+
+    private func sectionTitle(_ title: String, count: Int? = nil) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(title)
+                .font(.title3)
+                .fontWeight(.bold)
+            Spacer()
+            if let count {
+                Text("\(count)")
+                    .font(.callout)
+                    .fontWeight(.medium)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
+        .padding(.bottom, 4)
+    }
 
     private func autoPlaylistCell(info: AutoPlaylistInfo) -> some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -347,7 +354,27 @@ struct LibraryView: View {
     }
 
     private func autoPlaylistGradient(for id: String) -> LinearGradient {
-        LinearGradient(colors: [.blue, .purple], startPoint: .topLeading, endPoint: .bottomTrailing)
+        let accent = settings.accentColor
+        switch id {
+        case "downloads":
+            return LinearGradient(
+                colors: [accent.opacity(0.75), accent.opacity(0.4)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        case "top100":
+            return LinearGradient(
+                colors: [accent, accent.opacity(0.55)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        default:
+            return LinearGradient(
+                colors: [accent.opacity(0.55), accent],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        }
     }
 
     private func itemCell(url: String?, title: String, subtitle: String?) -> some View {
@@ -373,12 +400,43 @@ struct LibraryView: View {
         .frame(maxWidth: .infinity)
     }
 
-    private func emptyState(_ message: String) -> some View {
-        ContentUnavailableView(
-            message,
-            systemImage: "music.note.list",
-            description: Text("Your library will appear here after syncing")
-        )
+    // MARK: - Loading Skeleton
+
+    private var librarySkeleton: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(0..<4, id: \.self) { _ in
+                            ShimmerBlock(width: 88, height: 34, radius: 17)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                }
+
+                ForEach(0..<2, id: \.self) { _ in
+                    ShimmerBlock(width: 130, height: 24, radius: 6)
+                        .padding(.horizontal, 16)
+                        .padding(.top, 16)
+                        .padding(.bottom, 12)
+
+                    LazyVGrid(columns: gridColumns, spacing: 16) {
+                        ForEach(0..<6, id: \.self) { _ in
+                            VStack(alignment: .leading, spacing: 6) {
+                                ShimmerFill(radius: 12)
+                                    .aspectRatio(1, contentMode: .fit)
+                                ShimmerBlock(width: 110, height: 15, radius: 4)
+                                ShimmerBlock(width: 70, height: 12, radius: 4)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                }
+            }
+            .padding(.bottom, 24)
+        }
+        .scrollIndicators(.hidden)
     }
 
     // MARK: - Data Loading

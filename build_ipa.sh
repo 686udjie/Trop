@@ -84,6 +84,13 @@ sanitize_framework_binaries() {
     done
 }
 
+# Adds or updates a string key in a plist (never fails the build).
+inject_plist_string() {
+    local key="$1" value="$2" plist="$3"
+    /usr/libexec/PlistBuddy -c "Add :$key string $value" "$plist" 2>/dev/null \
+        || /usr/libexec/PlistBuddy -c "Set :$key string $value" "$plist" 2>/dev/null || true
+}
+
 APPLICATION_NAME=Trop
 PROJECT_NAME=Trop
 # MPVKit and FFmpegKit both ship ffmpeg libraries whose framework names differ
@@ -193,28 +200,37 @@ fi
 
 # Inject Last.fm secrets from GH Secrets -> Info.plist
 # Trim whitespace/newlines (secrets pasted with newline cause error 6)
+# Only required for CI (GitHub Actions) builds. Local builds are exempt:
+# without LASTFM_API_KEY/LASTFM_SECRET the app just runs with Last.fm
+# features unconfigured, so skip injection entirely instead of warning.
+# If a local build DOES export the keys manually, they are still injected.
 LASTFM_API_KEY_TRIMMED="$(echo "${LASTFM_API_KEY:-}" | tr -d '\r\n' | xargs 2>/dev/null || echo "${LASTFM_API_KEY:-}")"
 LASTFM_SECRET_TRIMMED="$(echo "${LASTFM_SECRET:-}" | tr -d '\r\n' | xargs 2>/dev/null || echo "${LASTFM_SECRET:-}")"
-if [ -n "$LASTFM_API_KEY_TRIMMED" ]; then
-    echo "Injecting LASTFM_API_KEY (len=${#LASTFM_API_KEY_TRIMMED})"
-    /usr/libexec/PlistBuddy -c "Add :LASTFM_API_KEY string $LASTFM_API_KEY_TRIMMED" "$WORKING_LOCATION/Trop/Resources/Info.plist" 2>/dev/null \
-        || /usr/libexec/PlistBuddy -c "Set :LASTFM_API_KEY string $LASTFM_API_KEY_TRIMMED" "$WORKING_LOCATION/Trop/Resources/Info.plist" 2>/dev/null || true
+
+if [ "${GITHUB_ACTIONS:-}" = "true" ] || [ -n "$LASTFM_API_KEY_TRIMMED" ] || [ -n "$LASTFM_SECRET_TRIMMED" ]; then
+
+    if [ -n "$LASTFM_API_KEY_TRIMMED" ]; then
+        echo "Injecting LASTFM_API_KEY (len=${#LASTFM_API_KEY_TRIMMED})"
+        inject_plist_string "LASTFM_API_KEY" "$LASTFM_API_KEY_TRIMMED" "$WORKING_LOCATION/Trop/Resources/Info.plist"
+    else
+        echo "Warning: LASTFM_API_KEY empty - Last.fm login will fail with error 6"
+    fi
+    if [ -n "$LASTFM_SECRET_TRIMMED" ]; then
+        echo "Injecting LASTFM_SECRET (len=${#LASTFM_SECRET_TRIMMED})"
+        inject_plist_string "LASTFM_SECRET" "$LASTFM_SECRET_TRIMMED" "$WORKING_LOCATION/Trop/Resources/Info.plist"
+    else
+        echo "Warning: LASTFM_SECRET empty - Last.fm login will fail with error 6"
+    fi
+    XCODE_LASTFM_ARGS=()
+    if [ -n "$LASTFM_API_KEY_TRIMMED" ]; then
+        XCODE_LASTFM_ARGS+=("INFOPLIST_KEY_LASTFM_API_KEY=$LASTFM_API_KEY_TRIMMED")
+    fi
+    if [ -n "$LASTFM_SECRET_TRIMMED" ]; then
+        XCODE_LASTFM_ARGS+=("INFOPLIST_KEY_LASTFM_SECRET=$LASTFM_SECRET_TRIMMED")
+    fi
+
 else
-    echo "Warning: LASTFM_API_KEY empty - Last.fm login will fail with error 6"
-fi
-if [ -n "$LASTFM_SECRET_TRIMMED" ]; then
-    echo "Injecting LASTFM_SECRET (len=${#LASTFM_SECRET_TRIMMED})"
-    /usr/libexec/PlistBuddy -c "Add :LASTFM_SECRET string $LASTFM_SECRET_TRIMMED" "$WORKING_LOCATION/Trop/Resources/Info.plist" 2>/dev/null \
-        || /usr/libexec/PlistBuddy -c "Set :LASTFM_SECRET string $LASTFM_SECRET_TRIMMED" "$WORKING_LOCATION/Trop/Resources/Info.plist" 2>/dev/null || true
-else
-    echo "Warning: LASTFM_SECRET empty - Last.fm login will fail with error 6"
-fi
-XCODE_LASTFM_ARGS=()
-if [ -n "$LASTFM_API_KEY_TRIMMED" ]; then
-    XCODE_LASTFM_ARGS+=("INFOPLIST_KEY_LASTFM_API_KEY=$LASTFM_API_KEY_TRIMMED")
-fi
-if [ -n "$LASTFM_SECRET_TRIMMED" ]; then
-    XCODE_LASTFM_ARGS+=("INFOPLIST_KEY_LASTFM_SECRET=$LASTFM_SECRET_TRIMMED")
+    echo "Local build: LASTFM_API_KEY / LASTFM_SECRET not provided - skipping Last.fm credential injection."
 fi
 
 # CI sets CURRENT_PROJECT_VERSION to the run number
