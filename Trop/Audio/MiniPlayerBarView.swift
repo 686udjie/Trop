@@ -304,22 +304,16 @@ private struct MiniArtworkView: View {
             return
         }
         guard let url = URL(string: NowPlaying.artworkURL(for: videoId)) else { return }
-        Task {
-            do {
-                let image = try await ImagePipeline.shared.image(for: url)
-                let cropped = image.centerCroppedSquare()
-                await MainActor.run { uiImage = cropped }
-            } catch {
-                Log.nowPlaying.debug("Mini artwork load failed: \(error.localizedDescription)")
-            }
+        loggedTask(Log.nowPlaying, "Mini artwork load failed") {
+            let image = try await ArtworkLoader.image(for: url)
+            let cropped = image.centerCroppedSquare()
+            await MainActor.run { uiImage = cropped }
         }
     }
 }
 
 @MainActor
 private func cachedArtwork(for videoId: String) -> UIImage? {
-    guard let url = URL(string: NowPlaying.artworkURL(for: videoId)),
-          let image = ImagePipeline.shared.cache.cachedImage(for: ImageRequest(url: url), caches: .all)?.image
-    else { return nil }
-    return image.centerCroppedSquare()
+    guard let url = URL(string: NowPlaying.artworkURL(for: videoId)) else { return nil }
+    return ArtworkLoader.cachedImage(for: url)?.centerCroppedSquare()
 }

@@ -47,8 +47,8 @@ enum DiscordExternalAssets {
         request.httpBody = bodyData
 
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode),
+            guard let (data, http) = try? await HttpClient.data(for: request),
+                  (200...299).contains(http.statusCode),
                   !data.isEmpty else { return nil }
             let decoded = try JSONDecoder().decode([ExternalAssetResponse].self, from: data)
             guard let path = decoded.first?.externalAssetPath, !path.isEmpty else { return nil }
@@ -71,8 +71,4 @@ enum DiscordExternalAssets {
     static func clearCache() {
         queue.sync { cache.removeAll() }
     }
-}
-
-private extension String {
-    var isBlank: Bool { trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 }

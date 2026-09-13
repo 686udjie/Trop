@@ -8,7 +8,6 @@
 import Foundation
 import Combine
 import UIKit
-import OSLog
 
 @MainActor
 final class LastFMIntegration {
@@ -24,8 +23,6 @@ final class LastFMIntegration {
     private var currentVideoId: String?
     private var currentSong: SongItem?
     private var lastScrobbledVideoId: String?
-
-    private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.686udjie.Trop", category: "LastFM")
 
     private init() {}
 
@@ -294,8 +291,4 @@ private extension UserDefaults {
     @objc dynamic var lastfmScrobblingEnabled: Bool {
         bool(forKey: LastFMDefaults.scrobblingEnabledKey)
     }
-}
-
-extension Notification.Name {
-    static let lastFMLikeChanged = Notification.Name("lastFMLikeChanged")
 }

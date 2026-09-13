@@ -8,7 +8,6 @@
 import AVFoundation
 import Foundation
 import Observation
-import Combine
 import Nuke
 import SwiftUI
 import MediaPlayer
@@ -194,68 +193,59 @@ final class NowPlaying {
 
     func repeatCurrent() {
         guard queueSongs.indices.contains(queueIndex) else { return }
-        isResolvingNext = true
-        let song = queueSongs[queueIndex]
-        Task {
-            do {
-                try await PlaybackManager.shared.resolveAndPlay(videoId: song.videoId)
-            } catch {
-                Log.nowPlaying.error("repeatCurrent failed: \(error)")
-                if self.videoId == song.videoId {
-                    isPlaying = false
-                }
-            }
-            isResolvingNext = false
-            isRepeatOn = false
+        playCurrentSong(logContext: "repeatCurrent") {
+            self.isRepeatOn = false
         }
-        persistQueueState()
     }
 
     func playNext(automatic: Bool = false) {
         guard hasNext else { return }
         guard !isResolvingNext else { return }
         if !automatic { lastManualSkipTime = Date() }
-        isResolvingNext = true
         queueIndex += 1
-        let song = queueSongs[queueIndex]
-        let displayArtist = song.artists.map(\.name).joined(separator: ", ")
-        update(title: song.title, artist: displayArtist, videoId: song.videoId, album: song.album, artists: song.artists)
-        persistQueueState()
-        Task {
-            do {
-                try await PlaybackManager.shared.resolveAndPlay(videoId: song.videoId)
-            } catch {
-                Log.nowPlaying.error("playNext failed: \(error)")
-                if self.videoId == song.videoId {
-                    isPlaying = false
-                }
-            }
-            isResolvingNext = false
-        }
+        playCurrentSong(logContext: "playNext")
     }
 
     func playPrevious() {
         guard hasPrevious else { return }
         guard !isResolvingNext else { return }
         lastManualSkipTime = Date()
-        isResolvingNext = true
         queueIndex -= 1
+        playCurrentSong(logContext: "playPrevious")
+    }
+
+    /// Starts the song at `queueIndex`: pushes metadata, persists the queue,
+    /// and resolves the stream, clearing `isResolvingNext` afterwards.
+    /// Shared by repeatCurrent/playNext/playPrevious and QueueView playback.
+    func playCurrentSong(
+        logContext: String,
+        manageResolvingFlag: Bool = true,
+        afterResolve: (() -> Void)? = nil
+    ) {
+        guard queueSongs.indices.contains(queueIndex) else { return }
+        if manageResolvingFlag {
+            isResolvingNext = true
+        }
         let song = queueSongs[queueIndex]
-        let displayArtist = song.artists.map(\.name).joined(separator: ", ")
-        update(title: song.title, artist: displayArtist, videoId: song.videoId, album: song.album, artists: song.artists)
+        update(with: song)
         persistQueueState()
         Task {
             do {
                 try await PlaybackManager.shared.resolveAndPlay(videoId: song.videoId)
             } catch {
-                Log.nowPlaying.error("playPrevious failed: \(error)")
+                Log.nowPlaying.error("\(logContext) failed: \(error)")
+                if self.videoId == song.videoId {
+                    isPlaying = false
+                }
             }
-            isResolvingNext = false
+            if manageResolvingFlag {
+                isResolvingNext = false
+            }
+            afterResolve?()
         }
     }
 
-    func update(title: String, artist: String?, videoId: String, album: String? = nil, artists: [YTArtist] = []) {
-        self.isPlaying = true
+    func update(title: String, artist: String?, videoId: String, album: String? = nil, artists: [YTArtist] = []) {        self.isPlaying = true
         self.title = title
         self.artists = artists
         self.artist = cleanArtist(artist ?? "")
@@ -269,6 +259,17 @@ final class NowPlaying {
         startTimer()
         loadThumbnail(videoId: videoId)
         preloadNextTrack()
+    }
+
+    /// Convenience pushing a `SongItem`'s metadata into the player state.
+    func update(with song: SongItem) {
+        update(
+            title: song.title,
+            artist: song.artists.map(\.name).joined(separator: ", "),
+            videoId: song.videoId,
+            album: song.album,
+            artists: song.artists
+        )
     }
 
     /// Updates video availability from `musicVideoType` and/or `hasVideoContent`.
@@ -349,8 +350,7 @@ final class NowPlaying {
                 self.queueIndex = 0
                 self.isShuffleOn = false
                 let first = songs[0]
-                let displayArtist = first.artists.map(\.name).joined(separator: ", ")
-                self.update(title: first.title, artist: displayArtist, videoId: first.videoId, album: first.album, artists: first.artists)
+                update(with: first)
                 try await PlaybackManager.shared.resolveAndPlay(videoId: first.videoId)
                 self.persistQueueState()
             } catch {
@@ -393,7 +393,7 @@ final class NowPlaying {
     }
 
     static func artworkURL(for videoId: String) -> String {
-        "https://i.ytimg.com/vi/\(videoId)/hqdefault.jpg"
+        ArtworkURLs.fallback(for: videoId)
     }
 
     private var lastLoadedVideoId: String?
@@ -453,7 +453,7 @@ final class NowPlaying {
             return
         }
 
-        if let cached = ImagePipeline.shared.cache.cachedImage(for: ImageRequest(url: url), caches: .all)?.image {
+        if let cached = ArtworkLoader.cachedImage(for: url) {
             let cropped = cached.centerCroppedSquare()
             thumbnailUIImage = cropped
             thumbnailImage = Image(uiImage: cropped)
@@ -466,7 +466,7 @@ final class NowPlaying {
         thumbnailImage = nil
         Task {
             do {
-                let platformImage = try await ImagePipeline.shared.image(for: url)
+                let platformImage = try await ArtworkLoader.image(for: url)
                 let cropped = platformImage.centerCroppedSquare()
                 await MainActor.run {
                     thumbnailUIImage = cropped
@@ -488,13 +488,9 @@ final class NowPlaying {
     private func preloadNextTrack() {
         guard hasNext else { return }
         let nextId = queueSongs[queueIndex + 1].videoId
-        Task {
-            do {
-                _ = try await PlaybackManager.shared.resolve(videoId: nextId)
-                Log.nowPlaying.debug("Pre-resolved next track: \(nextId)")
-            } catch {
-                Log.nowPlaying.error("Pre-resolve failed: \(error)")
-            }
+        loggedTask(Log.nowPlaying, "Pre-resolve failed") {
+            _ = try await PlaybackManager.shared.resolve(videoId: nextId)
+            Log.nowPlaying.debug("Pre-resolved next track: \(nextId)")
         }
     }
 

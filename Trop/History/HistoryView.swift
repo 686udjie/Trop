@@ -33,7 +33,7 @@ struct HistoryScreenView: View {
                     album: nil,
                     albumId: nil,
                     duration: 0,
-                    thumbnailUrl: "https://i.ytimg.com/vi/\(entry.event.songId)/hqdefault.jpg",
+                    thumbnailUrl: ArtworkURLs.fallback(for: entry.event.songId),
                     isExplicit: false,
                     playlistId: nil
                 )
@@ -54,7 +54,8 @@ struct HistoryScreenView: View {
 
             Group {
                 if viewModel.isLoading {
-                    loadingView
+                    LoadingStateView("Loading history...")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if viewModel.source == .local {
                     localHistoryContent
                 } else {
@@ -174,7 +175,7 @@ struct HistoryScreenView: View {
                     album: nil,
                     albumId: nil,
                     duration: 0,
-                    thumbnailUrl: "https://i.ytimg.com/vi/\(entry.event.songId)/hqdefault.jpg",
+                    thumbnailUrl: ArtworkURLs.fallback(for: entry.event.songId),
                     isExplicit: false,
                     playlistId: nil
                 )
@@ -199,7 +200,7 @@ struct HistoryScreenView: View {
                 }
                 .buttonStyle(.plain)
             }
-            Button {
+            SongRowView(song: song, onTap: {
                 if isSelecting {
                     if isSelected {
                         selectedEvents.remove(entry.event)
@@ -207,19 +208,9 @@ struct HistoryScreenView: View {
                         selectedEvents.insert(entry.event)
                     }
                 } else {
-                    if let index = allItems.firstIndex(where: { $0.videoId == song.videoId }) {
-                        NowPlaying.shared.setQueue(allItems, startIndex: index)
-                    } else {
-                        NowPlaying.shared.setQueue([song], startIndex: 0)
-                    }
-                    Task {
-                        try? await PlaybackManager.shared.resolveAndPlay(videoId: song.videoId)
-                    }
+                    PlaybackQueue.play(song, in: allItems, log: Log.historyView, context: "History play")
                 }
-            } label: {
-                PlaylistSongRow(song: song)
-            }
-            .buttonStyle(.plain)
+            })
             .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                 Button(role: .destructive) {
                     Task { await viewModel.deleteEvents([entry.event]) }
@@ -235,7 +226,8 @@ struct HistoryScreenView: View {
     private var remoteHistoryContent: some View {
         Group {
             if viewModel.isRemoteLoading {
-                loadingView
+                LoadingStateView("Loading history...")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let error = viewModel.remoteError {
                 ContentUnavailableView(
                     "Couldn't load history",
@@ -260,19 +252,9 @@ struct HistoryScreenView: View {
                 let section = viewModel.remoteSections[sectionIndex]
                 Section {
                     ForEach(section.songs, id: \.videoId) { song in
-                        Button {
-                            if let index = section.songs.firstIndex(where: { $0.videoId == song.videoId }) {
-                                NowPlaying.shared.setQueue(section.songs, startIndex: index)
-                            } else {
-                                NowPlaying.shared.setQueue([song], startIndex: 0)
-                            }
-                            Task {
-                                try? await PlaybackManager.shared.resolveAndPlay(videoId: song.videoId)
-                            }
-                        } label: {
-                            PlaylistSongRow(song: song)
-                        }
-                        .buttonStyle(.plain)
+                        SongRowView(song: song, onTap: {
+                            PlaybackQueue.play(song, in: section.songs, log: Log.historyView, context: "History play")
+                        })
                         .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
                         .listRowSeparator(.hidden)
                     }
@@ -290,15 +272,4 @@ struct HistoryScreenView: View {
         .miniPlayerTracksScroll()
     }
 
-    private var loadingView: some View {
-        VStack(spacing: 16) {
-            Spacer()
-            ProgressView()
-            Text("Loading history...")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-            Spacer()
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
 }

@@ -110,16 +110,8 @@ final class HistoryView {
             Log.historyView.debug("No 'contents' in response, keys: \(json.keys.sorted())")
             return []
         }
-        guard let singleColumn = contents["singleColumnBrowseResultsRenderer"] as? [String: Any] else {
-            Log.historyView.debug("No singleColumnBrowseResultsRenderer, keys: \(contents.keys.sorted())")
-            return []
-        }
-        guard let tabs = singleColumn["tabs"] as? [[String: Any]],
-              let firstTab = tabs.first,
-              let tabRenderer = firstTab["tabRenderer"] as? [String: Any],
-              let content = tabRenderer["content"] as? [String: Any],
-              let sectionList = content["sectionListRenderer"] as? [String: Any],
-              let shelfList = sectionList["contents"] as? [[String: Any]] else {
+        guard contents["singleColumnBrowseResultsRenderer"] is [String: Any],
+              let shelfList = BrowseLens.browseSections(json) else {
             Log.historyView.debug("Couldn't navigate to sectionListRenderer.contents")
             return []
         }

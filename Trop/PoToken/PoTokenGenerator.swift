@@ -287,15 +287,6 @@ actor PoTokenGenerator: NSObject {
     }
 }
 
-private extension String {
-    func jsEscaped() -> String {
-        replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "\"", with: "\\\"")
-            .replacingOccurrences(of: "\n", with: "\\n")
-            .replacingOccurrences(of: "\r", with: "\\r")
-    }
-}
-
 private final class PoTokenMessageHandler: NSObject, WKScriptMessageHandler {
     private weak var generator: PoTokenGenerator?
 

@@ -50,21 +50,7 @@ extension PodcastDetailViewModel {
         var thumbnailUrl: String?
         var episodes: [EpisodeItem] = []
 
-        let contents = json["contents"] as? [String: Any]
-        let singleColumn = contents?["singleColumnBrowseResultsRenderer"] as? [String: Any]
-        let twoColumn = contents?["twoColumnBrowseResultsRenderer"] as? [String: Any]
-
-        let tabsArray: [[String: Any]]? = {
-            if let tabs = twoColumn?["tabs"] as? [[String: Any]] { return tabs }
-            if let tabs = singleColumn?["tabs"] as? [[String: Any]] { return tabs }
-            return nil
-        }()
-        let firstTabSectionInner = tabsArray?
-            .first
-            .flatMap { $0["tabRenderer"] as? [String: Any] }
-            .flatMap { $0["content"] as? [String: Any] }
-            .flatMap { $0["sectionListRenderer"] as? [String: Any] }
-            .flatMap { ($0["contents"] as? [[String: Any]])?.first }
+        let firstTabSectionInner = BrowseLens.firstSectionItem(json)
         let firstTabSection = firstTabSectionInner
             .flatMap { $0["itemSectionRenderer"] as? [String: Any] }
             .flatMap { ($0["contents"] as? [[String: Any]])?.first }
@@ -79,12 +65,12 @@ extension PodcastDetailViewModel {
             }
 
         if let header = headerRenderer {
-            title = DetailParser.extractRunsText(header["title"] as? [String: Any]) ?? title
-            thumbnailUrl = DetailParser.extractMusicThumbnail(header)
+            title = InnerTubeJSON.runsText(header["title"] as? [String: Any]) ?? title
+            thumbnailUrl = InnerTubeJSON.musicThumbnailURL(header)
 
             descriptionText = header["description"]
                 .flatMap { $0 as? [String: Any] }
-                .flatMap { DetailParser.extractRunsText($0) }
+                .flatMap { InnerTubeJSON.runsText($0) }
 
             if let strapline = header["straplineTextOne"] as? [String: Any],
                let runs = strapline["runs"] as? [[String: Any]],
@@ -117,7 +103,7 @@ extension PodcastDetailViewModel {
                   let watch = onTap["watchEndpoint"] as? [String: Any],
                   let videoId = watch["videoId"] as? String else { return nil }
 
-            let title = DetailParser.extractRunsText(renderer["title"] as? [String: Any]) ?? "Unknown"
+            let title = InnerTubeJSON.runsText(renderer["title"] as? [String: Any]) ?? "Unknown"
 
             let thumbnailUrl: String? = {
                 if let thumbRenderer = renderer["thumbnail"] as? [String: Any],
@@ -141,7 +127,7 @@ extension PodcastDetailViewModel {
                 for text in separated {
                     let trimmed = text.trimmingCharacters(in: .whitespaces)
                     if trimmed.contains(":") {
-                        duration = DetailParser.parseDuration(trimmed)
+                        duration = DurationFormat.parseClock(trimmed) ?? 0
                     } else if publishDate == nil && !trimmed.isEmpty {
                         publishDate = trimmed
                     }
@@ -185,7 +171,7 @@ extension PodcastDetailViewModel {
         }
 
         // Primary: twoColumnBrowseResultsRenderer.secondaryContents
-        if let twoCol = twoColumn,
+        if let twoCol = (json["contents"] as? [String: Any])?["twoColumnBrowseResultsRenderer"] as? [String: Any],
            let secondary = twoCol["secondaryContents"] as? [String: Any],
            let sectionList = secondary["sectionListRenderer"] as? [String: Any],
            let sectionContents = sectionList["contents"] as? [[String: Any]] {
@@ -203,13 +189,7 @@ extension PodcastDetailViewModel {
 
         // Fallback: singleColumnBrowseResultsRenderer
         if episodes.isEmpty,
-           let singleCol = singleColumn,
-           let tabs = singleCol["tabs"] as? [[String: Any]],
-           let sections = tabs.first
-            .flatMap({ $0["tabRenderer"] as? [String: Any] })
-            .flatMap({ $0["content"] as? [String: Any] })
-            .flatMap({ $0["sectionListRenderer"] as? [String: Any] })
-            .flatMap({ $0["contents"] as? [[String: Any]] }) {
+           let sections = BrowseLens.browseSections(json) {
             for section in sections {
                 if let isr = section["itemSectionRenderer"] as? [String: Any],
                    let innerContents = isr["contents"] as? [[String: Any]] {
@@ -249,27 +229,14 @@ struct PodcastDetailView: View {
 
     var body: some View {
         ScrollView {
-            Group {
-                if viewModel.isLoading {
-                    loadingView
-                        .containerRelativeFrame(.vertical)
-                } else if let error = viewModel.error {
-                    ContentUnavailableView(
-                        "Couldn't load podcast",
-                        systemImage: "exclamationmark.circle",
-                        description: Text(error.localizedDescription)
-                    )
-                    .containerRelativeFrame(.vertical)
-                } else if let podcast = viewModel.podcast {
-                    podcastContent(for: podcast)
-                } else {
-                    ContentUnavailableView(
-                        "No podcast data",
-                        systemImage: "antenna.radiowaves.left.and.right",
-                        description: Text("Could not parse podcast details")
-                    )
-                    .containerRelativeFrame(.vertical)
-                }
+            DetailStateContainer(
+                isLoading: viewModel.isLoading,
+                error: viewModel.error,
+                data: viewModel.podcast,
+                noun: "podcast",
+                emptyIcon: "antenna.radiowaves.left.and.right"
+            ) { podcast in
+                podcastContent(for: podcast)
             }
         }
         .scrollDisabled(viewModel.isLoading || viewModel.error != nil || viewModel.podcast == nil)
@@ -281,17 +248,6 @@ struct PodcastDetailView: View {
             await viewModel.load()
         }
         .detailRouteSheet(item: $pendingRoute)
-    }
-
-    private var loadingView: some View {
-        VStack(spacing: 16) {
-            Spacer()
-            ProgressView()
-            Text("Loading podcast...")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-            Spacer()
-        }
     }
 
     @ViewBuilder
@@ -316,10 +272,7 @@ struct PodcastDetailView: View {
     @ViewBuilder
     private func header(for podcast: PodcastDetailInfo) -> some View {
         VStack(spacing: 12) {
-            AsyncImageView(url: podcast.thumbnailUrl)
-                .frame(width: 200, height: 200)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-                .shadow(color: .black.opacity(0.2), radius: 12, y: 4)
+            HeroArtworkView(url: podcast.thumbnailUrl)
 
             Text(podcast.title)
                 .font(.title2)
@@ -348,18 +301,10 @@ struct PodcastDetailView: View {
                     .padding(.top, 4)
             }
 
-            HStack(spacing: 20) {
-                                Button(action: { playAll(podcast) }, label: {
-                    Image(systemName: "play.fill")
-                        .font(.title2)
-                        .foregroundColor(.white)
-                        .frame(width: 60, height: 60)
-                        .background(Circle().fill(Color.accentColor))
-                })
-                .buttonStyle(.plain)
-                .accessibilityLabel("Play all")
-            }
-            .padding(.top, 4)
+            PlaybackControlsView(
+                showsShuffle: false,
+                onPlay: { playAll(podcast) }
+            )
         }
         .padding(.vertical, 16)
     }
@@ -368,13 +313,11 @@ struct PodcastDetailView: View {
     private func episodeList(for podcast: PodcastDetailInfo) -> some View {
         VStack(spacing: 0) {
             ForEach(Array(podcast.episodes.enumerated()), id: \.offset) { index, episode in
-                PodcastEpisodeRow(
-                    episode: episode,
-                    onPlay: { playEpisode(episode, in: podcast) },
+                SongRowView(
+                    song: episode.toSongItem(),
+                    onTap: { playEpisode(episode, in: podcast) },
                     onNavigate: { pendingRoute = $0 }
                 )
-                .padding(.horizontal, 16)
-                .padding(.vertical, 6)
 
                 if index < podcast.episodes.count - 1 {
                     Divider()
@@ -387,112 +330,11 @@ struct PodcastDetailView: View {
     // MARK: - Actions
 
     private func playAll(_ podcast: PodcastDetailInfo) {
-        guard !podcast.episodes.isEmpty else { return }
-        let first = podcast.episodes[0]
-        NowPlaying.shared.setQueue(podcast.episodes.map { $0.toSongItem() }, startIndex: 0)
-        Task {
-            do {
-                try await PlaybackManager.shared.resolveAndPlay(videoId: first.videoId)
-            } catch {
-                Log.podcastDetail.error("playAll failed: \(error)")
-            }
-        }
+        PlaybackQueue.play(podcast.episodes.map { $0.toSongItem() }, log: Log.podcastDetail, context: "playAll")
     }
 
     private func playEpisode(_ episode: EpisodeItem, in podcast: PodcastDetailInfo) {
-        guard let index = podcast.episodes.firstIndex(where: { $0.videoId == episode.videoId }) else { return }
-        NowPlaying.shared.setQueue(podcast.episodes.map { $0.toSongItem() }, startIndex: index)
-        Task {
-            do {
-                try await PlaybackManager.shared.resolveAndPlay(videoId: episode.videoId)
-            } catch {
-                Log.podcastDetail.error("playEpisode failed: \(error)")
-            }
-        }
-    }
-}
-
-// MARK: - Podcast Episode Row
-
-struct PodcastEpisodeRow: View {
-    let episode: EpisodeItem
-    var onPlay: (() -> Void)?
-    var onNavigate: ((DetailRoute) -> Void)?
-
-    @State private var showSongMenu = false
-    @State private var resolvedDuration: Int = 0
-
-    private var effectiveDuration: Int {
-        episode.duration > 0 ? episode.duration : resolvedDuration
-    }
-
-    var body: some View {
-        HStack(spacing: 12) {
-            AsyncImageView(url: episode.thumbnailUrl)
-                .frame(width: 40, height: 40)
-                .clipShape(RoundedRectangle(cornerRadius: 4))
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(episode.title)
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
-
-                let durationStr = effectiveDuration.formattedDuration
-                let subtitleText = episode.duration > 0 ? durationStr : ""
-
-                Text(subtitleText)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
-            }
-
-            Spacer()
-
-            HStack(spacing: 2) {
-                SongLikeButton(song: episode.toSongItem())
-                SongDownloadButton(song: episode.toSongItem())
-                Button {
-                    showSongMenu = true
-                } label: {
-                    Text("\u{22EE}")
-                        .font(.body.weight(.black))
-                        .foregroundStyle(Color.accentColor)
-                }
-            }
-            .sheet(isPresented: $showSongMenu) {
-                SongMenuSheet(
-                    song: episode.toSongItem(),
-                    onNavigate: { onNavigate?($0) }
-                )
-            }
-        }
-        .background(DownloadCellProgressView(song: episode.toSongItem()))
-        .contentShape(Rectangle())
-        .onTapGesture {
-            onPlay?()
-        }
-        .task { await resolveDuration() }
-        .onReceive(NotificationCenter.default.publisher(for: .durationDidUpdate)) { notification in
-            guard let vid = notification.userInfo?["videoId"] as? String, vid == episode.videoId else { return }
-            resolvedDuration = DurationCache.get(vid) ?? 0
-        }
-    }
-
-    private func resolveDuration() async {
-        guard episode.duration <= 0 else { return }
-        let vid = episode.videoId
-        if let cached = DurationCache.get(vid), cached > 0 {
-            resolvedDuration = cached
-            return
-        }
-        guard !DurationCache.isPending(vid) else { return }
-        DurationCache.markPending(vid)
-        do {
-            resolvedDuration = try await InnerTube.shared.fetchDuration(videoId: vid)
-        } catch {
-            DurationCache.clearPending(vid)
-        }
+        let songs = podcast.episodes.map { $0.toSongItem() }
+        PlaybackQueue.play(episode.toSongItem(), in: songs, log: Log.podcastDetail, context: "playEpisode")
     }
 }

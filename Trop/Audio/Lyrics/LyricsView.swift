@@ -414,20 +414,7 @@ struct LyricsView<ProgressSlider: View>: View {
                     .frame(width: 48, height: 48)
             }
 
-            VStack(alignment: .leading, spacing: 2) {
-                MarqueeText(
-                    text: np.title,
-                    font: .body.weight(.semibold),
-                    frameHeight: 24
-                )
-
-                if !np.displayArtist.isEmpty {
-                    Text(np.displayArtist)
-                        .font(.subheadline)
-                        .foregroundStyle(.white.opacity(0.7))
-                        .lineLimit(1)
-                }
-            }
+            PlayerTitleBlock(title: np.title, artist: np.displayArtist)
 
             Spacer()
 
@@ -435,7 +422,11 @@ struct LyricsView<ProgressSlider: View>: View {
                 fullscreenToggleButton
             }
 
-            threeDotsMenu
+            if np.queueSongs.indices.contains(np.queueIndex) {
+                PlayerOptionsButton {
+                    showSongMenu = true
+                }
+            }
         }
     }
 
@@ -447,22 +438,6 @@ struct LyricsView<ProgressSlider: View>: View {
                 .font(.system(size: 18))
                 .foregroundStyle(.white)
                 .frame(width: 36, height: 36)
-        }
-    }
-
-    private var threeDotsMenu: some View {
-        Group {
-            if np.queueSongs.indices.contains(np.queueIndex) {
-                Button {
-                    showSongMenu = true
-                } label: {
-                    Text("\u{22EE}")
-                        .font(.system(size: 20, weight: .black))
-                        .foregroundStyle(.white)
-                        .frame(width: 36, height: 36)
-                }
-                .accessibilityLabel("Song options")
-            }
         }
     }
 
@@ -711,15 +686,5 @@ private struct LetterSyncLineView: View {
             result.append(part)
         }
         return result
-    }
-}
-
-private extension Alignment {
-    var horizontal: HorizontalAlignment {
-        switch self {
-        case .leading: return .leading
-        case .trailing: return .trailing
-        default: return .center
-        }
     }
 }

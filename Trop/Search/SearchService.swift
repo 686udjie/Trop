@@ -54,23 +54,17 @@ actor SearchService {
         try await db.write { db in
             for song in songs {
                 let existing = try SongEntity.fetchOne(db, key: song.videoId)
-                let entity = SongEntity(
+                let entity = SongEntity.merging(
+                    existing: existing,
                     id: song.videoId,
                     title: song.title,
-                    artistName: existing?.artistName ?? song.artists.first,
-                    albumName: existing?.albumName ?? song.album,
+                    artistName: song.artists.first,
+                    albumName: song.album,
                     duration: song.duration,
-                    thumbnailUrl: song.thumbnailUrl ?? existing?.thumbnailUrl,
-                    liked: existing?.liked ?? song.isLiked,
-                    totalPlayTime: existing?.totalPlayTime ?? 0,
-                    inLibrary: existing?.inLibrary,
-                    libraryAddToken: existing?.libraryAddToken ?? song.libraryAddToken ?? "",
-                    libraryRemoveToken: existing?.libraryRemoveToken ?? song.libraryRemoveToken ?? "",
-                    isEpisode: existing?.isEpisode ?? false,
-                    isUploaded: existing?.isUploaded ?? false,
-                    isVideo: existing?.isVideo ?? false,
-                    createDate: existing?.createDate ?? Date(),
-                    modifyDate: Date()
+                    thumbnailUrl: song.thumbnailUrl,
+                    liked: song.isLiked,
+                    libraryAddToken: song.libraryAddToken ?? "",
+                    libraryRemoveToken: song.libraryRemoveToken ?? ""
                 )
                 try entity.save(db)
             }
@@ -78,16 +72,7 @@ actor SearchService {
     }
 
     private func extractRadioItems(from json: [String: Any]) -> [[String: Any]] {
-        guard let contents = json["contents"] as? [String: Any],
-              let singleColumn = contents["singleColumnBrowseResultsRenderer"] as? [String: Any]
-                  ?? contents["twoColumnBrowseResultsRenderer"] as? [String: Any],
-              let tabs = singleColumn["tabs"] as? [[String: Any]],
-              let firstTab = tabs.first,
-              let tabRenderer = firstTab["tabRenderer"] as? [String: Any],
-              let content = tabRenderer["content"] as? [String: Any],
-              let sectionList = content["sectionListRenderer"] as? [String: Any],
-              let sections = sectionList["contents"] as? [[String: Any]],
-              let firstSection = sections.first,
+        guard let firstSection = BrowseLens.firstBrowseSection(json),
               let shelf = firstSection["musicShelfRenderer"] as? [String: Any],
               let items = shelf["contents"] as? [[String: Any]] else {
             // Try watching endpoint structure

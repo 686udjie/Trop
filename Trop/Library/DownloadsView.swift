@@ -15,7 +15,8 @@ struct DownloadsView: View {
     var body: some View {
         Group {
             if viewModel.isLoading {
-                loadingView
+                LoadingStateView("Loading downloads…")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if viewModel.tracks.isEmpty && viewModel.activeDownloads.isEmpty {
                 emptyView
             } else {
@@ -32,18 +33,6 @@ struct DownloadsView: View {
             Task { await viewModel.refreshTracks() }
         }
         .detailRouteSheet(item: $pendingRoute)
-    }
-
-    private var loadingView: some View {
-        VStack(spacing: 16) {
-            Spacer()
-            ProgressView()
-            Text("Loading downloads…")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-            Spacer()
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var emptyView: some View {
@@ -118,9 +107,11 @@ struct DownloadsView: View {
     private var songList: some View {
         VStack(spacing: 0) {
             ForEach(Array(viewModel.songs.enumerated()), id: \.offset) { index, song in
-                DownloadedSongRow(
+                SongRowView(
                     song: song,
-                    onPlay: { playSong(song) },
+                    artSize: 48,
+                    artRadius: 8,
+                    onTap: { playSong(song) },
                     onNavigate: { pendingRoute = $0 }
                 )
 
@@ -135,27 +126,17 @@ struct DownloadsView: View {
     private func playAll() {
         let songs = viewModel.songs
         guard !songs.isEmpty else { return }
-        let first = songs[0]
         NowPlaying.shared.setQueue(songs, startIndex: 0)
-        let displayArtist = first.artists.map(\.name).joined(separator: ", ")
-        NowPlaying.shared.update(
-            title: first.title, artist: displayArtist, videoId: first.videoId,
-            album: first.album, artists: first.artists
-        )
-        Task { await playLocal(first) }
+        NowPlaying.shared.update(with: songs[0])
+        Task { await playLocal(songs[0]) }
     }
 
     private func shufflePlay() {
         let songs = viewModel.songs.shuffled()
         guard !songs.isEmpty else { return }
-        let first = songs[0]
         NowPlaying.shared.setQueue(songs, startIndex: 0)
-        let displayArtist = first.artists.map(\.name).joined(separator: ", ")
-        NowPlaying.shared.update(
-            title: first.title, artist: displayArtist, videoId: first.videoId,
-            album: first.album, artists: first.artists
-        )
-        Task { await playLocal(first) }
+        NowPlaying.shared.update(with: songs[0])
+        Task { await playLocal(songs[0]) }
     }
 
     private func playSong(_ song: SongItem) {
@@ -165,11 +146,7 @@ struct DownloadsView: View {
         } else {
             NowPlaying.shared.setQueue([song], startIndex: 0)
         }
-        let displayArtist = song.artists.map(\.name).joined(separator: ", ")
-        NowPlaying.shared.update(
-            title: song.title, artist: displayArtist, videoId: song.videoId,
-            album: song.album, artists: song.artists
-        )
+        NowPlaying.shared.update(with: song)
         Task { await playLocal(song) }
     }
 

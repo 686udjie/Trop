@@ -21,16 +21,12 @@ struct LibraryView: View {
     @State private var playlistToDelete: PlaylistEntity?
     @State private var playlistSongCounts: [String: Int] = [:]
 
-    @StateObject private var loginModel = LoginViewModel()
     @ObservedObject private var router = AppRouter.shared
     @Environment(\.downloadManager) private var downloadManager
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
-    @State private var accountName = "Guest"
-    @State private var accountImageUrl: String?
-    @State private var isLoginSheetPresented = false
-    @State private var isAccountSheetPresented = false
+    @State private var accountState = AccountSheetState()
 
     private var gridColumns: [GridItem] {
         let count = horizontalSizeClass == .regular ? 3 : 2
@@ -63,10 +59,10 @@ struct LibraryView: View {
             VStack(spacing: 0) {
                 TabHeaderView(
                     title: "Library",
-                    accountIsLoggedIn: loginModel.isLoggedIn,
-                    accountImageUrl: accountImageUrl,
+                    accountIsLoggedIn: accountState.isLoggedIn,
+                    accountImageUrl: accountState.accountImageUrl,
                     onHistory: { router.libraryPath.append(DetailRoute.history) },
-                    onAccount: { tapAccount() }
+                    onAccount: { accountState.isAccountSheetPresented = true }
                 )
 
                 Group {
@@ -103,33 +99,16 @@ struct LibraryView: View {
                 }
             }
             .animation(.spring(response: 0.4, dampingFraction: 0.8), value: showCreateDialog)
-            .sheet(isPresented: $isLoginSheetPresented) {
-                NavigationStack {
-                    LoginWebView(model: loginModel)
-                        .ignoresSafeArea()
-                        .toolbar {
-                            ToolbarItem(placement: .cancellationAction) {
-                                Button("Cancel") { isLoginSheetPresented = false }
-                            }
-                        }
-                }
-            }
-            .sheet(isPresented: $isAccountSheetPresented) {
-                accountSheet
+            .accountSheets(state: accountState) {
+                router.libraryPath.append(DetailRoute.settings)
             }
             .task {
                 await loadContent()
-                loginModel.restoreSessionIfPresent()
-                await fetchAccountInfo()
+                accountState.restoreSession()
+                await accountState.fetchAccountInfo()
                 Task {
                     await IncrementalSyncService.shared.forceFullSync()
                     await loadContent()
-                }
-            }
-            .onChange(of: loginModel.isLoggedIn) { _, loggedIn in
-                if loggedIn {
-                    isLoginSheetPresented = false
-                    Task { await fetchAccountInfo() }
                 }
             }
             .task(id: isLoading) {
@@ -143,18 +122,18 @@ struct LibraryView: View {
                 await IncrementalSyncService.shared.forceFullSync()
                 await loadContent()
             }
-            .alert("Delete Playlist", isPresented: .init(
-                get: { playlistToDelete != nil },
-                set: { if !$0 { playlistToDelete = nil } }
-            )) {
-                Button("Cancel", role: .cancel) { playlistToDelete = nil }
-                Button("Delete", role: .destructive) {
-                    if let p = playlistToDelete {
-                        Task { await deletePlaylist(p) }
-                    }
+            .destructiveConfirm(
+                "Delete Playlist",
+                isPresented: .init(
+                    get: { playlistToDelete != nil },
+                    set: { if !$0 { playlistToDelete = nil } }
+                ),
+                message: Text("Are you sure you want to delete \"\(playlistToDelete?.name ?? "")\"?"),
+                confirmTitle: "Delete"
+            ) {
+                if let p = playlistToDelete {
+                    Task { await deletePlaylist(p) }
                 }
-            } message: {
-                Text("Are you sure you want to delete \"\(playlistToDelete?.name ?? "")\"?")
             }
         }
     }
@@ -299,13 +278,13 @@ struct LibraryView: View {
         count: Int,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: DesignTokens.sectionSpacing) {
             sectionTitle(title, count: count)
 
             LazyVGrid(columns: gridColumns, spacing: 16) {
                 content()
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, DesignTokens.screenHPadding)
         }
         .padding(.bottom, 24)
     }
@@ -323,7 +302,7 @@ struct LibraryView: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, DesignTokens.screenHPadding)
         .padding(.top, 8)
         .padding(.bottom, 4)
     }
@@ -405,21 +384,12 @@ struct LibraryView: View {
     private var librarySkeleton: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(0..<4, id: \.self) { _ in
-                            ShimmerBlock(width: 88, height: 34, radius: 17)
-                        }
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                }
+                ShimmerChips(count: 4, width: 88)
 
                 ForEach(0..<2, id: \.self) { _ in
-                    ShimmerBlock(width: 130, height: 24, radius: 6)
-                        .padding(.horizontal, 16)
-                        .padding(.top, 16)
-                        .padding(.bottom, 12)
+                    ShimmerSectionTitle(width: 130)
+                        .padding(.top, 8)
+                        .padding(.bottom, 4)
 
                     LazyVGrid(columns: gridColumns, spacing: 16) {
                         ForEach(0..<6, id: \.self) { _ in
@@ -431,7 +401,7 @@ struct LibraryView: View {
                             }
                         }
                     }
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, DesignTokens.screenHPadding)
                 }
             }
             .padding(.bottom, 24)
@@ -481,48 +451,6 @@ struct LibraryView: View {
             Log.libraryView.error("Failed to delete playlist: \(error)")
         }
     }
-
-    // MARK: - Account
-
-    private func tapAccount() {
-        isAccountSheetPresented = true
-    }
-
-    private func fetchAccountInfo() async {
-        guard loginModel.isLoggedIn else { return }
-        do {
-            let info = try await InnerTube.shared.accountInfo()
-            accountName = info.name
-            accountImageUrl = info.thumbnailUrl
-        } catch {
-            Log.libraryView.error("Failed to fetch account info: \(error)")
-        }
-    }
-
-    private var accountSheet: some View {
-        AccountSheetView(
-            isLoggedIn: loginModel.isLoggedIn,
-            titleText: accountName,
-            accountImageUrl: accountImageUrl,
-            onDone: { isAccountSheetPresented = false },
-            onLogin: {
-                isAccountSheetPresented = false
-                DispatchQueue.main.async {
-                    isLoginSheetPresented = true
-                }
-            },
-            onSettings: {
-                isAccountSheetPresented = false
-                router.libraryPath.append(DetailRoute.settings)
-            },
-            onSignOut: {
-                loginModel.logout()
-                accountName = "Guest"
-                accountImageUrl = nil
-                isAccountSheetPresented = false
-            }
-        )
-    }
 }
 
 // MARK: - Create Playlist Dialog
@@ -549,7 +477,7 @@ struct CreatePlaylistDialog: View {
             TextField("Playlist name", text: $name)
                 .font(.body)
                 .focused($isFocused)
-                .padding(.horizontal, 16)
+                .padding(.horizontal, DesignTokens.screenHPadding)
                 .padding(.vertical, 12)
                 .background(
                     RoundedRectangle(cornerRadius: 10, style: .continuous)

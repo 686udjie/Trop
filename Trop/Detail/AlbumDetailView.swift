@@ -62,27 +62,12 @@ extension AlbumDetailViewModel {
         var playlistId: String?
         var songs: [SongItem] = []
 
-        let contents = json["contents"] as? [String: Any]
-
-        let singleColumn = contents?["singleColumnBrowseResultsRenderer"] as? [String: Any]
-        let twoColumn   = contents?["twoColumnBrowseResultsRenderer"]   as? [String: Any]
-
         // Resolve first tab section (exists in both layouts)
-        let tabsArray: [[String: Any]]? = {
-            if let tabs = twoColumn?["tabs"] as? [[String: Any]] { return tabs }
-            if let tabs = singleColumn?["tabs"] as? [[String: Any]] { return tabs }
-            return nil
-        }()
-        let firstTabSection: [String: Any]? = tabsArray?
-            .first
-            .flatMap { $0["tabRenderer"] as? [String: Any] }
-            .flatMap { $0["content"] as? [String: Any] }
-            .flatMap { $0["sectionListRenderer"] as? [String: Any] }
-            .flatMap { ($0["contents"] as? [[String: Any]])?.first }
+        let firstTabSection: [String: Any]? = BrowseLens.firstSectionItem(json)
 
         // --- Header: musicResponsiveHeaderRenderer (modern two-column albums) ---
         if let responsiveHeader = firstTabSection?["musicResponsiveHeaderRenderer"] as? [String: Any] {
-            title = DetailParser.extractRunsText(responsiveHeader["title"] as? [String: Any]) ?? title
+            title = InnerTubeJSON.runsText(responsiveHeader["title"] as? [String: Any]) ?? title
 
             // Artists from straplineTextOne
             if let strapline = responsiveHeader["straplineTextOne"] as? [String: Any],
@@ -125,12 +110,12 @@ extension AlbumDetailViewModel {
                         let nums = trimmed.components(separatedBy: CharacterSet.decimalDigits.inverted).compactMap(Int.init)
                         if let count = nums.first { songCount = count }
                     } else if trimmed.contains(":") {
-                        duration = DetailParser.parseDuration(trimmed)
+                        duration = DurationFormat.parseClock(trimmed) ?? 0
                     }
                 }
             }
 
-            thumbnailUrl = DetailParser.extractMusicThumbnail(responsiveHeader)
+            thumbnailUrl = InnerTubeJSON.musicThumbnailURL(responsiveHeader)
         }
 
         // --- Header fallback: musicDetailHeaderRenderer (legacy / single-column) ---
@@ -139,7 +124,7 @@ extension AlbumDetailViewModel {
                 (json["header"] as? [String: Any])?["musicDetailHeaderRenderer"] as? [String: Any]
 
             if let detailHeader = legacyHeader {
-                title = DetailParser.extractRunsText(detailHeader["title"] as? [String: Any]) ?? title
+                title = InnerTubeJSON.runsText(detailHeader["title"] as? [String: Any]) ?? title
 
                 if let subtitle = detailHeader["subtitle"] as? [String: Any],
                    let runs = subtitle["runs"] as? [[String: Any]] {
@@ -168,12 +153,12 @@ extension AlbumDetailViewModel {
                             let nums = trimmed.components(separatedBy: CharacterSet.decimalDigits.inverted).compactMap(Int.init)
                             if let count = nums.first { songCount = count }
                         } else if trimmed.contains(":") {
-                            duration = DetailParser.parseDuration(trimmed)
+                            duration = DurationFormat.parseClock(trimmed) ?? 0
                         }
                     }
                 }
 
-                if thumbnailUrl == nil { thumbnailUrl = DetailParser.extractMusicThumbnail(detailHeader) }
+                if thumbnailUrl == nil { thumbnailUrl = InnerTubeJSON.musicThumbnailURL(detailHeader) }
 
                 // Extract playlistId from menu items (needed for playback queue)
                 if let menu = detailHeader["menu"] as? [String: Any],
@@ -220,7 +205,7 @@ extension AlbumDetailViewModel {
             return result
         }
 
-        if let twoCol = twoColumn {
+        if let twoCol = (json["contents"] as? [String: Any])?["twoColumnBrowseResultsRenderer"] as? [String: Any] {
             // Songs are in secondaryContents for two-column albums
             if let secondary = twoCol["secondaryContents"] as? [String: Any],
                let sectionList = secondary["sectionListRenderer"] as? [String: Any],
@@ -233,16 +218,9 @@ extension AlbumDetailViewModel {
             if songs.isEmpty, let firstSection = firstTabSection {
                 songs += parseSongsFromShelf(firstSection, fallbackThumbnail: thumbnailUrl)
             }
-        } else if let singleCol = singleColumn {
-            if let tabs = singleCol["tabs"] as? [[String: Any]],
-               let sections = tabs.first
-                .flatMap({ $0["tabRenderer"] as? [String: Any] })
-                .flatMap({ $0["content"] as? [String: Any] })
-                .flatMap({ $0["sectionListRenderer"] as? [String: Any] })
-                .flatMap({ $0["contents"] as? [[String: Any]] }) {
-                for section in sections {
-                    songs += parseSongsFromShelf(section, fallbackThumbnail: thumbnailUrl)
-                }
+        } else if let sections = BrowseLens.browseSections(json) {
+            for section in sections {
+                songs += parseSongsFromShelf(section, fallbackThumbnail: thumbnailUrl)
             }
         }
 
@@ -280,27 +258,14 @@ struct AlbumDetailView: View {
 
     var body: some View {
         ScrollView {
-            Group {
-                if viewModel.isLoading {
-                    loadingView
-                        .containerRelativeFrame(.vertical)
-                } else if let error = viewModel.error {
-                    ContentUnavailableView(
-                        "Couldn't load album",
-                        systemImage: "exclamationmark.circle",
-                        description: Text(error.localizedDescription)
-                    )
-                    .containerRelativeFrame(.vertical)
-                } else if let album = viewModel.album {
-                    albumContent(for: album)
-                } else {
-                    ContentUnavailableView(
-                        "No album data",
-                        systemImage: "music.note",
-                        description: Text("Could not parse album details")
-                    )
-                    .containerRelativeFrame(.vertical)
-                }
+            DetailStateContainer(
+                isLoading: viewModel.isLoading,
+                error: viewModel.error,
+                data: viewModel.album,
+                noun: "album",
+                emptyIcon: "music.note"
+            ) { album in
+                albumContent(for: album)
             }
         }
         .scrollDisabled(viewModel.isLoading || viewModel.error != nil || viewModel.album == nil)
@@ -312,17 +277,6 @@ struct AlbumDetailView: View {
             await viewModel.load()
         }
         .detailRouteSheet(item: $pendingRoute)
-    }
-
-    private var loadingView: some View {
-        VStack(spacing: 16) {
-            Spacer()
-            ProgressView()
-            Text("Loading album...")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-            Spacer()
-        }
     }
 
     @ViewBuilder
@@ -348,10 +302,7 @@ struct AlbumDetailView: View {
     private func header(for album: AlbumDetailInfo) -> some View {
         VStack(spacing: 12) {
             // Album artwork
-            AsyncImageView(url: album.thumbnailUrl)
-                .frame(width: 200, height: 200)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-                .shadow(color: .black.opacity(0.2), radius: 12, y: 4)
+            HeroArtworkView(url: album.thumbnailUrl)
 
             // Album title
             Text(album.title)
@@ -395,27 +346,10 @@ struct AlbumDetailView: View {
             }
 
             // Action buttons: shuffle, play
-            HStack(spacing: 20) {
-                                Button(action: { shufflePlay(album) }, label: {
-                    Image(systemName: "shuffle")
-                        .font(.title3)
-                        .frame(width: 44, height: 44)
-                        .background(Circle().fill(Color(.systemGray6)))
-                })
-                .buttonStyle(.plain)
-                .accessibilityLabel("Shuffle")
-
-                                Button(action: { playAll(album) }, label: {
-                    Image(systemName: "play.fill")
-                        .font(.title2)
-                        .foregroundColor(.white)
-                        .frame(width: 60, height: 60)
-                        .background(Circle().fill(Color.accentColor))
-                })
-                .buttonStyle(.plain)
-                .accessibilityLabel("Play all")
-            }
-            .padding(.top, 4)
+            PlaybackControlsView(
+                onPlay: { playAll(album) },
+                onShuffle: { shufflePlay(album) }
+            )
         }
         .padding(.vertical, 16)
     }
@@ -424,13 +358,11 @@ struct AlbumDetailView: View {
     private func songList(for album: AlbumDetailInfo) -> some View {
         VStack(spacing: 0) {
             ForEach(Array(album.songs.enumerated()), id: \.offset) { index, song in
-                AlbumSongRow(
+                SongRowView(
                     song: song,
-                    onPlay: { playSong(song, in: album) },
+                    onTap: { playSong(song, in: album) },
                     onNavigate: { pendingRoute = $0 }
                 )
-                .padding(.horizontal, 16)
-                .padding(.vertical, 6)
 
                 if index < album.songs.count - 1 {
                     Divider()
@@ -443,45 +375,15 @@ struct AlbumDetailView: View {
     // MARK: - Actions
 
     private func playAll(_ album: AlbumDetailInfo) {
-        guard !album.songs.isEmpty else { return }
-        let first = album.songs[0]
-        NowPlaying.shared.setQueue(album.songs, startIndex: 0)
-        Task {
-            do {
-                try await PlaybackManager.shared.resolveAndPlay(videoId: first.videoId)
-                Log.albumDetail.debug("Playing \(first.title) from album \(album.title)")
-            } catch {
-                Log.albumDetail.error("Playback failed: \(error)")
-            }
-        }
+        PlaybackQueue.play(album.songs, log: Log.albumDetail, context: "Playing from album \(album.title)")
     }
 
     private func shufflePlay(_ album: AlbumDetailInfo) {
-        guard !album.songs.isEmpty else { return }
-        let shuffled = album.songs.shuffled()
-        let first = shuffled[0]
-        NowPlaying.shared.setQueue(shuffled, startIndex: 0)
-        Task {
-            do {
-                try await PlaybackManager.shared.resolveAndPlay(videoId: first.videoId)
-                Log.albumDetail.debug("Shuffle playing \(first.title) from album \(album.title)")
-            } catch {
-                Log.albumDetail.error("Shuffle playback failed: \(error)")
-            }
-        }
+        PlaybackQueue.playShuffled(album.songs, log: Log.albumDetail, context: "Shuffle playing from album \(album.title)")
     }
 
     private func playSong(_ song: SongItem, in album: AlbumDetailInfo) {
-        guard let index = album.songs.firstIndex(where: { $0.videoId == song.videoId }) else { return }
-        NowPlaying.shared.setQueue(album.songs, startIndex: index)
-        Task {
-            do {
-                try await PlaybackManager.shared.resolveAndPlay(videoId: song.videoId)
-                Log.albumDetail.debug("Playing \(song.title)")
-            } catch {
-                Log.albumDetail.error("Playback failed: \(error)")
-            }
-        }
+        PlaybackQueue.play(song, in: album.songs, log: Log.albumDetail, context: "Playing \(song.title)")
     }
 
     // MARK: - Helpers
@@ -493,135 +395,5 @@ struct AlbumDetailView: View {
         if album.songCount > 0 { parts.append("\(album.songCount) song\(album.songCount != 1 ? "s" : "")") }
         if album.duration > 0 { parts.append(album.duration.formattedDuration) }
         return parts
-    }
-}
-
-// MARK: - Detail Parsing Helpers
-
-/// Namespaced helpers for parsing InnerTube browse page responses.
-enum DetailParser {
-    /// Extracts the first run text from a runs-based text dictionary.
-    static func extractRunsText(_ dict: [String: Any]?) -> String? {
-        guard let runs = dict?["runs"] as? [[String: Any]], let first = runs.first else { return nil }
-        return first["text"] as? String
-    }
-
-    /// Extracts the largest thumbnail URL from various InnerTube thumbnail formats.
-    static func extractMusicThumbnail(_ dict: [String: Any]) -> String? {
-        if let thumbnail = dict["thumbnail"] as? [String: Any],
-           let musicThumb = thumbnail["musicThumbnailRenderer"] as? [String: Any],
-           let thumb = musicThumb["thumbnail"] as? [String: Any],
-           let thumbnails = thumb["thumbnails"] as? [[String: Any]],
-           let last = thumbnails.last,
-           let url = last["url"] as? String {
-            return url
-        }
-        if let thumbnail = dict["thumbnail"] as? [String: Any],
-           let thumb = thumbnail["thumbnails"] as? [[String: Any]],
-           let last = thumb.last,
-           let url = last["url"] as? String {
-            return url
-        }
-        if let cropped = dict["croppedSquareThumbnail"] as? [String: Any],
-           let thumb = cropped["thumbnails"] as? [[String: Any]],
-           let last = thumb.last,
-           let url = last["url"] as? String {
-            return url
-        }
-        return nil
-    }
-
-    /// Parses a duration string like "3:45" or "1:02:30" into total seconds.
-    static func parseDuration(_ text: String) -> Int {
-        let parts = text.components(separatedBy: CharacterSet(charactersIn: ":.,")).compactMap { Int($0) }
-        guard parts.count == 2 || parts.count == 3 else { return 0 }
-        if parts.count == 2 { return parts[0] * 60 + parts[1] }
-        return parts[0] * 3600 + parts[1] * 60 + parts[2]
-    }
-}
-
-// MARK: - Album Song Row
-
-struct AlbumSongRow: View {
-    let song: SongItem
-    var onPlay: (() -> Void)?
-    var onNavigate: ((DetailRoute) -> Void)?
-
-    @State private var showSongMenu = false
-    @State private var resolvedDuration: Int = 0
-
-    private var effectiveDuration: Int {
-        song.duration > 0 ? song.duration : resolvedDuration
-    }
-
-    var body: some View {
-        HStack(spacing: 12) {
-            AsyncImageView(url: song.thumbnailUrl)
-                .frame(width: 40, height: 40)
-                .clipShape(RoundedRectangle(cornerRadius: 4))
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(song.title)
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
-
-                let artistStr = song.artists.map(\.name).joined(separator: ", ")
-                let durationStr = effectiveDuration.formattedDuration
-                let subtitleText = artistStr.isEmpty ? durationStr : (durationStr.isEmpty ? artistStr : "\(artistStr) • \(durationStr)")
-
-                Text(subtitleText)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
-            }
-
-            Spacer()
-
-            HStack(spacing: 2) {
-                SongLikeButton(song: song)
-                SongDownloadButton(song: song)
-                Button {
-                    showSongMenu = true
-                } label: {
-                    Text("\u{22EE}")
-                        .font(.body.weight(.black))
-                        .foregroundStyle(Color.accentColor)
-                }
-            }
-            .sheet(isPresented: $showSongMenu) {
-                SongMenuSheet(
-                    song: song,
-                    onNavigate: { onNavigate?($0) }
-                )
-            }
-        }
-        .background(DownloadCellProgressView(song: song))
-        .contentShape(Rectangle())
-        .onTapGesture {
-            onPlay?()
-        }
-        .task { await resolveDuration() }
-        .onReceive(NotificationCenter.default.publisher(for: .durationDidUpdate)) { notification in
-            guard let vid = notification.userInfo?["videoId"] as? String, vid == song.videoId else { return }
-            resolvedDuration = DurationCache.get(vid) ?? 0
-        }
-    }
-
-    private func resolveDuration() async {
-        guard song.duration <= 0 else { return }
-        let vid = song.videoId
-        if let cached = DurationCache.get(vid), cached > 0 {
-            resolvedDuration = cached
-            return
-        }
-        guard !DurationCache.isPending(vid) else { return }
-        DurationCache.markPending(vid)
-        do {
-            resolvedDuration = try await InnerTube.shared.fetchDuration(videoId: vid)
-        } catch {
-            DurationCache.clearPending(vid)
-        }
     }
 }

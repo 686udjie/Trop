@@ -12,19 +12,6 @@ struct YTArtist: Codable, Hashable {
     var id: String?
 }
 
-extension Int {
-    var formattedDuration: String {
-        guard self > 0 else { return "" }
-        let hours = self / 3600
-        let minutes = (self % 3600) / 60
-        let secs = self % 60
-        if hours > 0 {
-            return "\(hours):\(String(format: "%02d", minutes)):\(String(format: "%02d", secs))"
-        }
-        return "\(minutes):\(String(format: "%02d", secs))"
-    }
-}
-
 func parseDurationFromRenderer(_ renderer: [String: Any]) -> Int {
     // 1. fixedColumns[0] — primary source for MusicResponsiveListItemRenderer
     if let fixedColumns = renderer["fixedColumns"] as? [[String: Any]] {
@@ -34,7 +21,7 @@ func parseDurationFromRenderer(_ renderer: [String: Any]) -> Int {
                let runs = textDict["runs"] as? [[String: Any]],
                let first = runs.first,
                let text = first["text"] as? String,
-               let parsed = parseTime(text) {
+               let parsed = DurationFormat.parseClock(text) {
                 return parsed
             }
         }
@@ -53,7 +40,7 @@ func parseDurationFromRenderer(_ renderer: [String: Any]) -> Int {
        let runs = lengthText["runs"] as? [[String: Any]],
        let first = runs.first,
        let text = first["text"] as? String,
-       let parsed = parseTime(text) {
+       let parsed = DurationFormat.parseClock(text) {
         return parsed
     }
 
@@ -65,7 +52,7 @@ func parseDurationFromRenderer(_ renderer: [String: Any]) -> Int {
                let runs = text["runs"] as? [[String: Any]],
                let first = runs.first,
                let textStr = first["text"] as? String,
-               let parsed = parseTime(textStr) {
+               let parsed = DurationFormat.parseClock(textStr) {
                 return parsed
             }
         }
@@ -78,7 +65,7 @@ func parseDurationFromRenderer(_ renderer: [String: Any]) -> Int {
         let segments = allText.split { $0 == " • " || $0.trimmingCharacters(in: .whitespaces) == "•" }
         if let lastSegment = segments.last,
            let lastText = lastSegment.last(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }),
-           let parsed = parseTime(lastText.trimmingCharacters(in: .whitespaces)) {
+           let parsed = DurationFormat.parseClock(lastText.trimmingCharacters(in: .whitespaces)) {
             return parsed
         }
     }
@@ -94,44 +81,13 @@ func parseDurationFromRenderer(_ renderer: [String: Any]) -> Int {
             let segments = allText.split { $0 == " • " || $0.trimmingCharacters(in: .whitespaces) == "•" }
             if let lastSegment = segments.last,
                let lastText = lastSegment.last(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }),
-               let parsed = parseTime(lastText.trimmingCharacters(in: .whitespaces)) {
+               let parsed = DurationFormat.parseClock(lastText.trimmingCharacters(in: .whitespaces)) {
                 return parsed
             }
         }
     }
 
     return 0
-}
-
-private func parseTime(_ text: String) -> Int? {
-    let parts = text.components(separatedBy: CharacterSet(charactersIn: ":.,")).compactMap { Int($0) }
-    guard parts.count == 2 || parts.count == 3 else { return nil }
-    if parts.count == 2 { return parts[0] * 60 + parts[1] }
-    return parts[0] * 3600 + parts[1] * 60 + parts[2]
-}
-
-/// Parses compact view counts like "1.2M views", "500K views", "12,345 views".
-private func parseViewCount(_ text: String) -> Int64? {
-    let pattern = "^([\\d,.]+)\\s*([KMBT]?)\\s*views?$"
-    guard let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) else { return nil }
-    let trimmed = text.trimmingCharacters(in: .whitespaces)
-    let range = NSRange(trimmed.startIndex..., in: trimmed)
-    guard let match = regex.firstMatch(in: trimmed, range: range),
-          match.numberOfRanges == 3,
-          let numRange = Range(match.range(at: 1), in: trimmed) else { return nil }
-    let numStr = String(trimmed[numRange]).replacingOccurrences(of: ",", with: "")
-    guard let number = Double(numStr) else { return nil }
-    var multiplier: Double = 1
-    if let sufRange = Range(match.range(at: 2), in: trimmed), !sufRange.isEmpty {
-        switch trimmed[sufRange].uppercased() {
-        case "K": multiplier = 1_000
-        case "M": multiplier = 1_000_000
-        case "B": multiplier = 1_000_000_000
-        case "T": multiplier = 1_000_000_000_000
-        default: break
-        }
-    }
-    return Int64(number * multiplier)
 }
 
 /// Bare 4-digit release year segment.
@@ -153,7 +109,7 @@ private func extractItemStats(from segments: [[String]]) -> ItemStats {
     var stats = ItemStats()
     for seg in segments {
         for text in seg {
-            if stats.viewCount == nil, let v = parseViewCount(text) { stats.viewCount = v }
+            if stats.viewCount == nil, let v = CountFormat.parseCompactCount(text) { stats.viewCount = v }
             if stats.year == nil, let y = parseYear(text) { stats.year = y }
         }
     }
@@ -573,7 +529,7 @@ struct SongItem: Codable, Hashable {
     }
 
     private static func fromTwoRowItem(renderer: [String: Any], videoId: String, duration: Int, playlistId: String?) -> SongItem? {
-        let title = extractRunsText(renderer["title"] as? [String: Any]) ?? "Unknown"
+        let title = InnerTubeJSON.runsText(renderer["title"] as? [String: Any]) ?? "Unknown"
         let thumbnailUrl = extractTwoRowThumbnail(renderer)
         var artists: [YTArtist] = []
         var album: String?
@@ -632,7 +588,7 @@ struct AlbumItem {
 
     static func from(_ renderer: [String: Any]) -> AlbumItem? {
         guard let browseId = extractTwoRowBrowseId(renderer) else { return nil }
-        let title = extractRunsText(renderer["title"] as? [String: Any]) ?? "Unknown"
+        let title = InnerTubeJSON.runsText(renderer["title"] as? [String: Any]) ?? "Unknown"
         let thumbnailUrl = extractTwoRowThumbnail(renderer)
         return AlbumItem(
             browseId: browseId,
@@ -653,7 +609,7 @@ struct ArtistItem {
 
     static func from(_ renderer: [String: Any]) -> ArtistItem? {
         guard let browseId = extractTwoRowBrowseId(renderer) else { return nil }
-        let name = extractRunsText(renderer["title"] as? [String: Any]) ?? "Unknown"
+        let name = InnerTubeJSON.runsText(renderer["title"] as? [String: Any]) ?? "Unknown"
         let thumbnailUrl = extractTwoRowThumbnail(renderer)
         return ArtistItem(browseId: browseId, name: name, thumbnailUrl: thumbnailUrl, isSubscribed: false)
     }
@@ -668,9 +624,9 @@ struct PlaylistItem {
 
     static func from(_ renderer: [String: Any]) -> PlaylistItem? {
         guard let browseId = extractTwoRowBrowseId(renderer) else { return nil }
-        let title = extractRunsText(renderer["title"] as? [String: Any]) ?? "Unknown"
+        let title = InnerTubeJSON.runsText(renderer["title"] as? [String: Any]) ?? "Unknown"
         let thumbnailUrl = extractTwoRowThumbnail(renderer)
-        let subtitleRuns = extractRunsTextArray(renderer["subtitle"] as? [String: Any])
+        let subtitleRuns = InnerTubeJSON.runsTexts(renderer["subtitle"] as? [String: Any])
         return PlaylistItem(
             id: browseId,
             title: title,
@@ -688,7 +644,7 @@ struct PodcastItem {
 
     static func from(_ renderer: [String: Any]) -> PodcastItem? {
         guard let browseId = extractTwoRowBrowseId(renderer) else { return nil }
-        let title = extractRunsText(renderer["title"] as? [String: Any]) ?? "Unknown"
+        let title = InnerTubeJSON.runsText(renderer["title"] as? [String: Any]) ?? "Unknown"
         let thumbnailUrl = extractTwoRowThumbnail(renderer)
         return PodcastItem(browseId: browseId, title: title, thumbnailUrl: thumbnailUrl)
     }
@@ -704,7 +660,7 @@ struct EpisodeItem {
 
     static func from(_ renderer: [String: Any]) -> EpisodeItem? {
         guard let videoId = extractVideoId(renderer) else { return nil }
-        let title = extractRunsText(renderer["title"] as? [String: Any]) ?? "Unknown"
+        let title = InnerTubeJSON.runsText(renderer["title"] as? [String: Any]) ?? "Unknown"
         let thumbnailUrl = extractTwoRowThumbnail(renderer)
         let duration = parseDurationFromRenderer(renderer)
         return EpisodeItem(videoId: videoId, title: title, artists: [], duration: duration, thumbnailUrl: thumbnailUrl)
@@ -720,6 +676,14 @@ extension SongItem {
 
     var artistNamesDisplay: String {
         artists.filter { !$0.name.isEmpty }.map(\.name).joined(separator: ", ")
+    }
+
+    /// "Artists • m:ss" subtitle line used by song rows.
+    func subtitleLine(duration: Int) -> String {
+        let durationStr = duration.formattedDuration
+        if artistNamesDisplay.isEmpty { return durationStr }
+        if durationStr.isEmpty { return artistNamesDisplay }
+        return "\(artistNamesDisplay) • \(durationStr)"
     }
 
     var firstArtistBrowseId: String? {
@@ -853,8 +817,15 @@ extension PlaylistItem {
         self.id = entity.id
         self.title = entity.name
         self.author = nil
-        self.thumbnailUrl = nil
+        self.thumbnailUrl = entity.thumbnailUrl
         self.songCount = entity.remoteSongCount
+    }
+}
+
+extension Sequence where Element == SongEntity {
+    /// Maps stored songs to player items.
+    func toSongItems() -> [SongItem] {
+        map { SongItem(entity: $0) }
     }
 }
 
@@ -910,33 +881,14 @@ private func extractPlaylistId(_ renderer: [String: Any]) -> String? {
 }
 
 private func extractTwoRowThumbnail(_ renderer: [String: Any]) -> String? {
-    if let thumb = extractThumbnailFrom(renderer["thumbnail"] as? [String: Any]) {
+    if let thumb = InnerTubeJSON.nestedThumbnailURL(renderer) {
         return thumb
     }
     if let thumbRenderer = renderer["thumbnailRenderer"] as? [String: Any],
        let musicThumb = thumbRenderer["musicThumbnailRenderer"] as? [String: Any] {
-        return extractThumbnailFrom(musicThumb)
+        return InnerTubeJSON.nestedThumbnailURL(musicThumb)
     }
     return nil
-}
-
-private func extractThumbnailFrom(_ dict: [String: Any]?) -> String? {
-    guard let thumb = dict?["thumbnail"] as? [String: Any],
-          let thumbnails = thumb["thumbnails"] as? [[String: Any]],
-          let last = thumbnails.last,
-          let url = last["url"] as? String else { return nil }
-    return url
-}
-
-private func extractRunsText(_ dict: [String: Any]?) -> String? {
-    guard let runs = dict?["runs"] as? [[String: Any]], let first = runs.first else { return nil }
-    return first["text"] as? String
-}
-
-private func extractRunsTextArray(_ dict: [String: Any]?) -> [String] {
-    guard let runs = dict?["runs"] as? [[String: Any]] else { return [] }
-    return runs.compactMap { $0["text"] as? String }
-        .filter { $0 != " • " && !$0.trimmingCharacters(in: .whitespaces).isEmpty }
 }
 
 // MARK: - Responsive List Item Helpers
@@ -988,15 +940,10 @@ private func splitRunsBySeparator(_ runs: [[String: Any]]) -> [[String]] {
 private func extractResponsiveThumbnail(_ renderer: [String: Any]) -> String? {
     if let thumbnail = renderer["thumbnail"] as? [String: Any] {
         if let musicThumb = thumbnail["musicThumbnailRenderer"] as? [String: Any],
-           let thumb = musicThumb["thumbnail"] as? [String: Any],
-           let thumbnails = thumb["thumbnails"] as? [[String: Any]],
-           let last = thumbnails.last,
-           let url = last["url"] as? String {
+           let url = InnerTubeJSON.nestedThumbnailURL(musicThumb) {
             return url
         }
-        if let thumbnails = thumbnail["thumbnails"] as? [[String: Any]],
-           let last = thumbnails.last,
-           let url = last["url"] as? String {
+        if let url = InnerTubeJSON.lastThumbnailURL(thumbnail["thumbnails"] as? [[String: Any]]) {
             return url
         }
     }

@@ -6,12 +6,11 @@
 //
 
 import Foundation
-import Security
 
 final class DiscordTokenStore: @unchecked Sendable {
     static let shared = DiscordTokenStore()
 
-    private let service = "com.trop.discord.token"
+    private let store = SecureStore(service: "com.trop.discord.token")
     private let accessTokenKey = "access_token"
     private let refreshTokenKey = "refresh_token"
     private let expiresAtKey = "expires_at"
@@ -118,59 +117,25 @@ final class DiscordTokenStore: @unchecked Sendable {
 
     private func saveString(_ value: String, for key: String) {
         guard let data = value.data(using: .utf8) else { return }
-        saveData(data, for: key)
+        try? store.save(data, for: key)
     }
 
     private func loadString(for key: String) -> String? {
-        guard let data = loadData(for: key) else { return nil }
+        guard let data = try? store.load(for: key) else { return nil }
         return String(data: data, encoding: .utf8)
     }
 
     private func saveInt64(_ value: Int64, for key: String) {
         var v = value
-        let data = Data(bytes: &v, count: MemoryLayout<Int64>.size)
-        saveData(data, for: key)
+        try? store.save(Data(bytes: &v, count: MemoryLayout<Int64>.size), for: key)
     }
 
     private func loadInt64(for key: String) -> Int64? {
-        guard let data = loadData(for: key), data.count == MemoryLayout<Int64>.size else { return nil }
+        guard let data = try? store.load(for: key), data.count == MemoryLayout<Int64>.size else { return nil }
         return data.withUnsafeBytes { $0.load(as: Int64.self) }
     }
 
-    // Fallback: also support string-encoded int for migration
-    private func saveData(_ data: Data, for key: String) {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: key
-        ]
-        SecItemDelete(query as CFDictionary)
-        var addQuery = query
-        addQuery[kSecValueData as String] = data
-        addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
-        SecItemAdd(addQuery as CFDictionary, nil)
-    }
-
-    private func loadData(for key: String) -> Data? {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: key,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne
-        ]
-        var result: AnyObject?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-        guard status == errSecSuccess else { return nil }
-        return result as? Data
-    }
-
     private func delete(for key: String) {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: key
-        ]
-        SecItemDelete(query as CFDictionary)
+        try? store.delete(for: key)
     }
 }

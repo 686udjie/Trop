@@ -158,6 +158,23 @@ extension DatabaseService {
             try block(db)
         }
     }
+
+    /// `?` placeholders for `IN (...)` clauses. Callers must guard against
+    /// empty input first (`IN ()` is invalid SQL).
+    static func placeholders(count: Int) -> String {
+        Array(repeating: "?", count: max(count, 0)).joined(separator: ",")
+    }
+
+    /// Songs keyed by id. Empty input → `[:]`.
+    static func fetchSongMapByIds(_ ids: [String], db: Database) throws -> [String: SongEntity] {
+        guard !ids.isEmpty else { return [:] }
+        let fetched = try SongEntity.fetchAll(
+            db,
+            sql: "SELECT * FROM song WHERE id IN (\(placeholders(count: ids.count)))",
+            arguments: StatementArguments(ids)
+        )
+        return Dictionary(uniqueKeysWithValues: fetched.map { ($0.id, $0) })
+    }
 }
 
 // MARK: Playback Transactions
@@ -265,13 +282,7 @@ extension DatabaseService {
                 .asRequest(of: String.self)
                 .fetchAll(db)
             guard !recentIds.isEmpty else { return [] }
-            let placeholders = recentIds.map { _ in "?" }.joined(separator: ",")
-            let fetched = try SongEntity.fetchAll(
-                db,
-                sql: "SELECT * FROM song WHERE id IN (\(placeholders))",
-                arguments: StatementArguments(recentIds)
-            )
-            let byId = Dictionary(uniqueKeysWithValues: fetched.map { ($0.id, $0) })
+            let byId = try Self.fetchSongMapByIds(recentIds, db: db)
             // Preserve recency order from recentIds (distinct order by timestamp desc)
             return recentIds.compactMap { byId[$0] }
         }
@@ -399,12 +410,7 @@ extension DatabaseService {
             let songIds = events.map(\.songId)
             guard !songIds.isEmpty else { return [] }
 
-            let placeholders = songIds.map { _ in "?" }.joined(separator: ",")
-            let songs: [String: SongEntity] = Dictionary(
-                uniqueKeysWithValues: try SongEntity
-                    .fetchAll(db, sql: "SELECT * FROM song WHERE id IN (\(placeholders))", arguments: StatementArguments(songIds))
-                    .map { ($0.id, $0) }
-            )
+            let songs = try Self.fetchSongMapByIds(songIds, db: db)
 
             return events.map { HistoryEntry(event: $0, song: songs[$0.songId]) }
         }

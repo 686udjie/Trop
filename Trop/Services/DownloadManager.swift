@@ -348,7 +348,7 @@ extension DownloadManager {
 
     private func prefetchArtwork(from thumbnailUrl: String?) async -> Data? {
         guard let thumbUrl = thumbnailUrl, let url = URL(string: thumbUrl) else { return nil }
-        guard let image = try? await ImagePipeline.shared.image(for: url) else { return nil }
+        guard let image = try? await ArtworkLoader.image(for: url) else { return nil }
         return image.jpegData(compressionQuality: 0.9)
     }
 

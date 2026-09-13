@@ -53,6 +53,72 @@ struct ShimmerBlock: View {
     }
 }
 
+// MARK: - Shared skeleton primitives
+
+/// Section title placeholder with standard section padding.
+struct ShimmerSectionTitle: View {
+    var width: CGFloat = 160
+
+    var body: some View {
+        ShimmerBlock(width: width, height: 22, radius: 6)
+            .padding(.horizontal, DesignTokens.screenHPadding)
+            .padding(.vertical, 8)
+    }
+}
+
+/// Media card placeholder: square artwork + title + optional subtitle line.
+struct ShimmerCard: View {
+    var size: CGFloat = 160
+    var titleWidth: CGFloat = 130
+    var subtitleWidth: CGFloat = 90
+    var showsSubtitle = true
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: DesignTokens.cardInnerSpacing) {
+            ShimmerBlock(width: size, height: size, radius: DesignTokens.cardRadius)
+            ShimmerBlock(width: titleWidth, height: 14, radius: 4)
+            if showsSubtitle {
+                ShimmerBlock(width: subtitleWidth, height: 12, radius: 4)
+            }
+        }
+    }
+}
+
+/// Song row placeholder: 48pt artwork + two text lines.
+struct ShimmerRow: View {
+    var titleWidth: CGFloat = 180
+    var subtitleWidth: CGFloat = 120
+
+    var body: some View {
+        HStack(spacing: DesignTokens.rowSpacing) {
+            ShimmerBlock(width: DesignTokens.thumbMedium, height: DesignTokens.thumbMedium, radius: DesignTokens.thumbRadius)
+            VStack(alignment: .leading, spacing: 6) {
+                ShimmerBlock(width: titleWidth, height: 14, radius: 4)
+                ShimmerBlock(width: subtitleWidth, height: 12, radius: 4)
+            }
+            Spacer()
+        }
+    }
+}
+
+/// Filter chip placeholders in a horizontal scroll row.
+struct ShimmerChips: View {
+    var count = 6
+    var width: CGFloat = 80
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(0..<count, id: \.self) { _ in
+                    ShimmerBlock(width: width, height: 34, radius: 17)
+                }
+            }
+            .padding(.horizontal, DesignTokens.screenHPadding)
+            .padding(.vertical, 8)
+        }
+    }
+}
+
 // MARK: - ShimmerLoadingView
 
 struct ShimmerLoadingView: View {
@@ -76,9 +142,7 @@ struct ShimmerLoadingView: View {
 
     private func section<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            ShimmerBlock(width: 160, height: 22, radius: 6)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
+            ShimmerSectionTitle()
             content()
         }
         .padding(.top, 8)
@@ -88,9 +152,9 @@ struct ShimmerLoadingView: View {
         section {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 12) {
-                    ForEach(0..<5, id: \.self) { _ in ShimmerBlock(width: 160, height: 160, radius: 8) }
+                    ForEach(0..<5, id: \.self) { _ in ShimmerCard(showsSubtitle: false) }
                 }
-                .padding(.horizontal, 16)
+                .padding(.horizontal, DesignTokens.screenHPadding)
             }
         }
     }
@@ -98,31 +162,15 @@ struct ShimmerLoadingView: View {
     private var listSection: some View {
         section {
             VStack(spacing: 12) {
-                ForEach(0..<4, id: \.self) { _ in listItemPlaceholder }
+                ForEach(0..<4, id: \.self) { _ in
+                    ShimmerRow(titleWidth: 200, subtitleWidth: 140)
+                }
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, DesignTokens.screenHPadding)
         }
-    }
-
-    private var listItemPlaceholder: some View {
-        HStack(spacing: 12) {
-            ShimmerBlock(width: 48, height: 48, radius: 4)
-            VStack(alignment: .leading, spacing: 6) {
-                ShimmerBlock(width: 200, height: 14, radius: 4)
-                ShimmerBlock(width: 140, height: 12, radius: 4)
-            }
-            Spacer()
-        }
-        .frame(width: 280, height: 60, alignment: .leading)
     }
 
     private var chipsRow: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(0..<6, id: \.self) { _ in ShimmerBlock(width: 80, height: 34, radius: 17) }
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-        }
+        ShimmerChips()
     }
 }

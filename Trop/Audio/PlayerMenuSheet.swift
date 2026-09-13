@@ -29,35 +29,30 @@ struct PlayerMenuSheet: View {
     @Environment(\.downloadManager) private var downloadManager
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: 16) {
-                    eqVolumeCard
-                    actionGrid
-                    menuCard {
-                        viewArtistRow
-                        if let albumId = song.firstAlbumBrowseId {
-                            Divider()
-                            simpleRow(icon: "record.circle", title: "View Album", subtitle: song.album) {
-                                navigate(.album(browseId: albumId))
-                            }
-                        }
+        SheetChrome {
+            Group {
+                eqVolumeCard
+                actionGrid
+                MenuCard {
+                    viewArtistRow
+                    if let albumId = song.firstAlbumBrowseId {
                         Divider()
-                        pinRow
-                        Divider()
-                        downloadRow
-                    }
-                    menuCard {
-                        NavigationLink(value: Destination.details) {
-                            rowLabel(icon: "info.circle", title: "Details", subtitle: "Metadata & stream information")
+                        MenuRow(icon: "record.circle", title: "View Album", subtitle: song.album) {
+                            navigate(.album(browseId: albumId))
                         }
-                        .buttonStyle(.plain)
                     }
+                    Divider()
+                    pinRow
+                    Divider()
+                    downloadRow
                 }
-                .padding(16)
+                MenuCard {
+                    NavigationLink(value: Destination.details) {
+                        MenuRowLabel(icon: "info.circle", title: "Details", subtitle: "Metadata & stream information")
+                    }
+                    .buttonStyle(.plain)
+                }
             }
-            .background(Color(.systemGroupedBackground))
-            .navigationBarTitleDisplayMode(.inline)
             .navigationDestination(for: Destination.self) { dest in
                 switch dest {
                 case .equalizer:
@@ -67,8 +62,6 @@ struct PlayerMenuSheet: View {
                 }
             }
         }
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
         .confirmationDialog("View Artist", isPresented: $showArtistPicker, titleVisibility: .visible) {
             ForEach(song.artists.filter { !$0.name.isEmpty }, id: \.self) { artist in
                 Button(artist.name) {
@@ -83,6 +76,11 @@ struct PlayerMenuSheet: View {
     }
 
     // MARK: - EQ + App Volume
+
+    private var cardBackground: some View {
+        RoundedRectangle(cornerRadius: 16, style: .continuous)
+            .fill(Color(.secondarySystemGroupedBackground))
+    }
 
     private var eqVolumeCard: some View {
         HStack(spacing: 12) {
@@ -175,14 +173,14 @@ struct PlayerMenuSheet: View {
         return Group {
             switch state {
             case .completed:
-                simpleRow(icon: "checkmark.circle.fill", title: "Remove Download", destructive: true) {
+                MenuRow(icon: "checkmark.circle.fill", title: "Remove Download", destructive: true) {
                     Task { await downloadManager.delete(videoId: song.videoId) }
                 }
             case .downloading:
-                simpleRow(icon: "arrow.down.circle", title: "Downloading…") {}
+                MenuRow(icon: "arrow.down.circle", title: "Downloading…") {}
                     .disabled(true)
             case .notStarted, .failed:
-                simpleRow(icon: "arrow.down.circle", title: "Download") {
+                MenuRow(icon: "arrow.down.circle", title: "Download") {
                     Task { await downloadManager.download(song: song) }
                 }
             }
@@ -225,69 +223,12 @@ struct PlayerMenuSheet: View {
     }
 
     private var pinRow: some View {
-        simpleRow(
+        MenuRow(
             icon: isPinned ? "pin.fill" : "pin",
             title: isPinned ? "Unpin from Quick Picks" : "Pin to Quick Picks"
         ) {
             Task { await togglePin() }
         }
-    }
-
-    // MARK: - Row Building Blocks
-
-    private var cardBackground: some View {
-        RoundedRectangle(cornerRadius: 16, style: .continuous)
-            .fill(Color(.secondarySystemGroupedBackground))
-    }
-
-    @ViewBuilder
-    private func menuCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        VStack(spacing: 0) {
-            content()
-        }
-        .background(cardBackground)
-    }
-
-    private func rowLabel(
-        icon: String,
-        title: String,
-        subtitle: String? = nil,
-        destructive: Bool = false
-    ) -> some View {
-        HStack(spacing: 14) {
-            Image(systemName: icon)
-                .font(.system(size: 18))
-                .foregroundStyle(destructive ? Color.red : settings.accentColor)
-                .frame(width: 26)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.body)
-                    .foregroundStyle(destructive ? Color.red : .primary)
-                if let subtitle, !subtitle.isEmpty {
-                    Text(subtitle)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-            }
-            Spacer()
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .contentShape(Rectangle())
-    }
-
-    private func simpleRow(
-        icon: String,
-        title: String,
-        subtitle: String? = nil,
-        destructive: Bool = false,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            rowLabel(icon: icon, title: title, subtitle: subtitle, destructive: destructive)
-        }
-        .buttonStyle(.plain)
     }
 
     // MARK: - State
@@ -446,16 +387,19 @@ struct AddSongToPlaylistSheet: View {
                     .accessibilityLabel("New playlist")
                 }
             }
-            .alert("New Playlist", isPresented: $showNewPlaylistAlert) {
-                TextField("Playlist name", text: $newPlaylistTitle)
-                Button("Create") { Task { await createAndAdd() } }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("Adds “\(song.title)” once created.")
+            .textPrompt(
+                "New Playlist",
+                isPresented: $showNewPlaylistAlert,
+                placeholder: "Playlist name",
+                text: $newPlaylistTitle,
+                okTitle: "Create",
+                message: Text("Adds “\(song.title)” once created.")
+            ) {
+                Task { await createAndAdd() }
             }
             .task { await loadPlaylists() }
         }
-        .presentationDetents([.medium, .large])
+        .appSheetChrome()
     }
 
     private func loadPlaylists() async {
@@ -619,7 +563,7 @@ struct SongDetailsView: View {
         if let response = try? await InnerTube.shared.playerResponse(videoId: song.videoId),
            let raw = response.videoDetails?.viewCount,
            let count = Int(raw) {
-            viewCountText = count.formatted(.number.grouping(.automatic)) + " views"
+            viewCountText = count.formattedViews()
         } else {
             viewCountText = "Unavailable"
         }

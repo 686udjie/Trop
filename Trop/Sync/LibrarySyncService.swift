@@ -44,7 +44,7 @@ extension LibrarySyncService {
             }
             // Unset bookmarked_at for artists no longer subscribed remotely
             if !remoteIds.isEmpty {
-                let placeholders = remoteIds.map { _ in "?" }.joined(separator: ",")
+                let placeholders = DatabaseService.placeholders(count: remoteIds.count)
                 try db.execute(
                     sql: "UPDATE artist SET bookmarked_at = NULL WHERE bookmarked_at IS NOT NULL AND id NOT IN (\(placeholders))",
                     arguments: StatementArguments(Array(remoteIds))
@@ -81,12 +81,12 @@ extension LibrarySyncService {
                 try db.execute(sql: """
                     DELETE FROM playlist_song_map WHERE playlist_id IN (
                         SELECT id FROM playlist WHERE is_auto_sync = 1 AND browse_id IS NOT NULL
-                        AND browse_id NOT IN (\(remoteIds.map { _ in "?" }.joined(separator: ",")))
+                        AND browse_id NOT IN (\(DatabaseService.placeholders(count: remoteIds.count)))
                     )
                     """, arguments: StatementArguments(Array(remoteIds)))
                 try db.execute(sql: """
                     DELETE FROM playlist WHERE is_auto_sync = 1 AND browse_id IS NOT NULL
-                    AND browse_id NOT IN (\(remoteIds.map { _ in "?" }.joined(separator: ",")))
+                    AND browse_id NOT IN (\(DatabaseService.placeholders(count: remoteIds.count)))
                     """, arguments: StatementArguments(Array(remoteIds)))
             }
         }
@@ -103,18 +103,11 @@ extension LibrarySyncService {
         params: String? = nil,
         parse: @escaping ([String: Any]) -> [T]
     ) async throws -> [T] {
-        var allItems: [T] = []
-        var continuation: String?
-        repeat {
-            let json = try await innerTube.browse(
-                browseId: browseId,
-                params: params,
-                continuation: continuation
-            )
-            let items = parse(json)
-            allItems.append(contentsOf: items)
-            continuation = LibraryBrowseParser.extractContinuationToken(from: json)
-        } while continuation != nil
-        return allItems
+        try await innerTube.paginate(
+            browseId: browseId,
+            params: params,
+            parse: parse,
+            continuation: LibraryBrowseParser.extractContinuationToken(from:)
+        )
     }
 }

@@ -51,11 +51,8 @@ actor AuthService {
     func verifyLogin() async throws -> Bool {
         do {
             let json = try await innerTube.accountMenu()
-            guard let header = json["header"] as? [String: Any] else { return false }
-            guard let accountData = header["musicAccountHeaderRenderer"] as? [String: Any] else { return false }
-            guard let accountName = accountData["accountName"] as? [String: Any] else { return false }
-            guard let text = accountName["runs"] as? [[String: Any]] else { return false }
-            return text.contains { $0["text"] is String }
+            guard let runs = BrowseLens.accountNameRuns(json) else { return false }
+            return runs.contains { $0["text"] is String }
         } catch {
             throw AuthError.verificationFailed(error)
         }
@@ -92,15 +89,6 @@ actor AuthService {
 
     // Splits a raw `Set-Cookie`-style string into name→value pairs
     private func parseCookieString(_ cookieString: String) -> [String: String] {
-        var result: [String: String] = [:]
-        let pairs = cookieString.split(separator: ";")
-        for pair in pairs {
-            let trimmed = pair.trimmingCharacters(in: .whitespaces)
-            let parts = trimmed.split(separator: "=", maxSplits: 1)
-            if parts.count == 2 {
-                result[String(parts[0])] = String(parts[1])
-            }
-        }
-        return result
+        CookieParser.parse(cookieString)
     }
 }

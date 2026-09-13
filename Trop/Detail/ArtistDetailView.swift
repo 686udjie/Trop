@@ -8,15 +8,6 @@
 import Nuke
 import SwiftUI
 
-/// Mirrors Metrolist's square artwork request for its immersive artist header.
-private func metrolistArtworkURL(from thumbnailUrl: String?) -> String? {
-    thumbnailUrl?.replacingOccurrences(
-        of: #"w\d+-h\d+"#,
-        with: "w1200-h1200",
-        options: .regularExpression
-    )
-}
-
 // MARK: - View Model
 
 @MainActor
@@ -41,7 +32,7 @@ final class ArtistDetailViewModel {
         do {
             let json = try await innerTube.browse(browseId: browseId)
             let parsed = Self.parseArtistDetail(from: json, browseId: browseId)
-            await Self.preloadHeroArtwork(for: parsed.thumbnailUrl)
+            Self.preloadHeroArtwork(for: parsed.thumbnailUrl)
             artist = parsed
             isLoading = false
         } catch {
@@ -71,14 +62,14 @@ extension ArtistDetailViewModel {
         // or a responsive header (smaller, more compact).
         if let header = json["header"] as? [String: Any] {
             if let immersive = header["musicImmersiveHeaderRenderer"] as? [String: Any] {
-                name = DetailParser.extractRunsText(immersive["title"] as? [String: Any]) ?? "Unknown Artist"
-                thumbnailUrl = DetailParser.extractMusicThumbnail(immersive)
+                name = InnerTubeJSON.runsText(immersive["title"] as? [String: Any]) ?? "Unknown Artist"
+                thumbnailUrl = InnerTubeJSON.musicThumbnailURL(immersive)
                 let subscription = extractSubscriptionDetails(from: immersive)
                 isSubscribed = subscription.isSubscribed ?? false
                 subscriberCountText = subscription.subscriberCountText
             } else if let responsive = header["musicResponsiveHeaderRenderer"] as? [String: Any] {
-                name = DetailParser.extractRunsText(responsive["title"] as? [String: Any]) ?? "Unknown Artist"
-                thumbnailUrl = DetailParser.extractMusicThumbnail(responsive)
+                name = InnerTubeJSON.runsText(responsive["title"] as? [String: Any]) ?? "Unknown Artist"
+                thumbnailUrl = InnerTubeJSON.musicThumbnailURL(responsive)
                 let subscription = extractSubscriptionDetails(from: responsive)
                 isSubscribed = subscription.isSubscribed ?? false
                 subscriberCountText = subscription.subscriberCountText
@@ -103,14 +94,7 @@ extension ArtistDetailViewModel {
         }
 
         // --- Sections ---
-        if let contents = json["contents"] as? [String: Any] {
-            if let singleColumn = contents["singleColumnBrowseResultsRenderer"] as? [String: Any] {
-                if let tabs = singleColumn["tabs"] as? [[String: Any]],
-                   let firstTab = tabs.first,
-                   let tabRenderer = firstTab["tabRenderer"] as? [String: Any],
-                   let content = tabRenderer["content"] as? [String: Any],
-                   let sectionList = content["sectionListRenderer"] as? [String: Any],
-                   let sections = sectionList["contents"] as? [[String: Any]] {
+        if let sections = BrowseLens.browseSections(json) {
 
             for sectionDict in sections {
                 // musicShelfRenderer typically contains a list of songs
@@ -139,8 +123,6 @@ extension ArtistDetailViewModel {
                     }
                 }
             }
-                }
-            }
         }
 
         return ArtistDetailInfo(
@@ -157,13 +139,13 @@ extension ArtistDetailViewModel {
 
     /// Warms Nuke's cache before the artist screen appears, avoiding a second
     /// visible loading state for the immersive header artwork.
-    private static func preloadHeroArtwork(for thumbnailUrl: String?) async {
-        guard let artworkURL = metrolistArtworkURL(from: thumbnailUrl),
+    private static func preloadHeroArtwork(for thumbnailUrl: String?) {
+        guard let artworkURL = ArtworkURLs.sized(thumbnailUrl, width: 1200, height: 1200),
               let url = URL(string: artworkURL) else {
             return
         }
 
-        _ = try? await ImagePipeline.shared.image(for: ImageRequest(url: url))
+        ArtworkLoader.warm(url)
     }
 
     /// YouTube Music subscription payloads vary: the subscribed state is in `subscriptionButton`, 
@@ -185,7 +167,7 @@ extension ArtistDetailViewModel {
 
                 if subscriberCountText == nil {
                     for key in ["subscriberCountWithSubscribeText", "longSubscriberCountText", "shortSubscriberCountText"] {
-                        if let count = DetailParser.extractRunsText(subscribe[key] as? [String: Any]), !count.isEmpty {
+                        if let count = InnerTubeJSON.runsText(subscribe[key] as? [String: Any]), !count.isEmpty {
                             subscriberCountText = count
                             break
                         }
@@ -198,7 +180,7 @@ extension ArtistDetailViewModel {
                     isSubscribed = toggle["subscribed"] as? Bool
                 }
                 if subscriberCountText == nil,
-                   let count = DetailParser.extractRunsText(toggle["subscribedText"] as? [String: Any]),
+                   let count = InnerTubeJSON.runsText(toggle["subscribedText"] as? [String: Any]),
                    !count.isEmpty {
                     subscriberCountText = count
                 }
@@ -212,7 +194,7 @@ extension ArtistDetailViewModel {
     private static func extractCarouselTitle(_ carousel: [String: Any]) -> String {
         guard let header = carousel["header"] as? [String: Any],
               let basicHeader = header["musicCarouselShelfBasicHeaderRenderer"] as? [String: Any],
-              let title = DetailParser.extractRunsText(basicHeader["title"] as? [String: Any]) else {
+              let title = InnerTubeJSON.runsText(basicHeader["title"] as? [String: Any]) else {
             return "Unknown"
         }
         return title
@@ -245,27 +227,14 @@ struct ArtistDetailView: View {
     var body: some View {
         ZStack(alignment: .top) {
             ScrollView {
-                Group {
-                    if viewModel.isLoading {
-                        loadingView
-                            .containerRelativeFrame(.vertical)
-                    } else if let error = viewModel.error {
-                        ContentUnavailableView(
-                            "Couldn't load artist",
-                            systemImage: "exclamationmark.circle",
-                            description: Text(error.localizedDescription)
-                        )
-                        .containerRelativeFrame(.vertical)
-                    } else if let artist = viewModel.artist {
-                        artistContent(for: artist)
-                    } else {
-                        ContentUnavailableView(
-                            "No artist data",
-                            systemImage: "music.mic",
-                            description: Text("Could not parse artist details")
-                        )
-                        .containerRelativeFrame(.vertical)
-                    }
+                DetailStateContainer(
+                    isLoading: viewModel.isLoading,
+                    error: viewModel.error,
+                    data: viewModel.artist,
+                    noun: "artist",
+                    emptyIcon: "music.mic"
+                ) { artist in
+                    artistContent(for: artist)
                 }
             }
             .scrollDisabled(viewModel.isLoading || viewModel.error != nil || viewModel.artist == nil)
@@ -335,17 +304,6 @@ struct ArtistDetailView: View {
         .accessibilityLabel("Back")
     }
 
-    private var loadingView: some View {
-        VStack(spacing: 16) {
-            Spacer()
-            ProgressView()
-            Text("Loading artist...")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-            Spacer()
-        }
-    }
-
     @ViewBuilder
     private func artistContent(for artist: ArtistDetailInfo) -> some View {
         LazyVStack(spacing: 0) {
@@ -402,7 +360,7 @@ struct ArtistDetailView: View {
             Color(.systemGray5)
 
             AsyncImageView(
-                url: metrolistArtworkURL(from: artist.thumbnailUrl),
+                url: ArtworkURLs.sized(artist.thumbnailUrl, width: 1200, height: 1200),
                 contentMode: .fill
             )
             .frame(width: size.width, height: size.height)
@@ -548,26 +506,12 @@ struct ArtistDetailView: View {
                     ForEach(albums.indices, id: \.self) { i in
                         let album = albums[i]
                         NavigationLink(value: DetailRoute.album(browseId: album.browseId)) {
-                            VStack(alignment: .leading, spacing: 4) {
-                                AsyncImageView(url: album.thumbnailUrl)
-                                    .aspectRatio(1, contentMode: .fill)
-                                    .frame(width: 156, height: 156)
-                                    .clipShape(RoundedRectangle(cornerRadius: 8))
-
-                                Text(album.title)
-                                    .font(.caption)
-                                    .fontWeight(.medium)
-                                    .foregroundColor(.primary)
-                                    .lineLimit(2)
-
-                                if !album.artists.isEmpty {
-                                    Text(album.artists.map(\.name).joined(separator: ", "))
-                                        .font(.caption2)
-                                        .foregroundColor(.secondary)
-                                        .lineLimit(1)
-                                }
-                            }
-                            .frame(width: 156)
+                            MediaGridCell(
+                                thumbnailUrl: album.thumbnailUrl,
+                                title: album.title,
+                                subtitle: album.artists.map(\.name).joined(separator: ", "),
+                                size: 156
+                            )
                         }
                         .buttonStyle(.plain)
                     }
@@ -580,81 +524,47 @@ struct ArtistDetailView: View {
 
     // MARK: - Actions
 
-    private func playTopSong(_ artist: ArtistDetailInfo) {
-        guard let first = artist.songs.first else { return }
-        NowPlaying.shared.setQueue(artist.songs, startIndex: 0)
-        Task {
-            do {
-                try await PlaybackManager.shared.resolveAndPlay(videoId: first.videoId)
-            } catch {
-                Log.artistDetail.error("Playback failed: \(error)")
-            }
-        }
-    }
-
     private func shufflePlay(_ artist: ArtistDetailInfo) {
-        guard !artist.songs.isEmpty else { return }
-        let shuffled = artist.songs.shuffled()
-        let first = shuffled[0]
-        NowPlaying.shared.setQueue(shuffled, startIndex: 0)
-        Task {
-            do {
-                try await PlaybackManager.shared.resolveAndPlay(videoId: first.videoId)
-            } catch {
-                Log.artistDetail.error("Shuffle playback failed: \(error)")
-            }
-        }
+        PlaybackQueue.playShuffled(artist.songs, log: Log.artistDetail, context: "Shuffle playback")
     }
 
     private func playSong(_ song: SongItem) {
-        guard let artist = viewModel.artist,
-              let index = artist.songs.firstIndex(where: { $0.videoId == song.videoId }) else { return }
-        NowPlaying.shared.setQueue(artist.songs, startIndex: index)
-        Task {
-            do {
-                try await PlaybackManager.shared.resolveAndPlay(videoId: song.videoId)
-            } catch {
-                Log.artistDetail.error("Playback failed: \(error)")
-            }
-        }
+        guard let artist = viewModel.artist else { return }
+        PlaybackQueue.play(song, in: artist.songs, log: Log.artistDetail, context: "Playback")
     }
 
     private func toggleSubscribe(_ artist: ArtistDetailInfo) {
-        Task {
-            do {
-                let channelId = artist.browseId
-                let entity = ArtistEntity(
-                    id: artist.browseId,
-                    name: artist.name,
-                    thumbnailUrl: artist.thumbnailUrl,
-                    bookmarkedAt: artist.isSubscribed ? nil : Date(),
-                    isPodcastChannel: false,
-                    channelId: channelId
-                )
-                try await DatabaseService.shared.insertOrReplace(entity)
+        loggedTask(Log.artistDetail, "Subscribe failed") {
+            let channelId = artist.browseId
+            let entity = ArtistEntity(
+                id: artist.browseId,
+                name: artist.name,
+                thumbnailUrl: artist.thumbnailUrl,
+                bookmarkedAt: artist.isSubscribed ? nil : Date(),
+                isPodcastChannel: false,
+                channelId: channelId
+            )
+            try await DatabaseService.shared.insertOrReplace(entity)
 
-                if artist.isSubscribed {
-                    try await MutationService.shared.unsubscribeArtist(channelId: channelId, artistId: artist.browseId)
-                } else {
-                    try await MutationService.shared.subscribeArtist(channelId: channelId, artistId: artist.browseId)
-                }
+            if artist.isSubscribed {
+                try await MutationService.shared.unsubscribeArtist(channelId: channelId, artistId: artist.browseId)
+            } else {
+                try await MutationService.shared.subscribeArtist(channelId: channelId, artistId: artist.browseId)
+            }
 
-                await MainActor.run {
-                    if let current = viewModel.artist {
-                        viewModel.artist = ArtistDetailInfo(
-                            name: current.name,
-                            thumbnailUrl: current.thumbnailUrl,
-                            subscriberCountText: current.subscriberCountText,
-                            descriptionText: current.descriptionText,
-                            isSubscribed: !current.isSubscribed,
-                            browseId: current.browseId,
-                            songs: current.songs,
-                            albums: current.albums
-                        )
-                    }
+            await MainActor.run {
+                if let current = viewModel.artist {
+                    viewModel.artist = ArtistDetailInfo(
+                        name: current.name,
+                        thumbnailUrl: current.thumbnailUrl,
+                        subscriberCountText: current.subscriberCountText,
+                        descriptionText: current.descriptionText,
+                        isSubscribed: !current.isSubscribed,
+                        browseId: current.browseId,
+                        songs: current.songs,
+                        albums: current.albums
+                    )
                 }
-            } catch {
-                Log.artistDetail.error("Subscribe failed: \(error)")
             }
         }
     }

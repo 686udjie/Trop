@@ -113,44 +113,23 @@ struct QueueView<ProgressSlider: View>: View {
                     .frame(width: 64, height: 64)
             }
 
-            let title = np.title
-            let artist = np.displayArtist
-            VStack(alignment: .leading, spacing: 2) {
-                MarqueeText(
-                    text: title,
-                    font: .body.weight(.semibold),
-                    frameHeight: 24
-                )
-
-                if !artist.isEmpty {
-                    Text(artist)
-                        .font(.subheadline)
-                        .foregroundStyle(.white.opacity(0.7))
-                        .lineLimit(1)
-                }
-            }
+            PlayerTitleBlock(title: np.title, artist: np.displayArtist)
 
             Spacer()
 
-            Button {
+            PlayerLikeButton(
+                isLiked: isLiked,
+                activeColor: .white,
+                inactiveColor: .white.opacity(0.6),
+                fontSize: 18
+            ) {
                 guard let song = np.queueSongs.indices.contains(np.queueIndex) ? np.queueSongs[np.queueIndex] : nil else { return }
                 Task { await likeStore.toggle(song: song) }
-            } label: {
-                Image(systemName: isLiked ? "heart.fill" : "heart")
-                    .font(.system(size: 18))
-                    .foregroundStyle(isLiked ? .white : .white.opacity(0.6))
-                    .frame(width: 36, height: 36)
             }
 
-            let currentSong = np.queueSongs.indices.contains(np.queueIndex) ? np.queueSongs[np.queueIndex] : nil
-            if let song = currentSong {
-                Button {
+            if let song = np.queueSongs.indices.contains(np.queueIndex) ? np.queueSongs[np.queueIndex] : nil {
+                PlayerOptionsButton(color: .white.opacity(0.6)) {
                     showSongMenu = true
-                } label: {
-                    Text("\u{22EE}")
-                        .font(.system(size: 20, weight: .black))
-                        .foregroundStyle(.white.opacity(0.6))
-                        .frame(width: 36, height: 36)
                 }
                 .sheet(isPresented: $showSongMenu) {
                     SongMenuSheet(
@@ -272,18 +251,7 @@ struct QueueView<ProgressSlider: View>: View {
         guard np.queueSongs.indices.contains(index) else { return }
         np.lastManualSkipTime = Date()
         np.queueIndex = index
-        let song = np.queueSongs[index]
-        np.update(title: song.title, artist: song.artists.map(\.name).joined(separator: ", "), videoId: song.videoId, artists: song.artists)
-        Task {
-            do {
-                try await PlaybackManager.shared.resolveAndPlay(videoId: song.videoId)
-            } catch {
-                Log.nowPlaying.error("resolveAndPlay failed: \(error)")
-                if np.videoId == song.videoId {
-                    np.isPlaying = false
-                }
-            }
-        }
+        np.playCurrentSong(logContext: "resolveAndPlay", manageResolvingFlag: false)
     }
 
     private func removeSong(at index: Int) {
@@ -302,13 +270,9 @@ struct QueueView<ProgressSlider: View>: View {
             let nextIndex = min(index, np.queueSongs.count - 1)
             np.queueIndex = nextIndex
             let song = np.queueSongs[nextIndex]
-            np.update(title: song.title, artist: song.artists.map(\.name).joined(separator: ", "), videoId: song.videoId, artists: song.artists)
-            Task {
-                do {
-                    try await PlaybackManager.shared.resolveAndPlay(videoId: song.videoId)
-                } catch {
-                    Log.nowPlaying.error("removeSong auto-play failed: \(error)")
-                }
+            np.update(with: song)
+            loggedTask(Log.nowPlaying, "removeSong auto-play failed") {
+                try await PlaybackManager.shared.resolveAndPlay(videoId: song.videoId)
             }
         } else {
             np.repairQueueIndex()

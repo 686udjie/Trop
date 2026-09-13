@@ -41,11 +41,3 @@ struct MiniPlayerInlineOnScrollModifier: ViewModifier {
             )
     }
 }
-
-extension View {
-    /// Keeps the mini player's inline layout in sync with this scroll container:
-    /// collapsing when scrolled down and restoring when back at the top.
-    func miniPlayerTracksScroll() -> some View {
-        modifier(MiniPlayerInlineOnScrollModifier())
-    }
-}

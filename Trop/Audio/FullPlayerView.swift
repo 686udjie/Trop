@@ -226,48 +226,27 @@ struct FullPlayerView: View {
 
     private var titleAndActionsRow: some View {
         HStack(alignment: .center) {
-            let title = np.title
-            let artist = np.displayArtist
-            VStack(alignment: .leading, spacing: 4) {
-                MarqueeText(
-                    text: title,
-                    font: .title3.weight(.bold),
-                    frameHeight: 28
-                )
-
-                if !artist.isEmpty {
-                    Text(artist)
-                        .font(.subheadline)
-                        .foregroundStyle(.white.opacity(0.7))
-                        .lineLimit(1)
-                }
-            }
+            PlayerTitleBlock(
+                title: np.title,
+                artist: np.displayArtist,
+                spacing: 4,
+                titleFont: .title3.weight(.bold),
+                titleHeight: 28
+            )
 
             Spacer()
 
             HStack(spacing: 12) {
-                Button {
+                PlayerLikeButton(isLiked: isLiked) {
                     guard let song = np.queueSongs.indices.contains(np.queueIndex) ? np.queueSongs[np.queueIndex] : nil else { return }
                     Task { await likeStore.toggle(song: song) }
-                } label: {
-                    Image(systemName: isLiked ? "heart.fill" : "heart")
-                        .font(.system(size: 17, weight: .regular))
-                        .foregroundStyle(isLiked ? .red : .white)
-                        .frame(width: 36, height: 36)
                 }
 
-            let currentSong = np.queueSongs.indices.contains(np.queueIndex) ? np.queueSongs[np.queueIndex] : nil
-            if currentSong != nil {
-                Button {
-                    showSongMenu = true
-                } label: {
-                    Text("\u{22EE}")
-                        .font(.system(size: 20, weight: .black))
-                        .foregroundStyle(.white)
-                        .frame(width: 36, height: 36)
+                if np.queueSongs.indices.contains(np.queueIndex) {
+                    PlayerOptionsButton {
+                        showSongMenu = true
+                    }
                 }
-                .accessibilityLabel("Song options")
-            }
             }
         }
     }
@@ -346,7 +325,7 @@ struct FullPlayerView: View {
             )
 
             HStack {
-                Text(timeString(isEditingSlider
+                Text(DurationFormat.playbackTime(isEditingSlider
                     ? TimeInterval(editingProgress) * np.duration
                     : np.currentTime))
                     .font(.caption2.monospacedDigit())
@@ -354,7 +333,7 @@ struct FullPlayerView: View {
 
                 Spacer()
 
-                Text(timeString(np.duration))
+                Text(DurationFormat.playbackTime(np.duration))
                     .font(.caption2.monospacedDigit())
                     .foregroundStyle(.white.opacity(0.6))
             }
@@ -362,8 +341,4 @@ struct FullPlayerView: View {
         .padding(.horizontal, 32)
     }
 
-    private func timeString(_ t: TimeInterval) -> String {
-        guard t.isFinite else { return "0:00" }
-        return "\(Int(t) / 60):\(String(format: "%02d", Int(t) % 60))"
-    }
 }

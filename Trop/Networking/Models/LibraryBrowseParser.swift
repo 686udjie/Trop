@@ -45,15 +45,7 @@ enum LibraryBrowseParser {
         }
 
         // Try singleColumnBrowseResultsRenderer path
-        if let contents = json["contents"] as? [String: Any],
-           let singleColumn = contents["singleColumnBrowseResultsRenderer"] as? [String: Any],
-           let tabs = singleColumn["tabs"] as? [[String: Any]],
-           let firstTab = tabs.first,
-           let tabRenderer = firstTab["tabRenderer"] as? [String: Any],
-           let content = tabRenderer["content"] as? [String: Any],
-           let sectionList = content["sectionListRenderer"] as? [String: Any],
-           let sections = sectionList["contents"] as? [[String: Any]],
-           let firstSection = sections.first,
+        if let firstSection = BrowseLens.firstBrowseSection(json),
            let items = itemsFrom(firstSection) {
             return items
         }
@@ -115,27 +107,11 @@ enum LibraryBrowseParser {
             return section
         }
 
-        // Helper to get continuation token
-        func getToken(from renderer: [String: Any]) -> String? {
-            guard let continuations = renderer["continuations"] as? [[String: Any]],
-                  let first = continuations.first,
-                  let nextContinuationData = first["nextContinuationData"] as? [String: Any],
-                  let token = nextContinuationData["continuation"] as? String else { return nil }
-            return token
-        }
-
         // Try singleColumn path
-        if let contents = json["contents"] as? [String: Any],
-           let singleColumn = contents["singleColumnBrowseResultsRenderer"] as? [String: Any],
-           let tabs = singleColumn["tabs"] as? [[String: Any]],
-           let firstTab = tabs.first,
-           let tabRenderer = firstTab["tabRenderer"] as? [String: Any],
-           let content = tabRenderer["content"] as? [String: Any],
-           let sectionList = content["sectionListRenderer"] as? [String: Any],
-           let sections = sectionList["contents"] as? [[String: Any]] {
+        if let sections = BrowseLens.browseSections(json) {
             for section in sections {
                 let unwrapped = unwrapSection(section)
-                if let token = getToken(from: unwrapped) { return token }
+                if let token = BrowseLens.continuationToken(in: unwrapped) { return token }
             }
         }
 
@@ -147,7 +123,7 @@ enum LibraryBrowseParser {
            let sections = sectionList["contents"] as? [[String: Any]] {
             for section in sections {
                 let unwrapped = unwrapSection(section)
-                if let token = getToken(from: unwrapped) { return token }
+                if let token = BrowseLens.continuationToken(in: unwrapped) { return token }
             }
         }
 
@@ -155,18 +131,18 @@ enum LibraryBrowseParser {
         if let contentsArray = json["contents"] as? [[String: Any]] {
             for section in contentsArray {
                 let unwrapped = unwrapSection(section)
-                if let token = getToken(from: unwrapped) { return token }
+                if let token = BrowseLens.continuationToken(in: unwrapped) { return token }
             }
         }
 
         // Try continuationContents paths
         if let continuationContents = json["continuationContents"] as? [String: Any] {
             if let shelfCont = continuationContents["musicShelfContinuation"] as? [String: Any],
-               let token = getToken(from: shelfCont) { return token }
+               let token = BrowseLens.continuationToken(in: shelfCont) { return token }
             if let gridCont = continuationContents["gridContinuation"] as? [String: Any],
-               let token = getToken(from: gridCont) { return token }
+               let token = BrowseLens.continuationToken(in: gridCont) { return token }
             if let playlistCont = continuationContents["musicPlaylistShelfContinuation"] as? [String: Any],
-               let token = getToken(from: playlistCont) { return token }
+               let token = BrowseLens.continuationToken(in: playlistCont) { return token }
         }
 
         return nil
@@ -220,9 +196,7 @@ extension LibraryBrowseParser {
                 ?? thumbnail["musicThumbnailRenderer"] as? [String: Any],
               let thumb = musicThumbnail["thumbnail"] as? [String: Any]
                 ?? thumbnail["thumbnails"] as? [String: Any],
-              let thumbnails = thumb["thumbnails"] as? [[String: Any]],
-              let last = thumbnails.last,
-              let url = last["url"] as? String else { return nil }
+              let url = InnerTubeJSON.lastThumbnailURL(thumb["thumbnails"] as? [[String: Any]]) else { return nil }
         return uncroppedURL(url)
     }
 
@@ -257,15 +231,11 @@ extension LibraryBrowseParser {
         if let thumbnailRenderer = item["thumbnailRenderer"] as? [String: Any],
            let musicThumbnail = thumbnailRenderer["musicThumbnailRenderer"] as? [String: Any],
            let thumbnail = musicThumbnail["thumbnail"] as? [String: Any],
-           let thumbnails = thumbnail["thumbnails"] as? [[String: Any]],
-           let last = thumbnails.last,
-           let url = last["url"] as? String { return uncroppedURL(url) }
+           let url = InnerTubeJSON.lastThumbnailURL(thumbnail["thumbnails"] as? [[String: Any]]) { return uncroppedURL(url) }
         if let thumbnail = item["thumbnail"] as? [String: Any],
            let musicThumbnail = thumbnail["musicThumbnailRenderer"] as? [String: Any],
            let thumb = musicThumbnail["thumbnail"] as? [String: Any],
-           let thumbnails = thumb["thumbnails"] as? [[String: Any]],
-           let last = thumbnails.last,
-           let url = last["url"] as? String { return uncroppedURL(url) }
+           let url = InnerTubeJSON.lastThumbnailURL(thumb["thumbnails"] as? [[String: Any]]) { return uncroppedURL(url) }
         return nil
     }
 
@@ -358,28 +328,18 @@ extension LibraryBrowseParser {
            let runsArray = runs["runs"] as? [[String: Any]],
            let firstRun = runsArray.first,
            let text = firstRun["text"] as? String {
-            return parseDuration(text)
+            return DurationFormat.parseClock(text) ?? Int(text) ?? 0
         }
         // Fallback: check flex column subtitle for duration pattern
         let subtitleRuns = allFlexTextRuns(item, index: 1)
         for run in subtitleRuns {
             if run.contains(":") && run.count <= 8 {
-                return parseDuration(run)
+                return DurationFormat.parseClock(run) ?? Int(run) ?? 0
             }
         }
         return 0
     }
 
-    private static func parseDuration(_ text: String) -> Int {
-        let parts = text.split(separator: ":")
-        guard !parts.isEmpty else { return 0 }
-        if parts.count == 2 {
-            return (Int(parts[0]) ?? 0) * 60 + (Int(parts[1]) ?? 0)
-        } else if parts.count == 3 {
-            return (Int(parts[0]) ?? 0) * 3600 + (Int(parts[1]) ?? 0) * 60 + (Int(parts[2]) ?? 0)
-        }
-        return Int(text) ?? 0
-    }
 }
 
 // MARK: Item parsers
@@ -446,7 +406,7 @@ extension LibraryBrowseParser {
                     songCount = Int(num) ?? 0
                 }
                 if run.contains(":") {
-                    duration = parseDuration(run)
+                    duration = DurationFormat.parseClock(run) ?? Int(run) ?? 0
                 }
             }
             return ParsedAlbum(

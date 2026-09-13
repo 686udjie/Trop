@@ -26,14 +26,7 @@ struct LRCLIBProvider: LyricsProvider {
         components.queryItems = items
 
         guard let url = components.url else { throw LyricsError.invalidURL }
-        let (data, response) = try await URLSession.shared.data(for: URLRequest(url: url))
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            throw LyricsError.notFound
-        }
-
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw LyricsError.decodingFailed
-        }
+        let json = try await LyricsHTTP.getJSON(URLRequest(url: url))
 
         if let instrumental = json["instrumental"] as? Bool, instrumental {
             return [LyricLine(text: "♪ Instrumental ♪", startTime: nil)]
@@ -45,11 +38,7 @@ struct LRCLIBProvider: LyricsProvider {
         }
 
         if let plain = json["plainLyrics"] as? String, !plain.isEmpty {
-            let lines = plain
-                .split(whereSeparator: { $0 == "\n" || $0 == "\r" })
-                .map { $0.trimmingCharacters(in: .whitespaces) }
-                .filter { !$0.isEmpty }
-                .map { LyricLine(text: $0, startTime: nil) }
+            let lines = LyricsText.plainLines(plain)
             if !lines.isEmpty { return lines }
         }
 

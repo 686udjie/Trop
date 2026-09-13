@@ -16,10 +16,7 @@ actor SessionVerificationService {
     func isSessionAlive() async -> Bool {
         do {
             let json = try await innerTube.accountMenu()
-            guard let header = json["header"] as? [String: Any],
-                  let renderer = header["musicAccountHeaderRenderer"] as? [String: Any],
-                  let accountName = renderer["accountName"] as? [String: Any],
-                  let runs = accountName["runs"] as? [[String: Any]],
+            guard let runs = BrowseLens.accountNameRuns(json),
                   runs.contains(where: { $0["text"] is String }) else {
                 return false
             }
@@ -31,10 +28,7 @@ actor SessionVerificationService {
 
     func verifyAndThrow() async throws -> Bool {
         let json = try await innerTube.accountMenu()
-        guard let header = json["header"] as? [String: Any],
-              let renderer = header["musicAccountHeaderRenderer"] as? [String: Any],
-              let accountName = renderer["accountName"] as? [String: Any],
-              let runs = accountName["runs"] as? [[String: Any]],
+        guard let runs = BrowseLens.accountNameRuns(json),
               runs.contains(where: { $0["text"] is String }) else {
             throw SessionVerificationError.invalidAccountResponse
         }

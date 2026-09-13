@@ -42,14 +42,7 @@ struct MusixmatchProvider: LyricsProvider {
         var request = URLRequest(url: url)
         applyHeaders(to: &request)
 
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            throw LyricsError.notFound
-        }
-
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw LyricsError.decodingFailed
-        }
+        let json = try await LyricsHTTP.getJSON(request)
         return try parse(json)
     }
 
@@ -61,9 +54,8 @@ struct MusixmatchProvider: LyricsProvider {
         var request = URLRequest(url: url)
         applyHeaders(to: &request)
 
-        let (data, _) = try await URLSession.shared.data(for: request)
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let message = json["message"] as? [String: Any],
+        let json = try await LyricsHTTP.getJSON(request)
+        guard let message = json["message"] as? [String: Any],
               let body = message["body"] as? [String: Any],
               let token = body["user_token"] as? String, !token.isEmpty else {
             throw LyricsError.notFound
@@ -129,14 +121,7 @@ struct MusixmatchProvider: LyricsProvider {
            let lBody = lMessage["body"] as? [String: Any],
            let lyrics = lBody["lyrics"] as? [String: Any],
            let bodyStr = lyrics["lyrics_body"] as? String {
-            let lines = bodyStr
-                .split(separator: "\n")
-                .map(String.init)
-                .compactMap { line -> LyricLine? in
-                    let t = line.trimmingCharacters(in: .whitespaces)
-                    guard !t.isEmpty else { return nil }
-                    return LyricLine(text: t, startTime: nil)
-                }
+            let lines = LyricsText.plainLines(bodyStr)
             if !lines.isEmpty { return lines }
         }
 

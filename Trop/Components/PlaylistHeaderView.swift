@@ -75,41 +75,14 @@ struct PlaylistHeaderView: View {
     }
 
     private var playbackControls: some View {
-        HStack(spacing: 20) {
-            Button(action: onShuffle) {
-                Image(systemName: "shuffle")
-                    .font(.title3)
-                    .foregroundStyle(.primary)
-                    .frame(width: 48, height: 48)
-                    .background(Circle().fill(Color(.secondarySystemGroupedBackground)))
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Shuffle")
-
-            Button(action: onPlay) {
-                Image(systemName: "play.fill")
-                    .font(.title2)
-                    .foregroundStyle(.white)
-                    .frame(width: 64, height: 64)
-                    .background(Circle().fill(accentColor))
-                    .shadow(color: accentColor.opacity(0.4), radius: 10, y: 4)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Play all")
-
-            if let onMore {
-                Button(action: onMore) {
-                    Text("\u{22EE}")
-                        .font(.title3)
-                        .foregroundStyle(.primary)
-                        .frame(width: 48, height: 48)
-                        .background(Circle().fill(Color(.secondarySystemGroupedBackground)))
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("More options")
-            }
-        }
-        .padding(.top, 4)
+        PlaybackControlsView(
+            accent: accentColor,
+            showsShuffle: true,
+            showsMore: onMore != nil,
+            onPlay: onPlay,
+            onShuffle: onShuffle,
+            onMore: { onMore?() }
+        )
     }
 
     @ViewBuilder

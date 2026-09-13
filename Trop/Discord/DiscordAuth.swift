@@ -7,7 +7,6 @@
 
 import Foundation
 import AuthenticationServices
-import CryptoKit
 import UIKit
 
 struct DiscordAuthResult {
@@ -186,13 +185,14 @@ final class DiscordAuth: NSObject {
         request.httpBody = bodyString.data(using: .utf8)
         request.timeoutInterval = 15
 
-        let (data, response): (Data, URLResponse)
+        let data: Data
+        let httpResponse: HTTPURLResponse
         do {
-            (data, response) = try await URLSession.shared.data(for: request)
+            (data, httpResponse) = try await HttpClient.data(for: request)
         } catch {
             throw DiscordAuthError.networkFailure(error)
         }
-        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        let status = httpResponse.statusCode
         let body = String(data: data, encoding: .utf8) ?? ""
 
         if (200...299).contains(status) {
@@ -221,19 +221,6 @@ final class DiscordAuth: NSObject {
 }
 
 // MARK: - Helpers
-
-private extension Data {
-    var base64URLEncodedNoPadding: String {
-        base64EncodedString()
-            .replacingOccurrences(of: "+", with: "-")
-            .replacingOccurrences(of: "/", with: "_")
-            .replacingOccurrences(of: "=", with: "")
-    }
-    var sha256Base64URLEncoded: String {
-        let hash = SHA256.hash(data: self)
-        return Data(hash).base64URLEncodedNoPadding
-    }
-}
 
 private final class PresentationContextProvider: NSObject, ASWebAuthenticationPresentationContextProviding {
     let anchor: ASPresentationAnchor

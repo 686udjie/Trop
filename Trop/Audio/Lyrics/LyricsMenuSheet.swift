@@ -20,12 +20,11 @@ struct LyricsMenuSheet: View {
     var body: some View {
         @Bindable var settings = settings
 
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: 16) {
-                    actionGrid
+        SheetChrome {
+            Group {
+                actionGrid
 
-                    menuCard {
+                MenuCard {
                         offsetRow
                         Divider()
                         Toggle(isOn: $settings.showIntervalIndicator) {
@@ -64,16 +63,10 @@ struct LyricsMenuSheet: View {
                         .tint(settings.accentColor)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 12)
-                    }
                 }
-                .padding(16)
             }
-            .background(Color(.systemGroupedBackground))
             .navigationTitle("Lyrics")
-            .navigationBarTitleDisplayMode(.inline)
         }
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
         .sheet(isPresented: $showOffsetEditor) {
             LyricsOffsetSheet()
         }
@@ -214,20 +207,6 @@ struct LyricsMenuSheet: View {
         if s.hasSuffix(".") { s.removeLast() }
         return s
     }
-
-    // MARK: - Building Blocks
-
-    private var cardBackground: some View {
-        RoundedRectangle(cornerRadius: 16, style: .continuous)
-            .fill(Color(.secondarySystemGroupedBackground))
-    }
-
-    private func menuCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        VStack(spacing: 0) {
-            content()
-        }
-        .background(cardBackground)
-    }
 }
 
 /// Type-a-number offset editor laid out like Metrolist's ShowOffsetDialog:
@@ -329,8 +308,7 @@ struct LyricsOffsetSheet: View {
                 }
             }
         }
-        .presentationDetents([.medium])
-        .presentationDragIndicator(.visible)
+        .appSheetChrome([.medium])
         .onAppear {
             textFieldValue = trimmedDecimalString(settings.lyricsOffsetSeconds)
         }
@@ -426,8 +404,7 @@ struct EditLyricsSheet: View {
                     }
                 }
         }
-        .presentationDetents([.large])
-        .presentationDragIndicator(.visible)
+        .appSheetChrome([.large])
         .task {
             text = await LyricsService.shared.editableText(videoId: videoId)
         }
@@ -496,8 +473,7 @@ struct SearchLyricsSheet: View {
             .navigationTitle("Search")
             .navigationBarTitleDisplayMode(.inline)
         }
-        .presentationDetents([.large])
-        .presentationDragIndicator(.visible)
+        .appSheetChrome([.large])
         .onAppear {
             titleField = defaultTitle
         }

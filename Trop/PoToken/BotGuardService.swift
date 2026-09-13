@@ -29,8 +29,10 @@ actor BotGuardService {
         // Body: JSON array with requestKey
         req.httpBody = try JSONSerialization.data(withJSONObject: [requestKey])
 
-        let (data, resp) = try await session.data(for: req)
-        guard let http = resp as? HTTPURLResponse, http.statusCode == 200 else {
+        let data: Data
+        do {
+            (data, _) = try await HttpClient.validatedData(for: req, session: session)
+        } catch is HttpError {
             throw BotGuardError.createFailed
         }
 
@@ -53,8 +55,10 @@ actor BotGuardService {
         // Body: JSON array [requestKey, botguardResponse]
         req.httpBody = try JSONSerialization.data(withJSONObject: [requestKey, botguardResponse])
 
-        let (data, resp) = try await session.data(for: req)
-        guard let http = resp as? HTTPURLResponse, http.statusCode == 200 else {
+        let data: Data
+        do {
+            (data, _) = try await HttpClient.validatedData(for: req, session: session)
+        } catch is HttpError {
             throw BotGuardError.generateITFailed
         }
 

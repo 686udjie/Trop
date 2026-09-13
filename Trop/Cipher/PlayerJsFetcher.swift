@@ -67,7 +67,7 @@ actor PlayerJsFetcher {
 
     private func fetchPlayerHash() async throws -> String {
         let url = URL(string: "https://www.youtube.com/iframe_api")!
-        let (data, _) = try await URLSession.shared.data(from: url)
+        let (data, _) = try await HttpClient.data(from: url)
         guard let text = String(data: data, encoding: .utf8) else {
             throw CipherError.invalidResponse("iframe_api not UTF-8")
         }
@@ -84,7 +84,7 @@ actor PlayerJsFetcher {
     // Downloads player.js for a given hash
     private func downloadPlayerJs(hash: String) async throws -> String {
         let url = URL(string: "https://www.youtube.com/s/player/\(hash)/player_ias.vflset/en_GB/base.js")!
-        let (data, _) = try await URLSession.shared.data(from: url)
+        let (data, _) = try await HttpClient.data(from: url)
         guard let js = String(data: data, encoding: .utf8) else {
             throw CipherError.invalidResponse("player.js not UTF-8")
         }

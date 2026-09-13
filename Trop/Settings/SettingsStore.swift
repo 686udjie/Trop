@@ -345,48 +345,60 @@ final class SettingsStore {
 
     private static let defaults: UserDefaults = .standard
 
+    private static func load<T>(_ key: String, default defaultValue: T) -> T {
+        defaults.object(forKey: key) as? T ?? defaultValue
+    }
+
+    private static func loadString(_ key: String, default defaultValue: String) -> String {
+        defaults.string(forKey: key) ?? defaultValue
+    }
+
+    private static func loadEnum<E: RawRepresentable>(_ key: String, default defaultValue: E) -> E where E.RawValue == String {
+        E(rawValue: defaults.string(forKey: key) ?? "") ?? defaultValue
+    }
+
     private init() {
         let d = Self.defaults
-        themeMode = ThemeMode(rawValue: d.string(forKey: Keys.themeMode) ?? "") ?? .system
+        themeMode = Self.loadEnum(Keys.themeMode, default: .system)
         accentColor = AccentPreset.all
             .first { $0.name == (d.string(forKey: Keys.accentName) ?? AccentPreset.all[0].name) }?
             .color ?? AccentPreset.all[0].color
         accentName = d.string(forKey: Keys.accentName) ?? AccentPreset.all[0].name
-        playerBackgroundStyle = PlayerBackgroundStyle(rawValue: d.string(forKey: Keys.playerBackgroundStyle) ?? "") ?? .dynamic
+        playerBackgroundStyle = Self.loadEnum(Keys.playerBackgroundStyle, default: .dynamic)
         // Migrated when Explore took index 2 (was Search): stored 2 → 3.
-        let storedTab = d.object(forKey: Keys.defaultTab) as? Int ?? 0
+        let storedTab = Self.load(Keys.defaultTab, default: 0)
         defaultTab = storedTab == 2 ? 3 : storedTab
-        lyricsFontSize = d.object(forKey: Keys.lyricsFontSize) as? Double ?? 17
-        lyricsAlignment = LyricsAlignment(rawValue: d.string(forKey: Keys.lyricsAlignment) ?? "") ?? .center
-        lyricsOffsetSeconds = d.object(forKey: Keys.lyricsOffsetSeconds) as? Double ?? 0
-        showIntervalIndicator = d.object(forKey: Keys.showIntervalIndicator) as? Bool ?? true
-        romanizeCurrentTrack = d.object(forKey: Keys.romanizeCurrentTrack) as? Bool ?? true
-        equalizerEnabled = d.object(forKey: Keys.equalizerEnabled) as? Bool ?? false
-        equalizerPresetID = d.string(forKey: Keys.equalizerPresetID) ?? "flat"
+        lyricsFontSize = Self.load(Keys.lyricsFontSize, default: 17)
+        lyricsAlignment = Self.loadEnum(Keys.lyricsAlignment, default: .center)
+        lyricsOffsetSeconds = Self.load(Keys.lyricsOffsetSeconds, default: 0)
+        showIntervalIndicator = Self.load(Keys.showIntervalIndicator, default: true)
+        romanizeCurrentTrack = Self.load(Keys.romanizeCurrentTrack, default: true)
+        equalizerEnabled = Self.load(Keys.equalizerEnabled, default: false)
+        equalizerPresetID = Self.loadString(Keys.equalizerPresetID, default: "flat")
         if let saved = d.array(forKey: Keys.equalizerGains) as? [Double], saved.count == equalizerFrequencies.count {
             equalizerGains = saved
         } else {
             equalizerGains = EqualizerPresets.all.first?.gains ?? Array(repeating: 0, count: equalizerFrequencies.count)
         }
-        audioQuality = AudioQuality(rawValue: d.string(forKey: Keys.audioQuality) ?? "") ?? .auto
-        audioNormalization = d.object(forKey: Keys.audioNormalization) as? Bool ?? false
-        gaplessPlayback = d.object(forKey: Keys.gaplessPlayback) as? Bool ?? true
-        autoplaySimilar = d.object(forKey: Keys.autoplaySimilar) as? Bool ?? true
-        persistQueue = d.object(forKey: Keys.persistQueue) as? Bool ?? false
-        playerVolume = d.object(forKey: Keys.playerVolume) as? Double ?? 1
-        artworkSwipeNavigation = d.object(forKey: Keys.artworkSwipeNavigation) as? Bool ?? true
-        hideExplicit = d.object(forKey: Keys.hideExplicit) as? Bool ?? false
-        showQuickPicks = d.object(forKey: Keys.showQuickPicks) as? Bool ?? true
-        topListsLength = d.object(forKey: Keys.topListsLength) as? Int ?? 8
-        contentCountry = d.string(forKey: Keys.contentCountry) ?? "US"
+        audioQuality = Self.loadEnum(Keys.audioQuality, default: .auto)
+        audioNormalization = Self.load(Keys.audioNormalization, default: false)
+        gaplessPlayback = Self.load(Keys.gaplessPlayback, default: true)
+        autoplaySimilar = Self.load(Keys.autoplaySimilar, default: true)
+        persistQueue = Self.load(Keys.persistQueue, default: false)
+        playerVolume = Self.load(Keys.playerVolume, default: 1)
+        artworkSwipeNavigation = Self.load(Keys.artworkSwipeNavigation, default: true)
+        hideExplicit = Self.load(Keys.hideExplicit, default: false)
+        showQuickPicks = Self.load(Keys.showQuickPicks, default: true)
+        topListsLength = Self.load(Keys.topListsLength, default: 8)
+        contentCountry = Self.loadString(Keys.contentCountry, default: "US")
         disabledLyricsProviders = Set(d.stringArray(forKey: Keys.disabledLyricsProviders) ?? [])
-        trackSearchHistory = d.object(forKey: Keys.trackSearchHistory) as? Bool ?? true
-        trackPlayHistory = d.object(forKey: Keys.trackPlayHistory) as? Bool ?? true
-        downloadQuality = DownloadQuality(rawValue: d.string(forKey: Keys.downloadQuality) ?? "") ?? .auto
-        wifiOnlyDownloads = d.object(forKey: Keys.wifiOnlyDownloads) as? Bool ?? false
-        autoDownloadOnLike = d.object(forKey: Keys.autoDownloadOnLike) as? Bool ?? false
-        syncArtists = d.object(forKey: Keys.syncArtists) as? Bool ?? true
-        syncPlaylists = d.object(forKey: Keys.syncPlaylists) as? Bool ?? true
+        trackSearchHistory = Self.load(Keys.trackSearchHistory, default: true)
+        trackPlayHistory = Self.load(Keys.trackPlayHistory, default: true)
+        downloadQuality = Self.loadEnum(Keys.downloadQuality, default: .auto)
+        wifiOnlyDownloads = Self.load(Keys.wifiOnlyDownloads, default: false)
+        autoDownloadOnLike = Self.load(Keys.autoDownloadOnLike, default: false)
+        syncArtists = Self.load(Keys.syncArtists, default: true)
+        syncPlaylists = Self.load(Keys.syncPlaylists, default: true)
     }
 }
 

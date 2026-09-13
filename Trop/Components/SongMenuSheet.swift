@@ -24,57 +24,52 @@ struct SongMenuSheet: View {
     @State private var isResolvingArtist = false
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: 16) {
-                    headerCard
-                    actionGrid
-                    menuCard {
-                        menuRow(
-                            icon: "text.insert",
-                            title: "Play Next",
-                            subtitle: "Add to the queue, next in line"
-                        ) { playNext() }
+        SheetChrome {
+            Group {
+                headerCard
+                actionGrid
+                MenuCard {
+                    MenuRow(
+                        icon: "text.insert",
+                        title: "Play Next",
+                        subtitle: "Add to the queue, next in line"
+                    ) { playNext() }
+                    Divider()
+                    MenuRow(
+                        icon: "list.bullet",
+                        title: "Add to Queue",
+                        subtitle: "Add to the end of the queue"
+                    ) { addToQueue() }
+                    Divider()
+                    MenuRow(
+                        icon: isPinned ? "pin.fill" : "pin",
+                        title: isPinned ? "Unpin from Quick Picks" : "Pin to Quick Picks"
+                    ) { Task { await togglePin() } }
+                    MenuRow(
+                        icon: "music.mic",
+                        title: "View Artist",
+                        subtitle: song.artistNamesDisplay
+                    ) { handleViewArtist() }
+                    if let albumId = song.firstAlbumBrowseId {
                         Divider()
-                        menuRow(
-                            icon: "list.bullet",
-                            title: "Add to Queue",
-                            subtitle: "Add to the end of the queue"
-                        ) { addToQueue() }
-                        Divider()
-                        menuRow(
-                            icon: isPinned ? "pin.fill" : "pin",
-                            title: isPinned ? "Unpin from Quick Picks" : "Pin to Quick Picks"
-                        ) { Task { await togglePin() } }
-                        menuRow(
-                            icon: "music.mic",
-                            title: "View Artist",
-                            subtitle: song.artistNamesDisplay
-                        ) { handleViewArtist() }
-                        if let albumId = song.firstAlbumBrowseId {
-                            Divider()
-                            menuRow(
-                                icon: "record.circle",
-                                title: "View Album",
-                                subtitle: song.album
-                            ) { navigate(.album(browseId: albumId)) }
-                        }
-                    }
-                    menuCard {
-                        NavigationLink(value: Destination.details) {
-                            menuRowLabel(
-                                icon: "info.circle",
-                                title: "Details",
-                                subtitle: "Metadata & stream information"
-                            )
-                        }
-                        .buttonStyle(.plain)
+                        MenuRow(
+                            icon: "record.circle",
+                            title: "View Album",
+                            subtitle: song.album
+                        ) { navigate(.album(browseId: albumId)) }
                     }
                 }
-                .padding(16)
+                MenuCard {
+                    NavigationLink(value: Destination.details) {
+                        MenuRowLabel(
+                            icon: "info.circle",
+                            title: "Details",
+                            subtitle: "Metadata & stream information"
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
             }
-            .background(Color(.systemGroupedBackground))
-            .navigationBarTitleDisplayMode(.inline)
             .navigationDestination(for: Destination.self) { dest in
                 switch dest {
                 case .details:
@@ -82,8 +77,6 @@ struct SongMenuSheet: View {
                 }
             }
         }
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
         .confirmationDialog("View Artist", isPresented: $showArtistPicker, titleVisibility: .visible) {
             ForEach(song.artists.filter { !$0.name.isEmpty }, id: \.self) { artist in
                 Button(artist.name) {
@@ -169,63 +162,6 @@ struct SongMenuSheet: View {
         .buttonStyle(.plain)
     }
 
-    // MARK: - Menu Rows
-
-    private func menuRow(
-        icon: String,
-        title: String,
-        subtitle: String? = nil,
-        destructive: Bool = false,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            menuRowLabel(icon: icon, title: title, subtitle: subtitle, destructive: destructive)
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func menuRowLabel(
-        icon: String,
-        title: String,
-        subtitle: String? = nil,
-        destructive: Bool = false
-    ) -> some View {
-        HStack(spacing: 14) {
-            Image(systemName: icon)
-                .font(.system(size: 18))
-                .foregroundStyle(destructive ? Color.red : settings.accentColor)
-                .frame(width: 26)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.body)
-                    .foregroundStyle(destructive ? Color.red : Color.primary)
-                if let subtitle, !subtitle.isEmpty {
-                    Text(subtitle)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-            }
-            Spacer()
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .contentShape(Rectangle())
-    }
-
-    // MARK: - Card Building Blocks
-
-    @ViewBuilder
-    private func menuCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        VStack(spacing: 0) {
-            content()
-        }
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color(.secondarySystemGroupedBackground))
-        )
-    }
-
     // MARK: - State
 
     private func loadStates() async {
@@ -282,17 +218,7 @@ struct SongMenuSheet: View {
     }
 
     private func share() {
-        guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first,
-              let window = scene.windows.first(where: { $0.isKeyWindow }),
-              let root = window.rootViewController else { return }
-        dismiss()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            let activityVC = UIActivityViewController(
-                activityItems: [self.song.webUrl],
-                applicationActivities: nil
-            )
-            root.present(activityVC, animated: true)
-        }
+        presentShareSheet(items: [song.webUrl], afterDismiss: { dismiss() })
     }
 
     private func navigate(_ route: DetailRoute) {

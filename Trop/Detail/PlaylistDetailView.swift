@@ -67,12 +67,11 @@ final class PlaylistDetailViewModel {
             let title = parsed.title
             try await DatabaseService.shared.write { db in
                 let existing = try PlaylistEntity.fetchOne(db, key: pid)
-                let entity = PlaylistEntity(
+                let entity = PlaylistEntity.merging(
+                    existing: existing,
                     id: pid,
                     browseId: browseId,
-                    name: existing?.name ?? title,
-                    isEditable: existing?.isEditable ?? false,
-                    bookmarkedAt: existing?.bookmarkedAt,
+                    name: title,
                     remoteSongCount: songs.count
                 )
                 try entity.save(db)
@@ -80,23 +79,14 @@ final class PlaylistDetailViewModel {
                 try db.execute(sql: "DELETE FROM playlist_song_map WHERE playlist_id = ?", arguments: [pid])
                 for (index, song) in songs.enumerated() {
                     let existingSong = try SongEntity.fetchOne(db, key: song.videoId)
-                    let songEntity = SongEntity(
+                    let songEntity = SongEntity.merging(
+                        existing: existingSong,
                         id: song.videoId,
                         title: song.title,
-                        artistName: existingSong?.artistName ?? song.artists.first?.name,
-                        albumName: existingSong?.albumName ?? song.album,
-                        duration: song.duration > 0 ? song.duration : existingSong?.duration ?? 0,
-                        thumbnailUrl: song.thumbnailUrl ?? existingSong?.thumbnailUrl,
-                        liked: existingSong?.liked ?? false,
-                        totalPlayTime: existingSong?.totalPlayTime ?? 0,
-                        inLibrary: existingSong?.inLibrary,
-                        libraryAddToken: existingSong?.libraryAddToken ?? "",
-                        libraryRemoveToken: existingSong?.libraryRemoveToken ?? "",
-                        isEpisode: existingSong?.isEpisode ?? false,
-                        isUploaded: existingSong?.isUploaded ?? false,
-                        isVideo: existingSong?.isVideo ?? false,
-                        createDate: existingSong?.createDate ?? Date(),
-                        modifyDate: Date()
+                        artistName: song.artists.first?.name,
+                        albumName: song.album,
+                        duration: song.duration,
+                        thumbnailUrl: song.thumbnailUrl
                     )
                     try songEntity.save(db)
 
@@ -132,7 +122,7 @@ final class PlaylistDetailViewModel {
                     """,
                 arguments: [playlistId]
             )
-            let songItems = songs.map { SongItem(entity: $0) }
+            let songItems = songs.toSongItems()
             let totalDuration = songItems.reduce(0) { $0 + $1.duration }
             playlist = PlaylistDetailInfo(
                 title: entity.name,
@@ -173,7 +163,7 @@ final class PlaylistDetailViewModel {
             }
             Log.playlistDetail.debug("Fetched \(entities.count) song entities")
 
-            var songs = entities.map { SongItem(entity: $0) }
+            var songs = entities.toSongItems()
             Log.playlistDetail.debug("songs count=\(songs.count)")
 
             // Resolve missing durations in background
@@ -231,7 +221,6 @@ final class PlaylistDetailViewModel {
 // MARK: - Parser
 
 extension PlaylistDetailViewModel {
-    // swiftlint:disable cyclomatic_complexity
     /// Parses InnerTube browse JSON into a PlaylistDetailInfo.
     /// Extracts header metadata (title, author, song count, duration, thumbnail, description)
     /// from musicDetailHeaderRenderer and songs from musicPlaylistShelfRenderer or musicShelfRenderer.
@@ -247,21 +236,7 @@ extension PlaylistDetailViewModel {
         var thumbnailUrl: String?
         var songs: [SongItem] = []
 
-        let contents = json["contents"] as? [String: Any]
-        let singleColumn = contents?["singleColumnBrowseResultsRenderer"] as? [String: Any]
-        let twoColumn = contents?["twoColumnBrowseResultsRenderer"] as? [String: Any]
-
-        let tabsArray: [[String: Any]]? = {
-            if let tabs = twoColumn?["tabs"] as? [[String: Any]] { return tabs }
-            if let tabs = singleColumn?["tabs"] as? [[String: Any]] { return tabs }
-            return nil
-        }()
-        let firstTabSectionInner = tabsArray?
-            .first
-            .flatMap { $0["tabRenderer"] as? [String: Any] }
-            .flatMap { $0["content"] as? [String: Any] }
-            .flatMap { $0["sectionListRenderer"] as? [String: Any] }
-            .flatMap { ($0["contents"] as? [[String: Any]])?.first }
+        let firstTabSectionInner = BrowseLens.firstSectionItem(json)
         let firstTabSection = firstTabSectionInner
             .flatMap { $0["itemSectionRenderer"] as? [String: Any] }
             .flatMap { ($0["contents"] as? [[String: Any]])?.first }
@@ -282,12 +257,12 @@ extension PlaylistDetailViewModel {
             }
 
         if let detailHeader = headerRenderer {
-            title = DetailParser.extractRunsText(detailHeader["title"] as? [String: Any]) ?? title
-            thumbnailUrl = DetailParser.extractMusicThumbnail(detailHeader)
+            title = InnerTubeJSON.runsText(detailHeader["title"] as? [String: Any]) ?? title
+            thumbnailUrl = InnerTubeJSON.musicThumbnailURL(detailHeader)
 
             descriptionText = detailHeader["description"]
                 .flatMap { $0 as? [String: Any] }
-                .flatMap { DetailParser.extractRunsText($0) }
+                .flatMap { InnerTubeJSON.runsText($0) }
 
             // Author from straplineTextOne
             if let strapline = detailHeader["straplineTextOne"] as? [String: Any],
@@ -362,7 +337,7 @@ extension PlaylistDetailViewModel {
                             Log.parser.debug("parsed songCount=\(songCount)")
                         }
                     } else if trimmed.contains(":") {
-                        duration = DetailParser.parseDuration(trimmed)
+                        duration = DurationFormat.parseClock(trimmed) ?? 0
                         Log.parser.debug("parsed duration=\(duration) from '\(trimmed)'")
                     } else {
                         let lower = trimmed.lowercased()
@@ -400,7 +375,7 @@ extension PlaylistDetailViewModel {
             return result
         }
 
-        if let twoCol = twoColumn {
+        if let twoCol = (json["contents"] as? [String: Any])?["twoColumnBrowseResultsRenderer"] as? [String: Any] {
             // Songs are in secondaryContents
             if let secondary = twoCol["secondaryContents"] as? [String: Any],
                let sectionList = secondary["sectionListRenderer"] as? [String: Any],
@@ -413,19 +388,12 @@ extension PlaylistDetailViewModel {
                     songs += parseSongsFromShelf(unwrapped)
                 }
             }
-        } else if let singleCol = singleColumn {
-            if let tabs = singleCol["tabs"] as? [[String: Any]],
-               let sections = tabs.first
-                .flatMap({ $0["tabRenderer"] as? [String: Any] })
-                .flatMap({ $0["content"] as? [String: Any] })
-                .flatMap({ $0["sectionListRenderer"] as? [String: Any] })
-                .flatMap({ $0["contents"] as? [[String: Any]] }) {
-                for section in sections {
-                    let unwrapped = (section["itemSectionRenderer"] as? [String: Any])
-                        .flatMap { ($0["contents"] as? [[String: Any]])?.first }
-                        ?? section
-                    songs += parseSongsFromShelf(unwrapped)
-                }
+        } else if let sections = BrowseLens.browseSections(json) {
+            for section in sections {
+                let unwrapped = (section["itemSectionRenderer"] as? [String: Any])
+                    .flatMap { ($0["contents"] as? [[String: Any]])?.first }
+                    ?? section
+                songs += parseSongsFromShelf(unwrapped)
             }
         }
 
@@ -450,7 +418,6 @@ extension PlaylistDetailViewModel {
             songs: songs
         )
     }
-    // swiftlint:enable cyclomatic_complexity
 }
 
 // MARK: - View
@@ -481,27 +448,14 @@ struct PlaylistDetailView: View {
 
     var body: some View {
         ScrollView {
-            Group {
-                if viewModel.isLoading {
-                    loadingView
-                        .containerRelativeFrame(.vertical)
-                } else if let error = viewModel.error {
-                    ContentUnavailableView(
-                        "Couldn't load playlist",
-                        systemImage: "exclamationmark.circle",
-                        description: Text(error.localizedDescription)
-                    )
-                    .containerRelativeFrame(.vertical)
-                } else if let playlist = viewModel.playlist {
-                    playlistContent(for: playlist)
-                } else {
-                    ContentUnavailableView(
-                        "No playlist data",
-                        systemImage: "music.note.list",
-                        description: Text("Could not parse playlist details")
-                    )
-                    .containerRelativeFrame(.vertical)
-                }
+            DetailStateContainer(
+                isLoading: viewModel.isLoading,
+                error: viewModel.error,
+                data: viewModel.playlist,
+                noun: "playlist",
+                emptyIcon: "music.note.list"
+            ) { playlist in
+                playlistContent(for: playlist)
             }
         }
         .scrollDisabled(viewModel.isLoading || viewModel.error != nil || viewModel.playlist == nil)
@@ -535,17 +489,6 @@ struct PlaylistDetailView: View {
         playlistEntity = try? await DatabaseService.shared.fetchOne(PlaylistEntity.self, key: playlistId)
     }
 
-    private var loadingView: some View {
-        VStack(spacing: 16) {
-            Spacer()
-            ProgressView()
-            Text("Loading playlist...")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-            Spacer()
-        }
-    }
-
     @ViewBuilder
     private func playlistContent(for playlist: PlaylistDetailInfo) -> some View {
         LazyVStack(spacing: 0) {
@@ -570,10 +513,7 @@ struct PlaylistDetailView: View {
         VStack(spacing: 12) {
             // Playlist artwork
             if let thumbnailUrl = playlist.thumbnailUrl {
-                AsyncImageView(url: thumbnailUrl)
-                    .frame(width: 200, height: 200)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                    .shadow(color: .black.opacity(0.2), radius: 12, y: 4)
+                HeroArtworkView(url: thumbnailUrl)
             } else {
                 RoundedRectangle(cornerRadius: 12)
                     .fill(LinearGradient(colors: [.blue, .purple], startPoint: .topLeading, endPoint: .bottomTrailing))
@@ -626,38 +566,12 @@ struct PlaylistDetailView: View {
             }
 
             // Action buttons: shuffle, play
-            HStack(spacing: 20) {
-                                Button(action: { shufflePlay(playlist) }, label: {
-                    Image(systemName: "shuffle")
-                        .font(.title3)
-                        .frame(width: 44, height: 44)
-                        .background(Circle().fill(Color(.systemGray6)))
-                })
-                .buttonStyle(.plain)
-                .accessibilityLabel("Shuffle")
-
-                                Button(action: { playAll(playlist) }, label: {
-                    Image(systemName: "play.fill")
-                        .font(.title2)
-                        .foregroundColor(.white)
-                        .frame(width: 60, height: 60)
-                        .background(Circle().fill(Color.accentColor))
-                })
-                .buttonStyle(.plain)
-                .accessibilityLabel("Play all")
-
-                Button {
-                    showMoreSheet = true
-                } label: {
-                    Text("\u{22EE}")
-                        .font(.title3)
-                        .frame(width: 44, height: 44)
-                        .background(Circle().fill(Color(.systemGray6)))
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("More options")
-            }
-            .padding(.top, 4)
+            PlaybackControlsView(
+                showsMore: true,
+                onPlay: { playAll(playlist) },
+                onShuffle: { shufflePlay(playlist) },
+                onMore: { showMoreSheet = true }
+            )
         }
         .padding(.vertical, 16)
         .sheet(isPresented: $showMoreSheet) {
@@ -691,7 +605,7 @@ struct PlaylistDetailView: View {
     private func songList(for playlist: PlaylistDetailInfo) -> some View {
         VStack(spacing: 0) {
             ForEach(Array(playlist.songs.enumerated()), id: \.offset) { index, song in
-                PlaylistSongRow(song: song, onPlay: { playSong(song, in: playlist) }, onNavigate: { pendingRoute = $0 })
+                SongRowView(song: song, onTap: { playSong(song, in: playlist) }, onNavigate: { pendingRoute = $0 })
                 .contextMenu {
                     if isEditable {
                         Button(role: .destructive) {
@@ -724,42 +638,15 @@ struct PlaylistDetailView: View {
     // MARK: - Actions
 
     private func playAll(_ playlist: PlaylistDetailInfo) {
-        guard !playlist.songs.isEmpty else { return }
-        let first = playlist.songs[0]
-        NowPlaying.shared.setQueue(playlist.songs, startIndex: 0)
-        Task {
-            do {
-                try await PlaybackManager.shared.resolveAndPlay(videoId: first.videoId)
-            } catch {
-                Log.playlistDetail.error("playAll failed: \(error)")
-            }
-        }
+        PlaybackQueue.play(playlist.songs, log: Log.playlistDetail, context: "playAll")
     }
 
     private func shufflePlay(_ playlist: PlaylistDetailInfo) {
-        guard !playlist.songs.isEmpty else { return }
-        let shuffled = playlist.songs.shuffled()
-        let first = shuffled[0]
-        NowPlaying.shared.setQueue(shuffled, startIndex: 0)
-        Task {
-            do {
-                try await PlaybackManager.shared.resolveAndPlay(videoId: first.videoId)
-            } catch {
-                Log.playlistDetail.error("shufflePlay failed: \(error)")
-            }
-        }
+        PlaybackQueue.playShuffled(playlist.songs, log: Log.playlistDetail, context: "shufflePlay")
     }
 
     private func playSong(_ song: SongItem, in playlist: PlaylistDetailInfo) {
-        guard let index = playlist.songs.firstIndex(where: { $0.videoId == song.videoId }) else { return }
-        NowPlaying.shared.setQueue(playlist.songs, startIndex: index)
-        Task {
-            do {
-                try await PlaybackManager.shared.resolveAndPlay(videoId: song.videoId)
-            } catch {
-                Log.playlistDetail.error("playSong failed: \(error)")
-            }
-        }
+        PlaybackQueue.play(song, in: playlist.songs, log: Log.playlistDetail, context: "playSong")
     }
 
     // MARK: - Helpers
@@ -770,95 +657,6 @@ struct PlaylistDetailView: View {
         if playlist.songCount > 0 { parts.append("\(playlist.songCount) song\(playlist.songCount != 1 ? "s" : "")") }
         if playlist.duration > 0 { parts.append(playlist.duration.formattedDuration) }
         return parts
-    }
-}
-
-// MARK: - Song Row
-
-struct PlaylistSongRow: View {
-    let song: SongItem
-    var onPlay: (() -> Void)?
-    var onNavigate: ((DetailRoute) -> Void)?
-
-    @State private var resolvedDuration: Int = 0
-    @State private var showSongMenu = false
-
-    private var effectiveDuration: Int {
-        song.duration > 0 ? song.duration : resolvedDuration
-    }
-
-    var body: some View {
-        HStack(spacing: 12) {
-            AsyncImageView(url: song.thumbnailUrl)
-                .frame(width: 40, height: 40)
-                .clipShape(RoundedRectangle(cornerRadius: 4))
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(song.title)
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
-
-                let artistStr = song.artists.map(\.name).joined(separator: ", ")
-                let durationStr = effectiveDuration.formattedDuration
-                let subtitleText = artistStr.isEmpty ? durationStr : (durationStr.isEmpty ? artistStr : "\(artistStr) • \(durationStr)")
-
-                Text(subtitleText)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
-            }
-
-            Spacer()
-
-            HStack(spacing: 2) {
-                SongLikeButton(song: song)
-                SongDownloadButton(song: song)
-                Button {
-                    showSongMenu = true
-                } label: {
-                    Text("\u{22EE}")
-                        .font(.body.weight(.black))
-                        .foregroundStyle(Color.accentColor)
-                }
-            }
-            .sheet(isPresented: $showSongMenu) {
-                SongMenuSheet(
-                    song: song,
-                    onNavigate: { onNavigate?($0) }
-                )
-            }
-        }
-        .background(DownloadCellProgressView(song: song))
-        .padding(.horizontal, 16)
-        .padding(.vertical, 6)
-        .contentShape(Rectangle())
-        .onTapGesture {
-            onPlay?()
-        }
-        .task { await resolveDuration() }
-        .onReceive(NotificationCenter.default.publisher(for: .durationDidUpdate)) { notification in
-            guard let vid = notification.userInfo?["videoId"] as? String, vid == song.videoId else { return }
-            resolvedDuration = DurationCache.get(vid) ?? 0
-        }
-    }
-
-    private func resolveDuration() async {
-        guard song.duration <= 0 else { return }
-        let vid = song.videoId
-        if let cached = DurationCache.get(vid), cached > 0 {
-            resolvedDuration = cached
-            return
-        }
-        guard !DurationCache.isPending(vid) else { return }
-        DurationCache.markPending(vid)
-        do {
-            let duration = try await InnerTube.shared.fetchDuration(videoId: vid)
-            resolvedDuration = duration
-        } catch {
-            DurationCache.clearPending(vid)
-        }
     }
 }
 
