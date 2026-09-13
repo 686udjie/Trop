@@ -26,11 +26,11 @@
       "versions": [
         {
           "version": "0.0.1",
-          "buildVersion": "91",
-          "date": "2026-09-11T09:28:43Z",
-          "localizedDescription": "feat(explore): add Explore tab with new releases, charts and moods",
+          "buildVersion": "95",
+          "date": "2026-09-13T20:09:32Z",
+          "localizedDescription": "fix(library): top 100 fix, orphan backfill and playlist artwork",
           "downloadURL": "https://github.com/686udjie/Trop/releases/download/nightly/Trop.ipa",
-          "size": 47166798,
+          "size": 47083509,
           "minOSVersion": "26.0"
         }
       ]
