@@ -18,7 +18,7 @@ struct SongMenuSheet: View {
         case details
     }
 
-    @State private var isPinned = false
+    @State private var pin = PinState()
     @State private var showPlaylistPicker = false
     @State private var showArtistPicker = false
     @State private var isResolvingArtist = false
@@ -42,9 +42,9 @@ struct SongMenuSheet: View {
                     ) { addToQueue() }
                     Divider()
                     MenuRow(
-                        icon: isPinned ? "pin.fill" : "pin",
-                        title: isPinned ? "Unpin from Quick Picks" : "Pin to Quick Picks"
-                    ) { Task { await togglePin() } }
+                        icon: pin.isPinned ? "pin.fill" : "pin",
+                        title: pin.isPinned ? "Unpin from Quick Picks" : "Pin to Quick Picks"
+                    ) { Task { await pin.toggle(song: song) } }
                     MenuRow(
                         icon: "music.mic",
                         title: "View Artist",
@@ -87,7 +87,7 @@ struct SongMenuSheet: View {
         .sheet(isPresented: $showPlaylistPicker) {
             AddSongToPlaylistSheet(song: song)
         }
-        .task { await loadStates() }
+        .task { await pin.load(videoId: song.videoId) }
     }
 
     // MARK: - Header
@@ -164,40 +164,10 @@ struct SongMenuSheet: View {
 
     // MARK: - State
 
-    private func loadStates() async {
-        isPinned = (try? await DatabaseService.shared.isPinnedToSpeedDial(videoId: song.videoId)) ?? false
-    }
-
     // MARK: - Actions
 
-    private func togglePin() async {
-        let db = DatabaseService.shared
-        let target = !isPinned
-        isPinned = target
-        do {
-            if target {
-                try await db.pinToSpeedDial(song: song)
-            } else {
-                try await db.removeFromSpeedDial(videoId: song.videoId)
-            }
-        } catch {
-            isPinned = !target
-        }
-    }
-
     private func startRadio() {
-        let isCurrentSong = NowPlaying.shared.videoId == song.videoId
-        if !isCurrentSong {
-            NowPlaying.shared.setQueue([song], startIndex: 0)
-            Task { try? await PlaybackManager.shared.resolveAndPlay(videoId: song.videoId) }
-        }
-        Task {
-            guard let radio = try? await PersonalizationService.shared.fetchRadio(videoId: song.videoId),
-                  radio.songs.count > 1 else { return }
-            guard NowPlaying.shared.videoId == song.videoId else { return }
-            NowPlaying.shared.queueSongs = radio.songs
-            NowPlaying.shared.queueIndex = radio.currentIndex
-        }
+        PlaybackQueue.startRadio(for: song)
         dismiss()
     }
 

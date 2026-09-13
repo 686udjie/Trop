@@ -159,31 +159,6 @@ enum YTItem {
         }
     }
 
-    var subtitle: String {
-        switch self {
-        case .song(let s):
-            let artistStr = s.artists.map(\.name).joined(separator: ", ")
-            let effectiveDuration = s.duration > 0 ? s.duration : (DurationCache.get(s.videoId) ?? 0)
-            let durationStr = effectiveDuration.formattedDuration
-            if artistStr.isEmpty { return durationStr }
-            if durationStr.isEmpty { return artistStr }
-            return "\(artistStr) • \(durationStr)"
-        case .album(let a):
-            let names = a.artists.map(\.name)
-            return names.isEmpty ? "" : names.joined(separator: ", ")
-        case .artist: return ""
-        case .playlist: return ""
-        case .podcast: return ""
-        case .episode(let e):
-            let artistStr = e.artists.map(\.name).joined(separator: ", ")
-            let effectiveDuration = e.duration > 0 ? e.duration : (DurationCache.get(e.videoId) ?? 0)
-            let durationStr = effectiveDuration.formattedDuration
-            if artistStr.isEmpty { return durationStr }
-            if durationStr.isEmpty { return artistStr }
-            return "\(artistStr) • \(durationStr)"
-        }
-    }
-
     var videoId: String? {
         switch self {
         case .song(let s): return s.videoId

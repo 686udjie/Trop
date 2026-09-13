@@ -38,6 +38,24 @@ enum PlaybackQueue {
         }
     }
 
+    /// Starts a radio queue for `song`: plays it first unless already current,
+    /// then replaces the queue with the fetched radio. Used by the song and
+    /// player "Start Radio" menu actions.
+    static func startRadio(for song: SongItem) {
+        let isCurrentSong = NowPlaying.shared.videoId == song.videoId
+        if !isCurrentSong {
+            NowPlaying.shared.setQueue([song], startIndex: 0)
+            Task { try? await PlaybackManager.shared.resolveAndPlay(videoId: song.videoId) }
+        }
+        Task {
+            guard let radio = try? await PersonalizationService.shared.fetchRadio(videoId: song.videoId),
+                  radio.songs.count > 1 else { return }
+            guard NowPlaying.shared.videoId == song.videoId else { return }
+            NowPlaying.shared.queueSongs = radio.songs
+            NowPlaying.shared.queueIndex = radio.currentIndex
+        }
+    }
+
     /// Plays a single song, then continues with its radio queue when available.
     /// Used by Home/Search/Explore tap-to-play.
     static func playSingleWithRadio(_ song: SongItem, log: AppLogger) {

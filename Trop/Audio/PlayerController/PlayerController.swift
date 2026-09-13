@@ -245,7 +245,7 @@ extension PlayerController {
     }
 
     func setPlayerVolume(_ volume: Double) {
-        SettingsStore.shared.playerVolume = min(1, max(0, volume))
+        SettingsStore.shared.playerVolume = volume.clamped01
         applyPlayerVolume()
     }
 
