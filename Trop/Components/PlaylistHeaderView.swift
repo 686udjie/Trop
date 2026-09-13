@@ -97,21 +97,7 @@ struct PlaylistHeaderView: View {
     }
 
     private var artGrid: some View {
-        let columns = Array(repeating: GridItem(.flexible(), spacing: 3), count: 2)
-        return LazyVGrid(columns: columns, spacing: 3) {
-            ForEach(Array(thumbnails.enumerated()), id: \.offset) { _, url in
-                AsyncImageView(url: url)
-                    .aspectRatio(1, contentMode: .fill)
-                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-            }
-        }
-        .frame(width: 200, height: 200)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(.white.opacity(0.12), lineWidth: 1)
-        }
-        .shadow(color: .black.opacity(0.22), radius: 16, y: 6)
+        ArtworkMosaicView(urls: thumbnails)
     }
 
     private func artSingle(url: String) -> some View {

@@ -75,12 +75,60 @@ actor PlaybackStateService {
             return
         }
         Log.playbackState.debug("Recording playback videoId=\(videoId) playTimeMs=\(playTimeMs)")
+        let queueSong: SongItem? = await MainActor.run {
+            NowPlaying.shared.queueSongs.first(where: { $0.videoId == videoId })
+        }
         do {
-            await ensureSongExists(for: videoId)
+            try await db.write { db in
+                if try SongEntity.fetchOne(db, key: videoId) == nil {
+                    let entity: SongEntity
+                    if let s = queueSong {
+                        entity = SongEntity(
+                            id: s.videoId,
+                            title: s.title,
+                            artistName: s.artists.first?.name ?? s.artistNamesDisplay,
+                            albumName: s.album,
+                            duration: s.duration,
+                            thumbnailUrl: s.thumbnailUrl ?? ArtworkURLs.fallback(for: videoId),
+                            liked: false,
+                            totalPlayTime: 0,
+                            inLibrary: nil,
+                            libraryAddToken: "",
+                            libraryRemoveToken: "",
+                            isEpisode: false,
+                            isUploaded: false,
+                            isVideo: false,
+                            createDate: Date(),
+                            modifyDate: Date()
+                        )
+                    } else {
+                        entity = SongEntity(
+                            id: videoId,
+                            title: videoId,
+                            artistName: nil,
+                            albumName: nil,
+                            duration: 0,
+                            thumbnailUrl: ArtworkURLs.fallback(for: videoId),
+                            liked: false,
+                            totalPlayTime: 0,
+                            inLibrary: nil,
+                            libraryAddToken: "",
+                            libraryRemoveToken: "",
+                            isEpisode: false,
+                            isUploaded: false,
+                            isVideo: false,
+                            createDate: Date(),
+                            modifyDate: Date()
+                        )
+                    }
+                    try entity.insert(db, onConflict: .ignore)
+                    Log.playbackState.debug("Ensured SongEntity for \(videoId)")
+                }
 
-            var event = Event(id: nil, songId: videoId, timestamp: Date(), playTime: playTimeMs)
-            event = try await db.insert(event, onConflict: .ignore)
-            Log.playbackState.debug("Local event recorded id=\(event.id ?? 0)")
+                var event = Event(id: nil, songId: videoId, timestamp: Date(), playTime: playTimeMs)
+                event = try event.inserted(db, onConflict: .ignore)
+                Log.playbackState.debug("Local event recorded id=\(event.id ?? 0)")
+            }
 
             let now = Date()
             let calendar = Calendar.current
@@ -108,76 +156,6 @@ actor PlaybackStateService {
             return url
         }
         return nil
-    }
-
-    private func insertIgnoringConflicts(_ entity: SongEntity, successMessage: String, failureContext: String) async {
-        do {
-            _ = try await db.insert(entity, onConflict: .ignore)
-            Log.playbackState.debug(successMessage)
-        } catch {
-            Log.playbackState.error("Failed to ensure \(failureContext) SongEntity for \(entity.id): \(error)")
-        }
-    }
-
-    private func ensureSongExists(for videoId: String) async {
-        if (try? await db.fetchOne(SongEntity.self, key: videoId)) != nil {
-            return
-        }
-
-        let queueSong: SongItem? = await MainActor.run {
-            NowPlaying.shared.queueSongs.first(where: { $0.videoId == videoId })
-        }
-
-        if let s = queueSong {
-            let entity = SongEntity(
-                id: s.videoId,
-                title: s.title,
-                artistName: s.artists.first?.name ?? s.artistNamesDisplay,
-                albumName: s.album,
-                duration: s.duration,
-                thumbnailUrl: s.thumbnailUrl ?? ArtworkURLs.fallback(for: videoId),
-                liked: false,
-                totalPlayTime: 0,
-                inLibrary: nil,
-                libraryAddToken: "",
-                libraryRemoveToken: "",
-                isEpisode: false,
-                isUploaded: false,
-                isVideo: false,
-                createDate: Date(),
-                modifyDate: Date()
-            )
-            await insertIgnoringConflicts(
-                entity,
-                successMessage: "Ensured SongEntity for \(videoId) from queue: \(entity.title)",
-                failureContext: "SongEntity"
-            )
-            return
-        }
-
-        let placeholder = SongEntity(
-            id: videoId,
-            title: videoId,
-            artistName: nil,
-            albumName: nil,
-            duration: 0,
-            thumbnailUrl: ArtworkURLs.fallback(for: videoId),
-            liked: false,
-            totalPlayTime: 0,
-            inLibrary: nil,
-            libraryAddToken: "",
-            libraryRemoveToken: "",
-            isEpisode: false,
-            isUploaded: false,
-            isVideo: false,
-            createDate: Date(),
-            modifyDate: Date()
-        )
-        await insertIgnoringConflicts(
-            placeholder,
-            successMessage: "Ensured placeholder SongEntity for \(videoId)",
-            failureContext: "placeholder SongEntity"
-        )
     }
 
     private func reset() {

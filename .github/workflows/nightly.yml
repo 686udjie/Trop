@@ -7,6 +7,7 @@ on:
   pull_request:
     branches:
       - main
+  workflow_dispatch:
 
 concurrency:
   # PRs each get their own group so they do not cancel one another
@@ -23,6 +24,7 @@ jobs:
     # Skip bot commits that only refresh altstore.json after a nightly publish
     if: >-
       github.event_name == 'pull_request' ||
+      github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'push' &&
        !contains(github.event.head_commit.message, '[skip ci]'))
     permissions:

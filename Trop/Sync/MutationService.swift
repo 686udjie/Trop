@@ -71,6 +71,25 @@ actor MutationService {
         return SongMetadata(title: title, artistName: artistName, thumbnailUrl: thumbnailUrl, duration: duration, albumName: nil)
     }
 
+    func repairOrphanSongs() async {
+        let orphans: [String]
+        do {
+            orphans = try await db.orphanSongIds()
+        } catch {
+            return
+        }
+        guard !orphans.isEmpty else { return }
+        for id in orphans {
+            guard let metadata = try? await fetchSongMetadata(videoId: id),
+                  !metadata.title.isEmpty else { continue }
+            let repaired = SongEnrichment.merging(
+                SongEnrichment.skeleton(id: id, liked: false),
+                with: metadata
+            )
+            try? await db.insert(repaired, onConflict: .ignore)
+        }
+    }
+
     func likeSong(videoId: String) async throws {
         var entity: SongEntity
         if let existing = try await db.fetchOne(SongEntity.self, key: videoId) {

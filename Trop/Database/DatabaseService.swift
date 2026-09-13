@@ -379,15 +379,20 @@ extension DatabaseService {
         try await dbPool.read { db in
             try SongEntity.fetchAll(db, sql: """
                 SELECT song.* FROM song
-                LEFT JOIN (
-                    SELECT song_id, SUM(play_time) AS total_time FROM event
-                    WHERE timestamp >= ? AND timestamp <= ?
+                JOIN (
+                    SELECT song_id FROM event
+                    WHERE timestamp > ? AND timestamp <= ?
                     GROUP BY song_id
+                    ORDER BY SUM(play_time) DESC
+                    LIMIT ?
                 ) AS top ON song.id = top.song_id
-                WHERE song.liked = 1
-                ORDER BY COALESCE(top.total_time, 0) DESC
-                LIMIT ?
             """, arguments: [from, to, limit])
+        }
+    }
+
+    func orphanSongIds() async throws -> [String] {
+        try await dbPool.read { db in
+            try String.fetchAll(db, sql: "SELECT DISTINCT song_id FROM event WHERE song_id NOT IN (SELECT id FROM song)")
         }
     }
 }

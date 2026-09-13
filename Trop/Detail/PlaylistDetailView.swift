@@ -146,30 +146,23 @@ final class PlaylistDetailViewModel {
     private func loadAutoPlaylist(route: AutoPlaylistRoute) async {
         isLoading = true
         error = nil
-        Log.playlistDetail.debug("Loading auto-playlist route=\(route)")
-
         do {
             let entities: [SongEntity]
             let title: String
             switch route {
             case .likedSongs:
                 title = "Liked Songs"
-                Log.playlistDetail.debug("Fetching liked songs with sort=\(autoSongSort)")
                 entities = try await DatabaseService.shared.fetchAllLikedSongs(sort: autoSongSort)
             case .topSongs(let limit):
                 title = "My Top \(limit)"
-                Log.playlistDetail.debug("Fetching top songs limit=\(limit) period=\(autoTopPeriod.rawValue)")
+                Task { await MutationService.shared.repairOrphanSongs() }
                 entities = try await DatabaseService.shared.fetchTopSongs(limit: limit, from: autoTopPeriod.dateFrom, to: Date())
             }
-            Log.playlistDetail.debug("Fetched \(entities.count) song entities")
-
             var songs = entities.toSongItems()
-            Log.playlistDetail.debug("songs count=\(songs.count)")
 
             // Resolve missing durations in background
             let emptyDurationIds = songs.filter { $0.duration <= 0 }.map { $0.videoId }
             if !emptyDurationIds.isEmpty {
-                Log.playlistDetail.debug("Resolving durations for \(emptyDurationIds.count) songs")
                 await withTaskGroup(of: (String, Int).self) { group in
                     for videoId in emptyDurationIds {
                         guard !DurationCache.isPending(videoId) else { continue }
@@ -192,11 +185,9 @@ final class PlaylistDetailViewModel {
                         songs[i].duration = cached
                     }
                 }
-                Log.playlistDetail.debug("Durations resolved")
             }
 
             let totalDuration = songs.reduce(0) { $0 + $1.duration }
-            Log.playlistDetail.debug("totalDuration=\(totalDuration)")
 
             playlist = PlaylistDetailInfo(
                 title: title,
@@ -515,15 +506,22 @@ struct PlaylistDetailView: View {
             if let thumbnailUrl = playlist.thumbnailUrl {
                 HeroArtworkView(url: thumbnailUrl)
             } else {
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(LinearGradient(colors: [.blue, .purple], startPoint: .topLeading, endPoint: .bottomTrailing))
-                    .frame(width: 200, height: 200)
-                    .overlay(
-                        Image(systemName: "music.note.list")
-                            .font(.system(size: 60))
-                            .foregroundColor(.white.opacity(0.8))
-                    )
-                    .shadow(color: .black.opacity(0.2), radius: 12, y: 4)
+                let songArtwork = playlist.songs.compactMap(\.thumbnailUrl)
+                if songArtwork.count >= 4 {
+                    ArtworkMosaicView(urls: songArtwork)
+                } else if let firstArtwork = songArtwork.first {
+                    HeroArtworkView(url: firstArtwork)
+                } else {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(LinearGradient(colors: [.blue, .purple], startPoint: .topLeading, endPoint: .bottomTrailing))
+                        .frame(width: 200, height: 200)
+                        .overlay(
+                            Image(systemName: "music.note.list")
+                                .font(.system(size: 60))
+                                .foregroundColor(.white.opacity(0.8))
+                        )
+                        .shadow(color: .black.opacity(0.2), radius: 12, y: 4)
+                }
             }
 
             // Playlist title

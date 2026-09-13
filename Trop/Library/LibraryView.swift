@@ -311,7 +311,7 @@ struct LibraryView: View {
         VStack(alignment: .leading, spacing: 6) {
             ZStack {
                 RoundedRectangle(cornerRadius: 12)
-                    .fill(autoPlaylistGradient(for: info.id))
+                    .fill(autoPlaylistGradient())
                     .aspectRatio(1, contentMode: .fill)
                 Image(systemName: info.icon)
                     .font(.largeTitle)
@@ -332,28 +332,13 @@ struct LibraryView: View {
         }
     }
 
-    private func autoPlaylistGradient(for id: String) -> LinearGradient {
+    private func autoPlaylistGradient() -> LinearGradient {
         let accent = settings.accentColor
-        switch id {
-        case "downloads":
-            return LinearGradient(
-                colors: [accent.opacity(0.75), accent.opacity(0.4)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        case "top100":
-            return LinearGradient(
-                colors: [accent, accent.opacity(0.55)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        default:
-            return LinearGradient(
-                colors: [accent.opacity(0.55), accent],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        }
+        return LinearGradient(
+            colors: [accent.opacity(0.55), accent],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
     }
 
     private func itemCell(url: String?, title: String, subtitle: String?) -> some View {
