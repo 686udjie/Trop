@@ -110,6 +110,15 @@ actor PlaybackStateService {
         return nil
     }
 
+    private func insertIgnoringConflicts(_ entity: SongEntity, successMessage: String, failureContext: String) async {
+        do {
+            _ = try await db.insert(entity, onConflict: .ignore)
+            Log.playbackState.debug(successMessage)
+        } catch {
+            Log.playbackState.error("Failed to ensure \(failureContext) SongEntity for \(entity.id): \(error)")
+        }
+    }
+
     private func ensureSongExists(for videoId: String) async {
         if (try? await db.fetchOne(SongEntity.self, key: videoId)) != nil {
             return
@@ -138,12 +147,11 @@ actor PlaybackStateService {
                 createDate: Date(),
                 modifyDate: Date()
             )
-            do {
-                _ = try await db.insert(entity, onConflict: .ignore)
-                Log.playbackState.debug("Ensured SongEntity for \(videoId) from queue: \(entity.title)")
-            } catch {
-                Log.playbackState.error("Failed to ensure SongEntity for \(videoId): \(error)")
-            }
+            await insertIgnoringConflicts(
+                entity,
+                successMessage: "Ensured SongEntity for \(videoId) from queue: \(entity.title)",
+                failureContext: "SongEntity"
+            )
             return
         }
 
@@ -165,12 +173,11 @@ actor PlaybackStateService {
             createDate: Date(),
             modifyDate: Date()
         )
-        do {
-            _ = try await db.insert(placeholder, onConflict: .ignore)
-            Log.playbackState.debug("Ensured placeholder SongEntity for \(videoId)")
-        } catch {
-            Log.playbackState.error("Failed to ensure placeholder SongEntity for \(videoId): \(error)")
-        }
+        await insertIgnoringConflicts(
+            placeholder,
+            successMessage: "Ensured placeholder SongEntity for \(videoId)",
+            failureContext: "placeholder SongEntity"
+        )
     }
 
     private func reset() {

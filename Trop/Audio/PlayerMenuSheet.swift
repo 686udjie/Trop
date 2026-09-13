@@ -22,7 +22,7 @@ struct PlayerMenuSheet: View {
     }
 
     // Loaded state
-    @State private var isPinned = false
+    @State private var pin = PinState()
     @State private var showPlaylistPicker = false
     @State private var showArtistPicker = false
     @State private var isResolvingArtist = false
@@ -72,7 +72,7 @@ struct PlayerMenuSheet: View {
         .sheet(isPresented: $showPlaylistPicker) {
             AddSongToPlaylistSheet(song: song)
         }
-        .task { await loadStates() }
+        .task { await pin.load(videoId: song.videoId) }
     }
 
     // MARK: - EQ + App Volume
@@ -102,7 +102,7 @@ struct PlayerMenuSheet: View {
                 value: Binding(
                     get: { settings.playerVolume },
                     set: { newValue in
-                        settings.playerVolume = min(1, max(0, newValue))
+                        settings.playerVolume = newValue.clamped01
                         PlayerController.shared.applyPlayerVolume()
                     }
                 ),
@@ -224,47 +224,17 @@ struct PlayerMenuSheet: View {
 
     private var pinRow: some View {
         MenuRow(
-            icon: isPinned ? "pin.fill" : "pin",
-            title: isPinned ? "Unpin from Quick Picks" : "Pin to Quick Picks"
+            icon: pin.isPinned ? "pin.fill" : "pin",
+            title: pin.isPinned ? "Unpin from Quick Picks" : "Pin to Quick Picks"
         ) {
-            Task { await togglePin() }
+            Task { await pin.toggle(song: song) }
         }
     }
 
     // MARK: - State
 
-    private func loadStates() async {
-        isPinned = (try? await DatabaseService.shared.isPinnedToSpeedDial(videoId: song.videoId)) ?? false
-    }
-
-    private func togglePin() async {
-        let db = DatabaseService.shared
-        let target = !isPinned
-        isPinned = target
-        do {
-            if target {
-                try await db.pinToSpeedDial(song: song)
-            } else {
-                try await db.removeFromSpeedDial(videoId: song.videoId)
-            }
-        } catch {
-            isPinned = !target
-        }
-    }
-
     private func startRadio() {
-        let isCurrentSong = NowPlaying.shared.videoId == song.videoId
-        if !isCurrentSong {
-            NowPlaying.shared.setQueue([song], startIndex: 0)
-            Task { try? await PlaybackManager.shared.resolveAndPlay(videoId: song.videoId) }
-        }
-        Task {
-            guard let radio = try? await PersonalizationService.shared.fetchRadio(videoId: song.videoId),
-                  radio.songs.count > 1 else { return }
-            guard NowPlaying.shared.videoId == song.videoId else { return }
-            NowPlaying.shared.queueSongs = radio.songs
-            NowPlaying.shared.queueIndex = radio.currentIndex
-        }
+        PlaybackQueue.startRadio(for: song)
         dismiss()
     }
 
@@ -596,7 +566,7 @@ private struct VolumeSlider: View {
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { gesture in
-                        value = min(1, max(0, gesture.location.x / width))
+                        value = (gesture.location.x / width).clamped01
                     }
             )
         }

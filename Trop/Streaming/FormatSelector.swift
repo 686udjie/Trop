@@ -15,6 +15,30 @@ import Foundation
 //   4. bitrate       (higher = better)
 enum FormatSelector {
 
+    /// Audio-bearing formats: audio-only first, then combined formats with an
+    /// audio track. Nil when nothing can produce audio.
+    static func audioBearingFormats(_ formats: [Format]) -> [Format]? {
+        var audioFormats = formats.filter { $0.isAudioOnly }
+        if audioFormats.isEmpty {
+            Log.formatSelector.debug("No audio-only formats found — trying combined formats with audio track")
+            audioFormats = formats.filter { $0.audioChannels != nil }
+        }
+        guard !audioFormats.isEmpty else {
+            Log.formatSelector.debug("No formats with audio track found in \(formats.count) total formats")
+            return nil
+        }
+        return audioFormats
+    }
+
+    /// Prefers H.264 (avc/mp4) for compatibility, falling back to the full pool.
+    static func h264PreferredPool(_ formats: [Format], kind: String) -> [Format] {
+        let h264 = formats.filter { $0.codec.lowercased().contains("avc") || $0.mimeType?.lowercased().contains("mp4") == true }
+        if h264.isEmpty {
+            Log.formatSelector.debug("No H.264 \(kind) format; falling back to any \(kind) format")
+        }
+        return h264.isEmpty ? formats : h264
+    }
+
     /// The user's streaming-quality preference from settings. When non-`.auto`,
     /// formats at the preferred tier are selected first, falling back to the
     /// best available format when the preferred tier has no matches.
@@ -24,17 +48,7 @@ enum FormatSelector {
             return nil
         }
 
-        var audioFormats = formats.filter { $0.isAudioOnly }
-
-        if audioFormats.isEmpty {
-            Log.formatSelector.debug("No audio-only formats found in \(formats.count) total — trying combined formats with audio track")
-            audioFormats = formats.filter { $0.audioChannels != nil }
-        }
-
-        guard !audioFormats.isEmpty else {
-            Log.formatSelector.debug("No formats with audio track found in \(formats.count) total formats")
-            return nil
-        }
+        guard var audioFormats = audioBearingFormats(formats) else { return nil }
 
         if preference != .auto {
             let tier = Self.qualityTier(for: preference)
@@ -90,17 +104,7 @@ enum FormatSelector {
             return nil
         }
 
-        var audioFormats = formats.filter { $0.isAudioOnly }
-
-        if audioFormats.isEmpty {
-            Log.formatSelector.debug("No audio-only formats found (download) — trying combined formats with audio")
-            audioFormats = formats.filter { $0.audioChannels != nil }
-        }
-
-        guard !audioFormats.isEmpty else {
-            Log.formatSelector.debug("No formats with audio track found (download)")
-            return nil
-        }
+        guard let audioFormats = audioBearingFormats(formats) else { return nil }
 
         // Prefer formats we can actually fetch (direct URL or cipher).
         let fetchable = audioFormats.filter {
@@ -196,11 +200,7 @@ enum FormatSelector {
         Log.formatSelector.debug("Selecting from \(muxedFormats.count) muxed video formats")
 
         // Split into H.264 (avc) and everything else
-        let h264 = muxedFormats.filter { $0.codec.lowercased().contains("avc") || $0.mimeType?.lowercased().contains("mp4") == true }
-        let pool = h264.isEmpty ? muxedFormats : h264
-        if h264.isEmpty {
-            Log.formatSelector.debug("No H.264 muxed format; falling back to any muxed format")
-        }
+        let pool = h264PreferredPool(muxedFormats, kind: "muxed")
 
         let selected = pool.max { a, b in
             videoFormatScore(a) < videoFormatScore(b)
@@ -235,11 +235,7 @@ enum FormatSelector {
             return nil
         }
 
-        let h264 = videoOnlyFormats.filter { $0.codec.lowercased().contains("avc") || $0.mimeType?.lowercased().contains("mp4") == true }
-        let poolBase = h264.isEmpty ? videoOnlyFormats : h264
-        if h264.isEmpty {
-            Log.formatSelector.debug("No H.264 video-only format; falling back to any video-only format")
-        }
+        let poolBase = h264PreferredPool(videoOnlyFormats, kind: "video-only")
 
         let capped = poolBase.filter { ($0.height ?? 0) <= 720 }
         let pool = capped.isEmpty ? poolBase : capped
