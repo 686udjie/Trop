@@ -84,24 +84,4 @@ final class ExploreViewModel {
         }
     }
 
-    // MARK: - Playback
-
-    /// Plays a song then continues with its radio queue (shared by the
-    /// Explore list and mood pages).
-    static func playSong(_ song: SongItem) {
-        NowPlaying.shared.setQueue([song], startIndex: 0)
-        Task {
-            do {
-                try await PlaybackManager.shared.resolveAndPlay(videoId: song.videoId)
-            } catch {
-                Log.explore.error("Playback failed: \(error)")
-                return
-            }
-            guard let radio = try? await PersonalizationService.shared.fetchRadio(videoId: song.videoId),
-                  radio.songs.count > 1,
-                  NowPlaying.shared.videoId == song.videoId else { return }
-            NowPlaying.shared.queueSongs = radio.songs
-            NowPlaying.shared.queueIndex = radio.currentIndex
-        }
-    }
 }

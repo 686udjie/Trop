@@ -7,7 +7,6 @@
 
 import SwiftUI
 import WebKit
-import OSLog
 
 struct LastFMAuthWebView: View {
     var onComplete: (Bool) -> Void
@@ -91,8 +90,7 @@ struct LastFMAuthWebView: View {
             }
             .task { await fetchToken() }
             .onAppear {
-                Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.686udjie.Trop", category: "LastFM")
-                    .info("OAuth WebView loading: \(authUrl ?? "", privacy: .private)")
+                Log.lastfm.info("OAuth WebView loading: \(authUrl ?? "")")
             }
             .onDisappear {
                 pollingTask?.cancel()
@@ -119,8 +117,7 @@ struct LastFMAuthWebView: View {
                 self.token = tok
                 self.authUrl = LastFMDefaults.authUrl(token: tok)
                 self.isLoadingToken = false
-                Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.686udjie.Trop", category: "LastFM")
-                    .info("LastFM auth URL: \(self.authUrl ?? "", privacy: .private)")
+                Log.lastfm.info("LastFM auth URL: \(self.authUrl ?? "")")
                 startPolling()
             }
         } catch {
@@ -260,10 +257,6 @@ private struct WebViewContainer: UIViewRepresentable {
         var onComplete: (Bool) -> Void
         var onPageFinished: (() -> Void)?
         weak var webViewRef: WKWebView?
-        private let log = Logger(
-            subsystem: Bundle.main.bundleIdentifier ?? "com.686udjie.Trop",
-            category: "LastFM"
-        )
 
         init(isExchanging: Binding<Bool>, errorText: Binding<String?>, onPageFinished: (() -> Void)? = nil, onComplete: @escaping (Bool) -> Void) {
             self._isExchanging = isExchanging

@@ -31,11 +31,7 @@ struct GeniusProvider: LyricsProvider {
         var request = URLRequest(url: url)
         applyHeaders(to: &request)
 
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            throw LyricsError.notFound
-        }
-
+        let data = try await LyricsHTTP.get(request)
         let decoded = try JSONDecoder().decode(GeniusSearchResponse.self, from: data)
         let hits = decoded.response.sections
             .compactMap { $0.hits }
@@ -52,10 +48,7 @@ struct GeniusProvider: LyricsProvider {
         var request = URLRequest(url: url)
         applyHeaders(to: &request)
 
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            throw LyricsError.notFound
-        }
+        let data = try await LyricsHTTP.get(request)
         guard let html = String(data: data, encoding: .utf8) else {
             throw LyricsError.decodingFailed
         }
@@ -67,12 +60,7 @@ struct GeniusProvider: LyricsProvider {
 
         let combined = containers.joined(separator: "<br>")
         let text = htmlToText(combined)
-
-        let lines = text
-            .split(whereSeparator: { $0 == "\n" || $0 == "\r" })
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-            .map { LyricLine(text: $0, startTime: nil) }
+        let lines = LyricsText.plainLines(text)
 
         guard !lines.isEmpty else { throw LyricsError.notFound }
         return lines
@@ -165,39 +153,7 @@ struct GeniusProvider: LyricsProvider {
             .replacingOccurrences(of: #"<br\s*/?>"#, with: "\n", options: .regularExpression)
             .replacingOccurrences(of: #"</p>"#, with: "\n", options: .regularExpression)
             .replacingOccurrences(of: #"<[^>]+>"#, with: "", options: .regularExpression)
-            .decodeHTMLEntities()
-    }
-
-    private func replaceNumericEntities(in string: String, pattern: String, radix: Int) -> String {
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return string }
-        let matches = regex.matches(in: string, range: NSRange(location: 0, length: (string as NSString).length))
-        var result = string
-        for match in matches.reversed() {
-            guard let codeRange = Range(match.range(at: 1), in: string),
-                  let code = UInt32(string[codeRange], radix: radix),
-                  let scalar = UnicodeScalar(code) else { continue }
-            result = (result as NSString).replacingCharacters(in: match.range, with: String(scalar))
-        }
-        return result
-    }
-}
-
-// MARK: - String extension
-
-extension String {
-    /// Decodes common HTML entities (named + numeric/hex) into their characters.
-    fileprivate func decodeHTMLEntities() -> String {
-        var result = self
-        let named: [String: String] = [
-            "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": "\"",
-            "&apos;": "'", "&#39;": "'", "&nbsp;": " "
-        ]
-        for (entity, char) in named {
-            result = result.replacingOccurrences(of: entity, with: char)
-        }
-        result = replaceNumericEntities(in: result, pattern: #"&#(\d+);"#, radix: 10)
-        result = replaceNumericEntities(in: result, pattern: #"&#x([0-9a-fA-F]+);"#, radix: 16)
-        return result
+            .decodingHTMLEntities()
     }
 
     private func replaceNumericEntities(in string: String, pattern: String, radix: Int) -> String {

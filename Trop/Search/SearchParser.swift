@@ -165,7 +165,7 @@ enum SearchParser {
         }
 
         let title = runsText(cardShelf["title"]) ?? "Unknown"
-        let thumbnailUrl = DetailParser.extractMusicThumbnail(cardShelf)
+        let thumbnailUrl = InnerTubeJSON.musicThumbnailURL(cardShelf)
 
         if let watch = nav?["watchEndpoint"] as? [String: Any],
            let videoId = watch["videoId"] as? String {

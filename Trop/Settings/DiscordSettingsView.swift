@@ -229,41 +229,19 @@ struct DiscordSettingsView: View {
             }
         }
         .task { await refreshUserIfNeeded() }
-        .alert("Activity Name", isPresented: $showActivityNameEditor) {
-            TextField("Activity Name", text: $activityName)
-            Button("OK") { DiscordRpcManager.shared.notifySettingsChanged() }
-            Button("Cancel", role: .cancel) {}
+        .textPrompt("Activity Name", isPresented: $showActivityNameEditor, placeholder: "Activity Name", text: $activityName) {
+            DiscordRpcManager.shared.notifySettingsChanged()
         }
-        .alert("State Template", isPresented: $showStateTemplateEditor) {
-            TextField("Template", text: $stateTemplate)
-            Button("OK") { DiscordRpcManager.shared.notifySettingsChanged() }
-            Button("Cancel", role: .cancel) {}
+        .textPrompt("State Template", isPresented: $showStateTemplateEditor, placeholder: "Template", text: $stateTemplate) {
+            DiscordRpcManager.shared.notifySettingsChanged()
         }
-        .alert("Details Template", isPresented: $showDetailsTemplateEditor) {
-            TextField("Template", text: $detailsTemplate)
-            Button("OK") { DiscordRpcManager.shared.notifySettingsChanged() }
-            Button("Cancel", role: .cancel) {}
+        .textPrompt("Details Template", isPresented: $showDetailsTemplateEditor, placeholder: "Template", text: $detailsTemplate) {
+            DiscordRpcManager.shared.notifySettingsChanged()
         }
-        .alert("Button 1 Label", isPresented: $showBtn1LabelEditor) {
-            TextField("Label", text: $btn1Label)
-            Button("OK") {}
-            Button("Cancel", role: .cancel) {}
-        }
-        .alert("Button 1 URL", isPresented: $showBtn1UrlEditor) {
-            TextField("URL", text: $btn1Url)
-            Button("OK") {}
-            Button("Cancel", role: .cancel) {}
-        }
-        .alert("Button 2 Label", isPresented: $showBtn2LabelEditor) {
-            TextField("Label", text: $btn2Label)
-            Button("OK") {}
-            Button("Cancel", role: .cancel) {}
-        }
-        .alert("Button 2 URL", isPresented: $showBtn2UrlEditor) {
-            TextField("URL", text: $btn2Url)
-            Button("OK") {}
-            Button("Cancel", role: .cancel) {}
-        }
+        .textPrompt("Button 1 Label", isPresented: $showBtn1LabelEditor, placeholder: "Label", text: $btn1Label)
+        .textPrompt("Button 1 URL", isPresented: $showBtn1UrlEditor, placeholder: "URL", text: $btn1Url)
+        .textPrompt("Button 2 Label", isPresented: $showBtn2LabelEditor, placeholder: "Label", text: $btn2Label)
+        .textPrompt("Button 2 URL", isPresented: $showBtn2UrlEditor, placeholder: "URL", text: $btn2Url)
     }
 
     private var displayActivityName: String {

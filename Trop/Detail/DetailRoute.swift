@@ -60,27 +60,34 @@ struct DetailRouteDestinationView: View {
     }
 }
 
-extension View {
-    /// Registers standard DetailRoute navigation 
-    func detailRouteDestinations() -> some View {
-        self.navigationDestination(for: DetailRoute.self) { route in
-            DetailRouteDestinationView(route: route)
-        }
-    }
-
-    /// Presents a DetailRoute destination in a NavigationStack
-    func detailRouteSheet(item: Binding<DetailRoute?>) -> some View {
-        self.sheet(item: item) { route in
-            NavigationStack {
-                DetailRouteDestinationView(route: route)
-            }
-        }
-    }
-}
-
 enum AutoPlaylistRoute: Hashable {
     case likedSongs
     case topSongs(limit: Int)
+}
+
+/// Dispatches a tapped `YTItem` to playback or a pushed detail route.
+/// Collapses the per-tab `handleItemTap`/`openItem` switches (Home/Search/Explore).
+enum YTItemRouter {
+    static func route(
+        _ item: YTItem,
+        playSong: (SongItem) -> Void,
+        appendRoute: (DetailRoute) -> Void
+    ) {
+        switch item {
+        case .song(let s):
+            playSong(s)
+        case .episode(let e):
+            playSong(e.toSongItem())
+        case .album(let a):
+            appendRoute(.album(browseId: a.browseId))
+        case .artist(let a):
+            appendRoute(.artist(browseId: a.browseId))
+        case .playlist(let p):
+            appendRoute(.playlist(playlistId: p.id))
+        case .podcast(let p):
+            appendRoute(.podcast(browseId: p.browseId))
+        }
+    }
 }
 
 enum TopPeriod: String, CaseIterable, Hashable {

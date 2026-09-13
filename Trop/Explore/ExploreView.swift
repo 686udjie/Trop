@@ -13,21 +13,17 @@ struct ExploreView: View {
 
     @State private var pendingRoute: DetailRoute?
 
-    @StateObject private var loginModel = LoginViewModel()
-    @State private var isLoginSheetPresented = false
-    @State private var isAccountSheetPresented = false
-    @State private var accountName = "Guest"
-    @State private var accountImageUrl: String?
+    @State private var accountState = AccountSheetState()
 
     var body: some View {
         NavigationStack(path: $router.explorePath) {
             VStack(spacing: 0) {
                 TabHeaderView(
                     title: "Explore",
-                    accountIsLoggedIn: loginModel.isLoggedIn,
-                    accountImageUrl: accountImageUrl,
+                    accountIsLoggedIn: accountState.isLoggedIn,
+                    accountImageUrl: accountState.accountImageUrl,
                     onHistory: { router.explorePath.append(DetailRoute.history) },
-                    onAccount: { tapAccount() }
+                    onAccount: { accountState.isAccountSheetPresented = true }
                 )
 
                 content
@@ -45,29 +41,12 @@ struct ExploreView: View {
                 }
             }
             .onAppear { viewModel.load() }
-            .sheet(isPresented: $isLoginSheetPresented) {
-                NavigationStack {
-                    LoginWebView(model: loginModel)
-                        .ignoresSafeArea()
-                        .toolbar {
-                            ToolbarItem(placement: .cancellationAction) {
-                                Button("Cancel") { isLoginSheetPresented = false }
-                            }
-                        }
-                }
-            }
-            .sheet(isPresented: $isAccountSheetPresented) {
-                accountSheet
-            }
-            .onChange(of: loginModel.isLoggedIn) { _, loggedIn in
-                if loggedIn {
-                    isLoginSheetPresented = false
-                    Task { await fetchAccountInfo() }
-                }
+            .accountSheets(state: accountState) {
+                router.explorePath.append(DetailRoute.settings)
             }
             .task {
-                loginModel.restoreSessionIfPresent()
-                await fetchAccountInfo()
+                accountState.restoreSession()
+                await accountState.fetchAccountInfo()
             }
             .task(id: viewModel.sections.count) {
                 let urls = viewModel.sections
@@ -112,48 +91,6 @@ struct ExploreView: View {
         .miniPlayerTracksScroll()
         .refreshable { await viewModel.refresh() }
     }
-
-    // MARK: - Account
-
-    private func tapAccount() {
-        isAccountSheetPresented = true
-    }
-
-    private func fetchAccountInfo() async {
-        guard loginModel.isLoggedIn else { return }
-        do {
-            let info = try await InnerTube.shared.accountInfo()
-            accountName = info.name
-            accountImageUrl = info.thumbnailUrl
-        } catch {
-            Log.explore.error("Failed to fetch account info: \(error)")
-        }
-    }
-
-    private var accountSheet: some View {
-        AccountSheetView(
-            isLoggedIn: loginModel.isLoggedIn,
-            titleText: accountName,
-            accountImageUrl: accountImageUrl,
-            onDone: { isAccountSheetPresented = false },
-            onLogin: {
-                isAccountSheetPresented = false
-                DispatchQueue.main.async {
-                    isLoginSheetPresented = true
-                }
-            },
-            onSettings: {
-                isAccountSheetPresented = false
-                router.explorePath.append(DetailRoute.settings)
-            },
-            onSignOut: {
-                loginModel.logout()
-                accountName = "Guest"
-                accountImageUrl = nil
-                isAccountSheetPresented = false
-            }
-        )
-    }
 }
 
 // MARK: - Shared section list
@@ -190,27 +127,22 @@ struct ExploreSectionsList: View {
 
     /// Song rows in a 4-row grid scrolling horizontally.
     private func songGrid(_ section: ExploreSection) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            NavigationTitleView(title: section.title)
-            ScrollView(.horizontal, showsIndicators: false) {
-                LazyHGrid(
-                    rows: [
-                        GridItem(.flexible(), spacing: 0),
-                        GridItem(.flexible(), spacing: 0),
-                        GridItem(.flexible(), spacing: 0),
-                        GridItem(.flexible(), spacing: 0)
-                    ],
-                    spacing: 12
-                ) {
-                    ForEach(section.items, id: \.id) { item in
-                        YouTubeListItemView(item: item, onTap: {
-                            openItem(item)
-                        }, onNavigate: { pendingRoute.wrappedValue = $0 })
-                        .frame(width: 320, alignment: .leading)
-                    }
+        HorizontalSection(title: section.title) {
+            LazyHGrid(
+                rows: [
+                    GridItem(.flexible(), spacing: 0),
+                    GridItem(.flexible(), spacing: 0),
+                    GridItem(.flexible(), spacing: 0),
+                    GridItem(.flexible(), spacing: 0)
+                ],
+                spacing: 12
+            ) {
+                ForEach(section.items, id: \.id) { item in
+                    YouTubeListItemView(item: item, onTap: {
+                        openItem(item)
+                    }, onNavigate: { pendingRoute.wrappedValue = $0 })
+                    .frame(width: 320, alignment: .leading)
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 4)
             }
         }
     }
@@ -218,18 +150,13 @@ struct ExploreSectionsList: View {
     // MARK: - Cards carousel
 
     private func cardsCarousel(_ section: ExploreSection) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            NavigationTitleView(title: section.title)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(alignment: .top, spacing: 12) {
-                    ForEach(section.items, id: \.id) { item in
-                        YouTubeGridItemView(item: item, onTap: {
-                            openItem(item)
-                        })
-                    }
+        HorizontalSection(title: section.title) {
+            HStack(alignment: .top, spacing: 12) {
+                ForEach(section.items, id: \.id) { item in
+                    YouTubeGridItemView(item: item, onTap: {
+                        openItem(item)
+                    })
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 4)
             }
         }
     }
@@ -237,36 +164,31 @@ struct ExploreSectionsList: View {
     // MARK: - Moods grid
 
     private func moodsGrid(_ section: ExploreSection) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            NavigationTitleView(title: section.title)
+        HorizontalSection(title: section.title) {
             // Two-row grid scrolling horizontally: all 50+ moods reachable
             // without a dominating vertical wall.
-            ScrollView(.horizontal, showsIndicators: false) {
-                LazyHGrid(
-                    rows: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)],
-                    spacing: 10
-                ) {
-                    ForEach(section.moods) { mood in
-                        NavigationLink(value: mood) {
-                            Text(mood.title)
-                                .font(.subheadline)
-                                .fontWeight(.semibold)
-                                .foregroundStyle(.primary)
-                                .lineLimit(2)
-                                .multilineTextAlignment(.center)
-                                .frame(width: 150)
-                                .frame(minHeight: 64)
-                                .padding(.horizontal, 8)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 12)
-                                        .fill(Color(.systemGray5).opacity(0.6))
-                                )
-                        }
-                        .buttonStyle(.plain)
+            LazyHGrid(
+                rows: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)],
+                spacing: 10
+            ) {
+                ForEach(section.moods) { mood in
+                    NavigationLink(value: mood) {
+                        Text(mood.title)
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(.primary)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.center)
+                            .frame(width: 150)
+                            .frame(minHeight: 64)
+                            .padding(.horizontal, 8)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(Color(.systemGray5).opacity(0.6))
+                            )
                     }
+                    .buttonStyle(.plain)
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 4)
             }
         }
     }
@@ -274,20 +196,11 @@ struct ExploreSectionsList: View {
     // MARK: - Navigation & playback
 
     private func openItem(_ item: YTItem) {
-        switch item {
-        case .song(let s):
-            ExploreViewModel.playSong(s)
-        case .album(let a):
-            router.explorePath.append(DetailRoute.album(browseId: a.browseId))
-        case .artist(let a):
-            router.explorePath.append(DetailRoute.artist(browseId: a.browseId))
-        case .playlist(let p):
-            router.explorePath.append(DetailRoute.playlist(playlistId: p.id))
-        case .episode(let e):
-            ExploreViewModel.playSong(e.toSongItem())
-        case .podcast(let p):
-            router.explorePath.append(DetailRoute.podcast(browseId: p.browseId))
-        }
+        YTItemRouter.route(
+            item,
+            playSong: { PlaybackQueue.playSingleWithRadio($0, log: Log.explore) },
+            appendRoute: { router.explorePath.append($0) }
+        )
     }
 }
 
@@ -344,17 +257,11 @@ private struct ExploreSkeletonView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 2) {
                 VStack(alignment: .leading, spacing: 0) {
-                    ShimmerBlock(width: 220, height: 22, radius: 6)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
+                    ShimmerSectionTitle(width: 220)
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(alignment: .top, spacing: 12) {
                             ForEach(0..<5, id: \.self) { _ in
-                                VStack(alignment: .leading, spacing: 4) {
-                                    ShimmerBlock(width: 160, height: 160, radius: 8)
-                                    ShimmerBlock(width: 130, height: 14, radius: 4)
-                                    ShimmerBlock(width: 90, height: 12, radius: 4)
-                                }
+                                ShimmerCard()
                             }
                         }
                         .padding(.horizontal, 16)
@@ -362,9 +269,7 @@ private struct ExploreSkeletonView: View {
                     }
                 }
                 VStack(alignment: .leading, spacing: 0) {
-                    ShimmerBlock(width: 160, height: 22, radius: 6)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
+                    ShimmerSectionTitle(width: 160)
                     ScrollView(.horizontal, showsIndicators: false) {
                         LazyHGrid(
                             rows: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)],
@@ -379,9 +284,7 @@ private struct ExploreSkeletonView: View {
                     }
                 }
                 VStack(alignment: .leading, spacing: 0) {
-                    ShimmerBlock(width: 120, height: 22, radius: 6)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
+                    ShimmerSectionTitle(width: 120)
                     ScrollView(.horizontal, showsIndicators: false) {
                         LazyHGrid(
                             rows: [
@@ -393,15 +296,8 @@ private struct ExploreSkeletonView: View {
                             spacing: 12
                         ) {
                             ForEach(0..<12, id: \.self) { _ in
-                                HStack(spacing: 12) {
-                                    ShimmerBlock(width: 48, height: 48, radius: 4)
-                                    VStack(alignment: .leading, spacing: 6) {
-                                        ShimmerBlock(width: 180, height: 14, radius: 4)
-                                        ShimmerBlock(width: 120, height: 12, radius: 4)
-                                    }
-                                    Spacer()
-                                }
-                                .frame(width: 320, alignment: .leading)
+                                ShimmerRow()
+                                    .frame(width: 320, alignment: .leading)
                             }
                         }
                         .padding(.horizontal, 16)
@@ -424,18 +320,11 @@ private struct MoodDetailSkeletonView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 2) {
                 VStack(alignment: .leading, spacing: 0) {
-                    ShimmerBlock(width: 80, height: 22, radius: 6)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
+                    ShimmerSectionTitle(width: 80)
                     VStack(spacing: 0) {
                         ForEach(0..<5, id: \.self) { _ in
                             HStack(spacing: 12) {
-                                ShimmerBlock(width: 48, height: 48, radius: 4)
-                                VStack(alignment: .leading, spacing: 6) {
-                                    ShimmerBlock(width: 190, height: 14, radius: 4)
-                                    ShimmerBlock(width: 130, height: 12, radius: 4)
-                                }
-                                Spacer()
+                                ShimmerRow(titleWidth: 190, subtitleWidth: 130)
                                 ShimmerBlock(width: 90, height: 20, radius: 4)
                             }
                             .padding(.horizontal, 16)
@@ -453,16 +342,11 @@ private struct MoodDetailSkeletonView: View {
 
     private func skeletonCardsSection(titleWidth: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            ShimmerBlock(width: titleWidth, height: 22, radius: 6)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
+            ShimmerSectionTitle(width: titleWidth)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(alignment: .top, spacing: 12) {
                     ForEach(0..<4, id: \.self) { _ in
-                        VStack(alignment: .leading, spacing: 4) {
-                            ShimmerBlock(width: 160, height: 160, radius: 8)
-                            ShimmerBlock(width: 130, height: 14, radius: 4)
-                        }
+                        ShimmerCard(showsSubtitle: false)
                     }
                 }
                 .padding(.horizontal, 16)

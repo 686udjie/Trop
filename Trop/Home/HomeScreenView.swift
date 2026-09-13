@@ -202,10 +202,7 @@ struct HomeScreenView: View {
         if combinedQueue.isEmpty {
             EmptyView()
         } else {
-            VStack(alignment: .leading, spacing: 8) {
-            NavigationTitleView(title: section.displayTitle)
-
-            ScrollView(.horizontal, showsIndicators: false) {
+            HorizontalSection(title: section.displayTitle, vSpacing: 8, contentVerticalPadding: 0) {
                 LazyHGrid(rows: Array(repeating: GridItem(.fixed(60)), count: 4), spacing: 12) {
                     ForEach(speedDialEntries, id: \.videoId) { entry in
                         let song = entry.toSongItem()
@@ -244,52 +241,40 @@ struct HomeScreenView: View {
                         }
                     }
                 }
-                .padding(.horizontal, 16)
-            }
             }
         }
     }
 
     private func songsSection(_ section: HomeSection) -> some View {
         let queue = section.items.compactMap { if case .song(let s) = $0 { return s } else { return nil } }
-        return VStack(alignment: .leading, spacing: 8) {
-            NavigationTitleView(title: section.displayTitle)
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                LazyHGrid(rows: Array(repeating: GridItem(.fixed(60)), count: 4), spacing: 12) {
-                    ForEach(section.items.indices, id: \.self) { i in
-                        let item = section.items[i]
-                        if case .song(let s) = item {
-                            YouTubeListItemView(item: item, onTap: { handleSongTap(s, in: queue) }, onNavigate: { pendingRoute = $0 })
-                                .frame(width: 280)
-                        } else {
-                            YouTubeListItemView(item: item, onTap: { handleItemTap(item) }, onNavigate: { pendingRoute = $0 })
-                                .frame(width: 280)
-                        }
+        return HorizontalSection(title: section.displayTitle, vSpacing: 8, contentVerticalPadding: 0) {
+            LazyHGrid(rows: Array(repeating: GridItem(.fixed(60)), count: 4), spacing: 12) {
+                ForEach(section.items.indices, id: \.self) { i in
+                    let item = section.items[i]
+                    if case .song(let s) = item {
+                        YouTubeListItemView(item: item, onTap: { handleSongTap(s, in: queue) }, onNavigate: { pendingRoute = $0 })
+                            .frame(width: 280)
+                    } else {
+                        YouTubeListItemView(item: item, onTap: { handleItemTap(item) }, onNavigate: { pendingRoute = $0 })
+                            .frame(width: 280)
                     }
                 }
-                .padding(.horizontal, 16)
             }
         }
     }
 
     private func mixedSection(_ section: HomeSection) -> some View {
         let queue = section.items.compactMap { if case .song(let s) = $0 { return s } else { return nil } }
-        return VStack(alignment: .leading, spacing: 8) {
-            NavigationTitleView(title: section.displayTitle)
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 12) {
-                    ForEach(section.items.indices, id: \.self) { i in
-                        let item = section.items[i]
-                        if case .song(let s) = item, !queue.isEmpty {
-                            YouTubeGridItemView(item: item, onTap: { handleSongTap(s, in: queue) })
-                        } else {
-                            YouTubeGridItemView(item: item, onTap: { handleItemTap(item) })
-                        }
+        return HorizontalSection(title: section.displayTitle, vSpacing: 8, contentVerticalPadding: 0) {
+            HStack(spacing: 12) {
+                ForEach(section.items.indices, id: \.self) { i in
+                    let item = section.items[i]
+                    if case .song(let s) = item, !queue.isEmpty {
+                        YouTubeGridItemView(item: item, onTap: { handleSongTap(s, in: queue) })
+                    } else {
+                        YouTubeGridItemView(item: item, onTap: { handleItemTap(item) })
                     }
                 }
-                .padding(.horizontal, 16)
             }
         }.padding(.top, 8)
     }
@@ -302,43 +287,16 @@ struct HomeScreenView: View {
 
     private func handleSongTap(_ song: SongItem, in queue: [SongItem]) {
         Log.homeScreenView.debug("Tapped song in queue: \(song.title) queueCount=\(queue.count)")
-        if let idx = queue.firstIndex(where: { $0.videoId == song.videoId }) {
-            NowPlaying.shared.setQueue(queue, startIndex: idx)
-        } else {
-            NowPlaying.shared.setQueue([song], startIndex: 0)
-        }
-        playVideo(videoId: song.videoId)
+        PlaybackQueue.play(song, in: queue, log: Log.homeScreenView, context: "Tapped song")
     }
 
     private func handleItemTap(_ item: YTItem) {
         Log.homeScreenView.debug("Tapped item: \(item.title) type=\(typeName(item))")
-        switch item {
-        case .song(let s):
-            NowPlaying.shared.setQueue([s], startIndex: 0)
-            playVideo(videoId: s.videoId)
-            Task {
-                guard let radio = try? await PersonalizationService.shared.fetchRadio(videoId: s.videoId),
-                      radio.songs.count > 1 else { return }
-                guard NowPlaying.shared.videoId == s.videoId else { return }
-                NowPlaying.shared.queueSongs = radio.songs
-                NowPlaying.shared.queueIndex = radio.currentIndex
-                Log.homeScreenView.debug("Set radio queue with \(radio.songs.count) songs at index \(radio.currentIndex)")
-            }
-        case .episode(let e):
-            playVideo(videoId: e.videoId)
-        case .album(let a):
-            Log.homeScreenView.debug("Navigating to album: \(a.browseId)")
-            router.homePath.append(DetailRoute.album(browseId: a.browseId))
-        case .artist(let a):
-            Log.homeScreenView.debug("Navigating to artist: \(a.browseId)")
-            router.homePath.append(DetailRoute.artist(browseId: a.browseId))
-        case .playlist(let p):
-            Log.homeScreenView.debug("Navigating to playlist: \(p.id)")
-            router.homePath.append(DetailRoute.playlist(playlistId: p.id))
-        case .podcast(let p):
-            Log.homeScreenView.debug("Navigating to podcast: \(p.browseId)")
-            router.homePath.append(DetailRoute.podcast(browseId: p.browseId))
-        }
+        YTItemRouter.route(
+            item,
+            playSong: { PlaybackQueue.playSingleWithRadio($0, log: Log.homeScreenView) },
+            appendRoute: { router.homePath.append($0) }
+        )
     }
 
     private func typeName(_ item: YTItem) -> String {
@@ -349,17 +307,6 @@ struct HomeScreenView: View {
         case .playlist: return "playlist"
         case .podcast: return "podcast"
         case .episode: return "episode"
-        }
-    }
-
-    private func playVideo(videoId: String) {
-        Task {
-            do {
-                try await PlaybackManager.shared.resolveAndPlay(videoId: videoId)
-                Log.homeScreenView.debug("Playing videoId=\(videoId)")
-            } catch {
-                Log.homeScreenView.error("Playback failed: \(error)")
-            }
         }
     }
 

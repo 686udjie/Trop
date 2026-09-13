@@ -27,12 +27,8 @@ struct NeteaseProvider: LyricsProvider {
         ]
         guard let url = components.url else { throw LyricsError.invalidURL }
 
-        let (data, response) = try await URLSession.shared.data(for: URLRequest(url: url))
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            throw LyricsError.notFound
-        }
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let result = json["result"] as? [String: Any],
+        let json = try await LyricsHTTP.getJSON(URLRequest(url: url))
+        guard let result = json["result"] as? [String: Any],
               let songs = result["songs"] as? [[String: Any]],
               !songs.isEmpty else {
             throw LyricsError.notFound
@@ -92,13 +88,7 @@ struct NeteaseProvider: LyricsProvider {
         components.queryItems = [URLQueryItem(name: "id", value: songId)]
         guard let url = components.url else { throw LyricsError.invalidURL }
 
-        let (data, response) = try await URLSession.shared.data(for: URLRequest(url: url))
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            throw LyricsError.notFound
-        }
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw LyricsError.decodingFailed
-        }
+        let json = try await LyricsHTTP.getJSON(URLRequest(url: url))
 
         // Synced lyrics (LRC) take priority
         if let lrc = json["lrc"] as? [String: Any],

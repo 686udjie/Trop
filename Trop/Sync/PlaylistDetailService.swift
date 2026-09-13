@@ -14,26 +14,21 @@ actor PlaylistDetailService {
     private let db = DatabaseService.shared
 
     func fetchPlaylist(playlistId: String) async throws -> Int {
-        var allItems: [[String: Any]] = []
-        var continuation: String?
         let browseId = "VL\(playlistId)"
-        repeat {
-            let json = try await innerTube.browse(browseId: browseId, continuation: continuation)
-            if let items = extractPlaylistItems(from: json) {
-                allItems.append(contentsOf: items)
-            }
-            continuation = extractPlaylistContinuation(from: json)
-        } while continuation != nil
+        let allItems: [[String: Any]] = try await innerTube.paginate(
+            browseId: browseId,
+            parse: { self.extractPlaylistItems(from: $0) ?? [] },
+            continuation: { self.extractPlaylistContinuation(from: $0) }
+        )
 
         let snapshot = allItems
         try await db.write { db in
             let existing = try PlaylistEntity.fetchOne(db, key: playlistId)
-            let entity = PlaylistEntity(
+            let entity = PlaylistEntity.merging(
+                existing: existing,
                 id: playlistId,
                 browseId: browseId,
-                name: existing?.name ?? "Playlist",
-                isEditable: existing?.isEditable ?? false,
-                bookmarkedAt: existing?.bookmarkedAt,
+                name: "Playlist",
                 remoteSongCount: snapshot.count
             )
             try entity.save(db)
@@ -49,23 +44,14 @@ actor PlaylistDetailService {
 
                 if let songItem = SongItem.from(renderer) {
                     let existing = try SongEntity.fetchOne(db, key: videoId)
-                    let entity = SongEntity(
+                    let entity = SongEntity.merging(
+                        existing: existing,
                         id: videoId,
                         title: songItem.title,
-                        artistName: existing?.artistName ?? songItem.artists.first?.name,
-                        albumName: existing?.albumName ?? songItem.album,
-                        duration: songItem.duration > 0 ? songItem.duration : existing?.duration ?? 0,
-                        thumbnailUrl: songItem.thumbnailUrl ?? existing?.thumbnailUrl,
-                        liked: existing?.liked ?? false,
-                        totalPlayTime: existing?.totalPlayTime ?? 0,
-                        inLibrary: existing?.inLibrary,
-                        libraryAddToken: existing?.libraryAddToken ?? "",
-                        libraryRemoveToken: existing?.libraryRemoveToken ?? "",
-                        isEpisode: existing?.isEpisode ?? false,
-                        isUploaded: existing?.isUploaded ?? false,
-                        isVideo: existing?.isVideo ?? false,
-                        createDate: existing?.createDate ?? Date(),
-                        modifyDate: Date()
+                        artistName: songItem.artists.first?.name,
+                        albumName: songItem.album,
+                        duration: songItem.duration,
+                        thumbnailUrl: songItem.thumbnailUrl
                     )
                     try entity.save(db)
                 }
@@ -93,15 +79,7 @@ actor PlaylistDetailService {
     }
 
     private func extractPlaylistItems(from json: [String: Any]) -> [[String: Any]]? {
-        if let contents = json["contents"] as? [String: Any],
-           let singleColumn = contents["singleColumnBrowseResultsRenderer"] as? [String: Any],
-           let tabs = singleColumn["tabs"] as? [[String: Any]],
-           let firstTab = tabs.first,
-           let tabRenderer = firstTab["tabRenderer"] as? [String: Any],
-           let content = tabRenderer["content"] as? [String: Any],
-           let sectionList = content["sectionListRenderer"] as? [String: Any],
-           let sections = sectionList["contents"] as? [[String: Any]],
-           let firstSection = sections.first,
+        if let firstSection = BrowseLens.firstBrowseSection(json),
            let shelf = (firstSection["musicPlaylistShelfRenderer"] as? [String: Any])
             ?? (firstSection["musicShelfRenderer"] as? [String: Any]),
            let items = shelf["contents"] as? [[String: Any]] {
@@ -117,30 +95,19 @@ actor PlaylistDetailService {
     }
 
     private func extractPlaylistContinuation(from json: [String: Any]) -> String? {
-        let continuations: [[String: Any]]?
-        if let contents = json["contents"] as? [String: Any],
-           let singleColumn = contents["singleColumnBrowseResultsRenderer"] as? [String: Any],
-           let tabs = singleColumn["tabs"] as? [[String: Any]],
-           let firstTab = tabs.first,
-           let tabRenderer = firstTab["tabRenderer"] as? [String: Any],
-           let content = tabRenderer["content"] as? [String: Any],
-           let sectionList = content["sectionListRenderer"] as? [String: Any],
-           let sections = sectionList["contents"] as? [[String: Any]],
-           let firstSection = sections.first,
+        if let firstSection = BrowseLens.firstBrowseSection(json),
            let shelf = (firstSection["musicPlaylistShelfRenderer"] as? [String: Any])
-            ?? (firstSection["musicShelfRenderer"] as? [String: Any]) {
-            continuations = shelf["continuations"] as? [[String: Any]]
-        } else if let continuationContents = json["continuationContents"] as? [String: Any],
-                  let shelf = (continuationContents["musicPlaylistShelfContinuation"] as? [String: Any])
-                   ?? (continuationContents["musicShelfContinuation"] as? [String: Any]) {
-            continuations = shelf["continuations"] as? [[String: Any]]
-        } else {
-            continuations = nil
+            ?? (firstSection["musicShelfRenderer"] as? [String: Any]),
+           let token = BrowseLens.continuationToken(in: shelf) {
+            return token
         }
-        guard let first = continuations?.first,
-              let next = first["nextContinuationData"] as? [String: Any],
-              let token = next["continuation"] as? String else { return nil }
-        return token
+        if let continuationContents = json["continuationContents"] as? [String: Any],
+           let shelf = (continuationContents["musicPlaylistShelfContinuation"] as? [String: Any])
+            ?? (continuationContents["musicShelfContinuation"] as? [String: Any]),
+           let token = BrowseLens.continuationToken(in: shelf) {
+            return token
+        }
+        return nil
     }
 
     private func extractAlbumPlaylistId(from json: [String: Any]) -> String? {

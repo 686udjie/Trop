@@ -104,13 +104,14 @@ final class LastFMService: @unchecked Sendable {
 
     private func perform<T: Decodable>(_ params: [String: String], decode: T.Type) async throws -> T {
         let req = try makeRequest(params: params)
-        let (data, response): (Data, URLResponse)
+        let data: Data
+        let httpResponse: HTTPURLResponse
         do {
-            (data, response) = try await URLSession.shared.data(for: req)
+            (data, httpResponse) = try await HttpClient.data(for: req)
         } catch {
             throw LastFMError.network(error)
         }
-        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        let status = httpResponse.statusCode
         let bodyStr = String(data: data, encoding: .utf8) ?? ""
 
         // Check for API error embedded in 200 response

@@ -7,8 +7,6 @@
 
 import SwiftUI
 import WebKit
-import OSLog
-import CryptoKit
 
 struct DiscordOAuthWebView: View {
     var onComplete: (Bool) -> Void
@@ -90,8 +88,7 @@ struct DiscordOAuthWebView: View {
                 Text(errorText ?? "")
             }
             .onAppear {
-                Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.686udjie.Trop", category: "DiscordSvc")
-                    .info("OAuth WebView loading: \(authUrl, privacy: .private)")
+                Log.discord.info("OAuth WebView loading: \(authUrl)")
             }
         }
     }
@@ -143,10 +140,6 @@ private struct WebViewContainer: UIViewRepresentable {
         private var didComplete = false
         private var hasRetriedFallback = false
         weak var webViewRef: WKWebView?
-        private let log = Logger(
-            subsystem: Bundle.main.bundleIdentifier ?? "com.686udjie.Trop",
-            category: "DiscordSvc"
-        )
 
         init(
             pkceVerifier: String,
@@ -201,9 +194,9 @@ private struct WebViewContainer: UIViewRepresentable {
         }
 
         private func handleCallback(url: URL) {
-            log.info("handleCallback: \(url.absoluteString, privacy: .private)")
+            Log.discord.info("handleCallback: \(url.absoluteString)")
             guard let comps = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
-                log.error("bad callback URL")
+                Log.discord.error("bad callback URL")
                 onComplete(false)
                 return
             }
@@ -211,12 +204,11 @@ private struct WebViewContainer: UIViewRepresentable {
             if let error = items.first(where: { $0.name == "error" })?.value, !error.isEmpty {
                 let rawDesc = items.first(where: { $0.name == "error_description" })?.value ?? error
                 let desc = rawDesc.removingPercentEncoding?.replacingOccurrences(of: "+", with: " ") ?? rawDesc
-                log.error(
-                    "OAuth error: \(error, privacy: .public) desc=\(desc, privacy: .private) url=\(url.absoluteString, privacy: .private)")
-                // swiftlint:disable:next line_length
-                log.error("Hint: scope='\(DiscordDefaults.scopes, privacy: .public)' appId=\(DiscordDefaults.appId, privacy: .public) - check Developer Portal")
+                Log.discord.error(
+                    "OAuth error: \(error) desc=\(desc) url=\(url.absoluteString)")
+                Log.discord.error("Hint: scope='\(DiscordDefaults.scopes)' appId=\(DiscordDefaults.appId) - check Developer Portal")
                 if error == "invalid_scope", !hasRetriedFallback, DiscordDefaults.scopes == "openid sdk.social_layer_presence" {
-                    log.warning("invalid_scope with primary scopes — retrying with fallback '\(DiscordDefaults.scopesFallback, privacy: .public)'")
+                    Log.discord.warning("invalid_scope with primary scopes — retrying with fallback '\(DiscordDefaults.scopesFallback)'")
                     hasRetriedFallback = true
                     didComplete = false
                     // Persist fallback for token exchange logging
@@ -227,7 +219,7 @@ private struct WebViewContainer: UIViewRepresentable {
                         .addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? DiscordDefaults.redirectUri
                     // swiftlint:disable:next line_length
                     let retryUrlStr = "\(DiscordDefaults.oauthAuthorize)?client_id=\(DiscordDefaults.appId)&response_type=code&redirect_uri=\(redirectEnc)&scope=\(fallbackEncoded)&state=\(oauthState)&code_challenge_method=S256&code_challenge=\(pkceChallenge)"
-                    log.info("Retrying OAuth fallback: \(retryUrlStr, privacy: .private)")
+                    Log.discord.info("Retrying OAuth fallback: \(retryUrlStr)")
                     Task { @MainActor in
                         errorText = "Primary scope rejected, retrying with '\(DiscordDefaults.scopesFallback)'…"
                     }
@@ -237,8 +229,8 @@ private struct WebViewContainer: UIViewRepresentable {
                     return
                 }
                 if error == "invalid_scope" {
-                    log.error("invalid_scope scopes='\(DiscordDefaults.scopes, privacy: .public)'")
-                    log.error("Portal: add tropdiscord://oauth2/callback + enable openid sdk.social_layer_presence")
+                    Log.discord.error("invalid_scope scopes='\(DiscordDefaults.scopes)'")
+                    Log.discord.error("Portal: add tropdiscord://oauth2/callback + enable openid sdk.social_layer_presence")
                 }
                 Task { @MainActor in
                     var hint = "Denied (\(error)): \(desc)\nPortal: add tropdiscord://oauth2/callback"
@@ -258,7 +250,7 @@ private struct WebViewContainer: UIViewRepresentable {
                 return
             }
             guard let code = items.first(where: { $0.name == "code" })?.value, !code.isEmpty else {
-                log.error("Missing code in callback")
+                Log.discord.error("Missing code in callback")
                 Task { @MainActor in
                     errorText = "Missing authorization code"
                     onComplete(false)
@@ -267,7 +259,7 @@ private struct WebViewContainer: UIViewRepresentable {
             }
             let returnedState = items.first(where: { $0.name == "state" })?.value ?? ""
             guard returnedState == oauthState else {
-                log.error("State mismatch")
+                Log.discord.error("State mismatch")
                 Task { @MainActor in
                     errorText = "State mismatch"
                     onComplete(false)
@@ -294,7 +286,7 @@ private struct WebViewContainer: UIViewRepresentable {
                         onComplete(true)
                     }
                 } catch {
-                    log.error("token exchange failed: \(error.localizedDescription, privacy: .private)")
+                    Log.discord.error("token exchange failed: \(error.localizedDescription)")
                     await MainActor.run {
                         isExchanging = false
                         errorText = error.localizedDescription
@@ -303,15 +295,5 @@ private struct WebViewContainer: UIViewRepresentable {
                 }
             }
         }
-    }
-}
-
-private extension Data {
-    var sha256Base64URLEncoded: String {
-        let hash = CryptoKit.SHA256.hash(data: self)
-        return Data(hash).base64EncodedString()
-            .replacingOccurrences(of: "+", with: "-")
-            .replacingOccurrences(of: "/", with: "_")
-            .replacingOccurrences(of: "=", with: "")
     }
 }

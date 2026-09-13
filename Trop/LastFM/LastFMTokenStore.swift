@@ -6,12 +6,11 @@
 //
 
 import Foundation
-import Security
 
 final class LastFMTokenStore: @unchecked Sendable {
     static let shared = LastFMTokenStore()
 
-    private let service = "com.trop.lastfm.token"
+    private let store = SecureStore(service: "com.trop.lastfm.token")
     private let sessionKeyAccount = "sessionKey"
     private let usernameAccount = "username"
     private let subscriberAccount = "subscriber"
@@ -79,47 +78,15 @@ final class LastFMTokenStore: @unchecked Sendable {
 
     private func saveString(_ value: String, for key: String) {
         guard let data = value.data(using: .utf8) else { return }
-        saveData(data, for: key)
+        try? store.save(data, for: key)
     }
 
     private func loadString(for key: String) -> String? {
-        guard let data = loadData(for: key) else { return nil }
+        guard let data = try? store.load(for: key) else { return nil }
         return String(data: data, encoding: .utf8)
     }
 
-    private func saveData(_ data: Data, for key: String) {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: key
-        ]
-        SecItemDelete(query as CFDictionary)
-        var addQuery = query
-        addQuery[kSecValueData as String] = data
-        addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
-        SecItemAdd(addQuery as CFDictionary, nil)
-    }
-
-    private func loadData(for key: String) -> Data? {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: key,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne
-        ]
-        var result: AnyObject?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-        guard status == errSecSuccess else { return nil }
-        return result as? Data
-    }
-
     private func delete(for key: String) {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: key
-        ]
-        SecItemDelete(query as CFDictionary)
+        try? store.delete(for: key)
     }
 }

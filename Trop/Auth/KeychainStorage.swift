@@ -6,119 +6,69 @@
 //
 
 import Foundation
-import Security
 
 // Wraps iOS Security framework for encrypted Codable persistence
 actor KeychainStorage {
   static let serviceName = "com.trop.app"
   static let sessionKey = "sessionState"
 
-  private let service: String
-  private let keychainQuery: [String: Any]
+  private let store: SecureStore
 
   init(serviceName: String = KeychainStorage.serviceName) {
-    self.service = serviceName
-    self.keychainQuery = [
-      kSecClass as String: kSecClassGenericPassword,
-      kSecAttrService as String: serviceName,
-      kSecAttrAccount as String: KeychainStorage.sessionKey
-    ]
+    self.store = SecureStore(service: serviceName)
   }
 
   nonisolated func loadSessionState() async throws -> SessionState {
-    try await loadSessionStateInternal(
-      keychainQuery: [
-        kSecClass as String: kSecClassGenericPassword,
-        kSecAttrService as String: KeychainStorage.serviceName,
-        kSecAttrAccount as String: KeychainStorage.sessionKey
-      ],
-      key: KeychainStorage.sessionKey
-    )
-  }
-
-  private nonisolated func loadSessionStateInternal(
-    keychainQuery: [String: Any],
-    key: String
-  ) async throws -> SessionState {
-    var query = keychainQuery
-    query[kSecAttrAccount as String] = key
-    query[kSecReturnData as String] = true
-    query[kSecMatchLimit as String] = kSecMatchLimitOne
-
-    var result: AnyObject?
-    let status = SecItemCopyMatching(query as CFDictionary, &result)
-
-    guard status != errSecItemNotFound else {
-      throw KeychainError.itemNotFound
-    }
-    guard status == errSecSuccess else {
-      throw KeychainError.unhandledError(status)
-    }
-    guard let data = result as? Data else {
-      throw KeychainError.invalidData
-    }
-    return try JSONDecoder().decode(SessionState.self, from: data)
+    try loadDataDecoded(for: KeychainStorage.sessionKey)
   }
 
   // Saves a Codable value to Keychain, replacing any existing entry for the key
   nonisolated func save<T: Codable>(_ value: T, for key: String) throws {
-    let data = try JSONEncoder().encode(value)
-    var query: [String: Any] = [
-      kSecClass as String: kSecClassGenericPassword,
-      kSecAttrService as String: KeychainStorage.serviceName,
-      kSecAttrAccount as String: key
-    ]
-    SecItemDelete(query as CFDictionary)
-
-    query[kSecValueData as String] = data
-    query[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
-    let status = SecItemAdd(query as CFDictionary, nil)
-    if status != errSecSuccess {
-      throw KeychainError.unhandledError(status)
-    }
+    try store.save(try JSONEncoder().encode(value), for: key)
   }
 
   // Loads and decodes a Codable value from Keychain by key — caller must know the expected type
   func load<T: Codable>(for key: String) throws -> T {
-    var query = keychainQuery
-    query[kSecAttrAccount as String] = key
-    query[kSecReturnData as String] = true
-    query[kSecMatchLimit as String] = kSecMatchLimitOne
+    try loadDataDecoded(for: key)
+  }
 
-    var result: AnyObject?
-    let status = SecItemCopyMatching(query as CFDictionary, &result)
-
-    guard status != errSecItemNotFound else {
-      throw KeychainError.itemNotFound
+  private nonisolated func loadDataDecoded<T: Codable>(for key: String) throws -> T {
+    let data: Data
+    do {
+      data = try store.load(for: key)
+    } catch {
+      throw Self.map(error)
     }
-
-    guard status == errSecSuccess else {
-      throw KeychainError.unhandledError(status)
-    }
-
-    guard let data = result as? Data else {
+    do {
+      return try JSONDecoder().decode(T.self, from: data)
+    } catch {
       throw KeychainError.invalidData
     }
-
-    return try JSONDecoder().decode(T.self, from: data)
   }
 
   // Removes a single item from Keychain by key
   nonisolated func delete(for key: String) throws {
-    let query: [String: Any] = [
-      kSecClass as String: kSecClassGenericPassword,
-      kSecAttrService as String: KeychainStorage.serviceName,
-      kSecAttrAccount as String: key
-    ]
-    let status = SecItemDelete(query as CFDictionary)
-    if status != errSecSuccess && status != errSecItemNotFound {
-      throw KeychainError.unhandledError(status)
+    do {
+      try store.delete(for: key)
+    } catch {
+      throw Self.map(error)
     }
   }
 
   // Removes all stored session data from Keychain
   nonisolated func clear() throws {
     try delete(for: KeychainStorage.sessionKey)
+  }
+
+  private static func map(_ error: Error) -> KeychainError {
+    switch error as? SecureStoreError {
+    case .notFound:
+      return .itemNotFound
+    case .unhandled(let status):
+      return .unhandledError(status)
+    case nil:
+      return .unhandledError(errSecInternalError)
+    }
   }
 }
 

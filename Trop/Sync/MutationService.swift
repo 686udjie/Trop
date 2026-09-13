@@ -13,36 +13,30 @@ actor MutationService {
     private let innerTube = InnerTube.shared
     private let db = DatabaseService.shared
 
+    /// Attempts a remote mutation, running `rollback` (best-effort) and
+    /// rethrowing the original error on failure. Collapses the
+    /// apply → remote → restore + rethrow skeleton shared by every
+    /// optimistic mutation below.
+    private func attemptingRemote(
+        _ remote: () async throws -> Void,
+        rollback: () async -> Void
+    ) async throws {
+        do {
+            try await remote()
+        } catch {
+            await rollback()
+            throw error
+        }
+    }
+
     private func emptySong(id: String, liked: Bool, addToken: String = "") -> SongEntity {
-        SongEntity(
-            id: id, title: "", artistName: nil, albumName: nil,
-            duration: 0, thumbnailUrl: nil,
-            liked: liked, totalPlayTime: 0, inLibrary: nil,
-            libraryAddToken: addToken, libraryRemoveToken: "",
-            isEpisode: false, isUploaded: false, isVideo: false,
-            createDate: Date(), modifyDate: Date()
-        )
+        SongEnrichment.skeleton(id: id, liked: liked, addToken: addToken)
     }
 
     private func enrichEmptySong(_ entity: SongEntity) async -> SongEntity {
         guard entity.title.isEmpty else { return entity }
-        var enriched = entity
-        if let metadata = try? await fetchSongMetadata(videoId: entity.id) {
-            enriched.title = metadata.title
-            enriched.artistName = metadata.artistName
-            enriched.thumbnailUrl = metadata.thumbnailUrl
-            enriched.duration = metadata.duration
-            enriched.albumName = metadata.albumName
-        }
-        return enriched
-    }
-
-    private struct SongMetadata {
-        let title: String
-        let artistName: String?
-        let thumbnailUrl: String?
-        let duration: Int
-        let albumName: String?
+        guard let metadata = try? await fetchSongMetadata(videoId: entity.id) else { return entity }
+        return SongEnrichment.merging(entity, with: metadata)
     }
 
     private func fetchSongMetadata(videoId: String) async throws -> SongMetadata? {
@@ -60,11 +54,11 @@ actor MutationService {
             return nil
         }
 
-        let title = extractRunsText(primary["title"] as? [String: Any]) ?? ""
+        let title = InnerTubeJSON.runsText(primary["title"] as? [String: Any]) ?? ""
 
         let secondary = results["secondaryInfoRenderer"] as? [String: Any]
         let byline = secondary?["videoOwnerRenderer"] as? [String: Any]
-        let bylineRuns = extractRawRuns(byline?["title"] as? [String: Any])
+        let bylineRuns = InnerTubeJSON.rawRuns(byline?["title"] as? [String: Any])
         let artistName = bylineRuns.first.map { $0["text"] as? String } ?? nil
 
         let thumbnailDict = primary["thumbnail"] as? [String: Any]
@@ -75,16 +69,6 @@ actor MutationService {
         let duration = lengthSeconds.flatMap { Int($0) } ?? 0
 
         return SongMetadata(title: title, artistName: artistName, thumbnailUrl: thumbnailUrl, duration: duration, albumName: nil)
-    }
-
-    private func extractRunsText(_ dict: [String: Any]?) -> String? {
-        guard let runs = dict?["runs"] as? [[String: Any]], let first = runs.first else { return nil }
-        return first["text"] as? String
-    }
-
-    private func extractRawRuns(_ dict: [String: Any]?) -> [[String: Any]] {
-        guard let runs = dict?["runs"] as? [[String: Any]] else { return [] }
-        return runs
     }
 
     func likeSong(videoId: String) async throws {
@@ -98,13 +82,15 @@ actor MutationService {
         entity.liked = true
         entity.modifyDate = Date()
         try await db.save(entity)
-        do {
-            _ = try await innerTube.like(videoId: videoId)
-        } catch {
-            entity.liked = false
-            try? await db.save(entity)
-            throw error
-        }
+        let applied = entity
+        try await attemptingRemote(
+            { _ = try await innerTube.like(videoId: videoId) },
+            rollback: {
+                var restored = applied
+                restored.liked = false
+                try? await db.save(restored)
+            }
+        )
     }
 
     func unlikeSong(videoId: String) async throws {
@@ -118,13 +104,15 @@ actor MutationService {
         entity.liked = false
         entity.modifyDate = Date()
         try? await db.save(entity)
-        do {
-            _ = try await innerTube.unlike(videoId: videoId)
-        } catch {
-            entity.liked = true
-            try? await db.save(entity)
-            throw error
-        }
+        let applied = entity
+        try await attemptingRemote(
+            { _ = try await innerTube.unlike(videoId: videoId) },
+            rollback: {
+                var restored = applied
+                restored.liked = true
+                try? await db.save(restored)
+            }
+        )
     }
 
     func addToLibrary(videoId: String, addToken: String) async throws {
@@ -138,14 +126,16 @@ actor MutationService {
         entity.inLibrary = entity.inLibrary ?? Date()
         entity.modifyDate = Date()
         try? await db.save(entity)
+        let applied = entity
         guard !addToken.isEmpty else { return }
-        do {
-            _ = try await innerTube.feedback(tokens: [addToken])
-        } catch {
-            entity.inLibrary = nil
-            try? await db.save(entity)
-            throw error
-        }
+        try await attemptingRemote(
+            { _ = try await innerTube.feedback(tokens: [addToken]) },
+            rollback: {
+                var restored = applied
+                restored.inLibrary = nil
+                try? await db.save(restored)
+            }
+        )
     }
 
     func removeFromLibrary(videoId: String, removeToken: String) async throws {
@@ -157,16 +147,17 @@ actor MutationService {
             try? await db.save(existing)
         }
         guard !removeToken.isEmpty else { return }
-        do {
-            _ = try await innerTube.feedback(tokens: [removeToken])
-        } catch {
-            if var existing = entity {
-                existing.inLibrary = Date()
-                existing.modifyDate = Date()
-                try? await db.save(existing)
+        let applied = entity
+        try await attemptingRemote(
+            { _ = try await innerTube.feedback(tokens: [removeToken]) },
+            rollback: {
+                if var restored = applied {
+                    restored.inLibrary = Date()
+                    restored.modifyDate = Date()
+                    try? await db.save(restored)
+                }
             }
-            throw error
-        }
+        )
     }
 
     func addToPlaylist(playlistId: String, songId: String, setVideoId: String? = nil) async throws {
@@ -175,21 +166,19 @@ actor MutationService {
 
         var map = PlaylistSongMap(id: nil, playlistId: playlistId, songId: songId, position: 0, setVideoId: setVideoId)
         map = try await db.insert(map, onConflict: .ignore)
+        guard !isLocal else { return }
 
-        if !isLocal {
-            var actions: [[String: Any]] = [
-                ["action": "ACTION_ADD_VIDEO", "addedVideoId": songId]
-            ]
-            if let setVideoId {
-                actions[0]["setVideoId"] = setVideoId
-            }
-            do {
-                _ = try await innerTube.editPlaylist(playlistId: playlistId, actions: actions)
-            } catch {
-                _ = try? await db.delete(map)
-                throw error
-            }
+        var actions: [[String: Any]] = [
+            ["action": "ACTION_ADD_VIDEO", "addedVideoId": songId]
+        ]
+        if let setVideoId {
+            actions[0]["setVideoId"] = setVideoId
         }
+        let inserted = map
+        try await attemptingRemote(
+            { _ = try await innerTube.editPlaylist(playlistId: playlistId, actions: actions) },
+            rollback: { _ = try? await db.delete(inserted) }
+        )
     }
 
     func removeFromPlaylist(playlistId: String, songId: String, setVideoId: String) async throws {
@@ -274,16 +263,17 @@ actor MutationService {
             entity = existing
             try? await db.save(existing)
         }
-        do {
-            _ = try await innerTube.subscribe(channelId: channelId)
-        } catch {
-            if var existing = entity {
-                existing.bookmarkedAt = nil
-                existing.channelId = nil
-                try? await db.save(existing)
+        let applied = entity
+        try await attemptingRemote(
+            { _ = try await innerTube.subscribe(channelId: channelId) },
+            rollback: {
+                if var restored = applied {
+                    restored.bookmarkedAt = nil
+                    restored.channelId = nil
+                    try? await db.save(restored)
+                }
             }
-            throw error
-        }
+        )
     }
 
     func unsubscribeArtist(channelId: String, artistId: String) async throws {
@@ -293,15 +283,16 @@ actor MutationService {
             entity = existing
             try? await db.save(existing)
         }
-        do {
-            _ = try await innerTube.unsubscribe(channelId: channelId)
-        } catch {
-            if var existing = entity {
-                existing.bookmarkedAt = existing.bookmarkedAt ?? Date()
-                try? await db.save(existing)
+        let applied = entity
+        try await attemptingRemote(
+            { _ = try await innerTube.unsubscribe(channelId: channelId) },
+            rollback: {
+                if var restored = applied {
+                    restored.bookmarkedAt = restored.bookmarkedAt ?? Date()
+                    try? await db.save(restored)
+                }
             }
-            throw error
-        }
+        )
     }
 
     private func extractPlaylistId(from json: [String: Any]) -> String? {

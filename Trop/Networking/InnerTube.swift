@@ -14,10 +14,6 @@ actor InnerTube {
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
 
-    private let maxRetries = 3
-    private let retryBaseDelay: Duration = .milliseconds(500)
-    private let retryBackoffFactor = 2
-
     // Singleton — declared nonisolated so callers don't need `await self`
     nonisolated static let shared = InnerTube()
 
@@ -82,6 +78,23 @@ actor InnerTube {
             visitorData = vd
         }
         return json
+    }
+
+    /// Follows browse continuations, collecting parsed items from every page.
+    func paginate<T>(
+        browseId: String,
+        params: String? = nil,
+        parse: @escaping ([String: Any]) -> [T],
+        continuation: @escaping ([String: Any]) -> String?
+    ) async throws -> [T] {
+        var allItems: [T] = []
+        var token: String?
+        repeat {
+            let json = try await browse(browseId: browseId, params: params, continuation: token)
+            allItems.append(contentsOf: parse(json))
+            token = continuation(json)
+        } while token != nil
+        return allItems
     }
 
     // Fetches stream URLs and metadata for a specific video
@@ -238,18 +251,6 @@ actor InnerTube {
         return extractAccountInfo(from: json)
     }
 
-    private func extractRunsText(_ dict: [String: Any]?) -> String? {
-        guard let runs = dict?["runs"] as? [[String: Any]], let first = runs.first else { return nil }
-        return first["text"] as? String
-    }
-
-    private func extractThumbnailUrl(_ dict: [String: Any]?) -> String? {
-        guard let thumb = dict?["thumbnails"] as? [[String: Any]],
-              let last = thumb.last,
-              let url = last["url"] as? String else { return nil }
-        return url
-    }
-
     // Parses account menu response to extract AccountInfo
     private func extractAccountInfo(from json: [String: Any]) -> AccountInfo {
         guard let actions = json["actions"] as? [[String: Any]],
@@ -261,10 +262,10 @@ actor InnerTube {
               let activeAccount = header["activeAccountHeaderRenderer"] as? [String: Any] else {
             return AccountInfo(name: "Guest")
         }
-        let name = extractRunsText(activeAccount["accountName"] as? [String: Any]) ?? "Guest"
-        let email = extractRunsText(activeAccount["email"] as? [String: Any])
-        let handle = extractRunsText(activeAccount["channelHandle"] as? [String: Any])
-        let photoUrl = extractThumbnailUrl(activeAccount["accountPhoto"] as? [String: Any])
+        let name = InnerTubeJSON.runsText(activeAccount["accountName"] as? [String: Any]) ?? "Guest"
+        let email = InnerTubeJSON.runsText(activeAccount["email"] as? [String: Any])
+        let handle = InnerTubeJSON.runsText(activeAccount["channelHandle"] as? [String: Any])
+        let photoUrl = InnerTubeJSON.lastThumbnailURL((activeAccount["accountPhoto"] as? [String: Any])?["thumbnails"] as? [[String: Any]])
         return AccountInfo(name: name, email: email, channelHandle: handle, thumbnailUrl: photoUrl)
     }
 
@@ -275,39 +276,17 @@ actor InnerTube {
         client: YouTubeClient,
         session: Session
     ) async throws -> [String: Any] {
-        let (data, _) = try await withRetry(maxAttempts: maxRetries) {
-            try await rawPost(endpoint: endpoint, body: body, client: client, session: session)
-        }
+        let (data, _) = try await RetryPolicy.innerTube.run(
+            { try await rawPost(endpoint: endpoint, body: body, client: client, session: session) },
+            isRetryable: isRetryable,
+            onRetry: { attempt, error in
+                Log.innerTube.debug("Retry \(attempt + 1)/\(RetryPolicy.innerTube.maxAttempts - 1) for \(error.localizedDescription)")
+            }
+        )
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw InnerTubeError.decodingFailed
         }
         return json
-    }
-
-    // Execute with retry: maxAttempts total tries with exponential backoff (500ms base, 2x factor)
-    private func withRetry<T>(
-        maxAttempts: Int = 3,
-        backoffBase: Duration = .milliseconds(500),
-        backoffFactor: Double = 2,
-        operation: () async throws -> T
-    ) async throws -> T {
-        var lastError: Error?
-        for attempt in 0..<maxAttempts {
-            do {
-                return try await operation()
-            } catch {
-                lastError = error
-                guard attempt < maxAttempts - 1,
-                      isRetryable(error) else { break }
-                // Add jitter so concurrent clients don't thump the server in lockstep.
-                let base = backoffBase * pow(backoffFactor, Double(attempt))
-                let jitter = Duration.milliseconds(Int.random(in: 0...200))
-                let delay = base + jitter
-                Log.innerTube.debug("Retry \(attempt + 1)/\(maxAttempts - 1) for \(error.localizedDescription)")
-                try? await Task.sleep(for: delay)
-            }
-        }
-        throw lastError ?? InnerTubeError.httpError(statusCode: -1, data: Data())
     }
 
     private func isRetryable(_ error: Error) -> Bool {
@@ -367,9 +346,13 @@ actor InnerTube {
         client: YouTubeClient,
         session: Session
     ) async throws -> T {
-        let (data, _) = try await withRetry(maxAttempts: maxRetries) {
-            try await rawPost(endpoint: endpoint, body: body, client: client, session: session)
-        }
+        let (data, _) = try await RetryPolicy.innerTube.run(
+            { try await rawPost(endpoint: endpoint, body: body, client: client, session: session) },
+            isRetryable: isRetryable,
+            onRetry: { attempt, error in
+                Log.innerTube.debug("Retry \(attempt + 1)/\(RetryPolicy.innerTube.maxAttempts - 1) for \(error.localizedDescription)")
+            }
+        )
         do {
             return try decoder.decode(T.self, from: data)
         } catch {

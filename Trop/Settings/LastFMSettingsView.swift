@@ -6,7 +6,6 @@
 //
 
 import SwiftUI
-import Combine
 
 struct LastFMSettingsView: View {
     @AppStorage(LastFMDefaults.sessionKeyKey) private var sessionKey = ""
@@ -127,7 +126,7 @@ struct LastFMSettingsView: View {
                     HStack {
                         Text("Minimum Track Duration")
                         Spacer()
-                        Text(formatDuration(minDuration)).foregroundStyle(.secondary)
+                        Text(DurationFormat.shortDuration(minDuration)).foregroundStyle(.secondary)
                     }
                 }
                 .disabled(!scrobblingEnabled)
@@ -149,7 +148,7 @@ struct LastFMSettingsView: View {
                     HStack {
                         Text("Scrobble Delay Limit")
                         Spacer()
-                        Text(formatDuration(scrobbleDelaySeconds)).foregroundStyle(.secondary)
+                        Text(DurationFormat.shortDuration(scrobbleDelaySeconds)).foregroundStyle(.secondary)
                     }
                 }
                 .disabled(!scrobblingEnabled)
@@ -157,7 +156,7 @@ struct LastFMSettingsView: View {
                 Text("Scrobble Configuration")
             } footer: {
                 // swiftlint:disable:next line_length
-                Text("Scrobble after \(Int(scrobbleDelayPercent*100))% of track or \(formatDuration(scrobbleDelaySeconds)), whichever comes first. Tracks shorter than \(formatDuration(minDuration)) are ignored.")
+                Text("Scrobble after \(Int(scrobbleDelayPercent*100))% of track or \(DurationFormat.shortDuration(scrobbleDelaySeconds)), whichever comes first. Tracks shorter than \(DurationFormat.shortDuration(minDuration)) are ignored.")
             }
         }
         .navigationTitle("Last.fm")
@@ -178,15 +177,19 @@ struct LastFMSettingsView: View {
                 isBusy = false
             }
         }
-        .alert("Minimum Duration", isPresented: $showMinDurationEditor) {
+        .modifier(TextPromptAlert(
+            title: "Minimum Duration",
+            isPresented: $showMinDurationEditor,
+            message: Text("Tracks shorter than this will not be scrobbled (10–60s).")
+        ) {
             TextField("Seconds", value: $minDuration, format: .number)
                 .keyboardType(.numberPad)
-            Button("OK") {}
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Tracks shorter than this will not be scrobbled (10–60s).")
-        }
-        .alert("Scrobble Percent", isPresented: $showDelayPercentEditor) {
+        })
+        .modifier(TextPromptAlert(
+            title: "Scrobble Percent",
+            isPresented: $showDelayPercentEditor,
+            message: Text("Percentage of track to play before scrobbling.")
+        ) {
             // Map percent 30–95 via integer 30...95
             let binding = Binding<Double>(
                 get: { scrobbleDelayPercentStored * 100 },
@@ -195,19 +198,15 @@ struct LastFMSettingsView: View {
             // Use custom view not possible in alert; fallback to text field
             TextField("Percent (30–95)", value: binding, format: .number)
                 .keyboardType(.numberPad)
-            Button("OK") {}
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Percentage of track to play before scrobbling.")
-        }
-        .alert("Scrobble Delay", isPresented: $showDelaySecondsEditor) {
+        })
+        .modifier(TextPromptAlert(
+            title: "Scrobble Delay",
+            isPresented: $showDelaySecondsEditor,
+            message: Text("Maximum delay before scrobbling (30–360s).")
+        ) {
             TextField("Seconds", value: $scrobbleDelaySeconds, format: .number)
                 .keyboardType(.numberPad)
-            Button("OK") {}
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Maximum delay before scrobbling (30–360s).")
-        }
+        })
         .onAppear {
             if UserDefaults.standard.object(forKey: LastFMDefaults.sessionKeyKey) == nil,
                let sk = LastFMTokenStore.shared.retrieveSessionKey() {
@@ -225,13 +224,6 @@ struct LastFMSettingsView: View {
 
     private var scrobbleDelayPercent: Double {
         scrobbleDelayPercentStored
-    }
-
-    private func formatDuration(_ seconds: Int) -> String {
-        if seconds < 60 { return "\(seconds)s" }
-        let m = seconds / 60
-        let s = seconds % 60
-        return s == 0 ? "\(m)m" : "\(m)m \(s)s"
     }
 
     private func fetchAvatar() async {

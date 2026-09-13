@@ -190,17 +190,8 @@ private enum SettingsKeys {
     static let button2Url = "discordButton2Url"
     static let userStatus = "discordUserStatus"
 }
-
-private extension String {
-    var nilIfEmpty: String? { isEmpty ? nil : self }
-}
-
 private extension UserDefaults {
     @objc dynamic var discordRPCEnableValue: Bool {
         object(forKey: "discordRPCEnable") as? Bool ?? true
     }
-}
-
-extension Notification.Name {
-    static let nowPlayingDidChange = Notification.Name("nowPlayingDidChange")
 }

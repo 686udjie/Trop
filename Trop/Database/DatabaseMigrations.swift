@@ -9,6 +9,29 @@ import Foundation
 import GRDB
 
 enum DatabaseMigrations {
+    /// Wraps a migration body with start/complete debug logs.
+    static func logged(_ name: String, _ block: @escaping (Database) throws -> Void) -> (Database) throws -> Void {
+        { db in
+            Log.db.debug("Running \(name) migration")
+            try block(db)
+            Log.db.debug("\(name) migration complete")
+        }
+    }
+
+    /// The canonical downloaded_track DDL, shared by v5 (fresh create) and
+    /// v7 (rebuild target).
+    static func createDownloadedTrackTable(_ db: Database, named name: String = "downloaded_track") throws {
+        try db.create(table: name) { t in
+            t.column("id", .text).primaryKey()
+            t.column("title", .text).notNull()
+            t.column("artist", .text).notNull()
+            t.column("duration", .integer).notNull()
+            t.column("thumbnail_url", .text)
+            t.column("local_path", .text).notNull()
+            t.column("downloaded_at", .text).notNull()
+        }
+    }
+
     static let v1: (Database) throws -> Void = { db in
         try db.create(table: "song") { t in
             t.column("id", .text).primaryKey()
@@ -100,8 +123,7 @@ enum DatabaseMigrations {
         }
     }
 
-    static let v3: (Database) throws -> Void = { db in
-        Log.db.debug("Running v3 migration")
+    static let v3: (Database) throws -> Void = logged("v3") { db in
         try db.alter(table: "artist") { t in
             t.add(column: "channel_id", .text)
         }
@@ -139,40 +161,26 @@ enum DatabaseMigrations {
             t.column("position", .integer).notNull()
             t.uniqueKey(["podcast_id", "episode_id"])
         }
-        Log.db.debug("v3 migration complete")
     }
 
-    static let v4: (Database) throws -> Void = { db in
-        Log.db.debug("Running v4 migration")
+    static let v4: (Database) throws -> Void = logged("v4") { db in
         try db.alter(table: "playlist") { t in
             t.add(column: "thumbnail_url", .text)
         }
-        Log.db.debug("v4 migration complete")
     }
 
-    static let v5: (Database) throws -> Void = { db in
-        Log.db.debug("Running v5 migration")
+    static let v5: (Database) throws -> Void = logged("v5") { db in
         if try db.tableExists("downloaded_track") == false {
-            try db.create(table: "downloaded_track") { t in
-                t.column("id", .text).primaryKey()
-                t.column("title", .text).notNull()
-                t.column("artist", .text).notNull()
-                t.column("duration", .integer).notNull()
-                t.column("thumbnail_url", .text)
-                t.column("local_path", .text).notNull()
-                t.column("downloaded_at", .text).notNull()
-            }
+            try createDownloadedTrackTable(db)
         } else if try db.columns(in: "downloaded_track").contains(where: { $0.name == "artist" }) == false {
             // Table existed from an earlier schema without the artist column.
             try db.alter(table: "downloaded_track") { t in
                 t.add(column: "artist", .text).notNull().defaults(to: "")
             }
         }
-        Log.db.debug("v5 migration complete")
     }
 
-    static let v6: (Database) throws -> Void = { db in
-        Log.db.debug("Running v6 migration")
+    static let v6: (Database) throws -> Void = logged("v6") { db in
         // Earlier schemas may have created downloaded_track with fewer columns
         // than DownloadedTrackEntity expects. Add any missing columns so inserts
         // from the app succeed on existing databases.
@@ -200,25 +208,15 @@ enum DatabaseMigrations {
                 }
             }
         }
-        Log.db.debug("v6 migration complete")
     }
 
-    static let v7: (Database) throws -> Void = { db in
-        Log.db.debug("Running v7 migration")
+    static let v7: (Database) throws -> Void = logged("v7") { db in
         // The existing downloaded_track table may have been created by an older
         // schema (e.g. with a file_size column) that doesn't match
         // DownloadedTrackEntity. Rebuild it to exactly match the entity,
         // preserving any rows we can carry over by id.
         if try db.tableExists("downloaded_track") {
-            try db.create(table: "downloaded_track_new") { t in
-                t.column("id", .text).primaryKey()
-                t.column("title", .text).notNull()
-                t.column("artist", .text).notNull()
-                t.column("duration", .integer).notNull()
-                t.column("thumbnail_url", .text)
-                t.column("local_path", .text).notNull()
-                t.column("downloaded_at", .text).notNull()
-            }
+            try createDownloadedTrackTable(db, named: "downloaded_track_new")
             // Carry over rows that have the columns we need (id + local_path).
             if try db.columns(in: "downloaded_track").contains(where: { $0.name == "local_path" }) {
                 // Use a real ISO8601 timestamp for any row missing downloaded_at,
@@ -243,11 +241,9 @@ enum DatabaseMigrations {
             try db.drop(table: "downloaded_track")
             try db.rename(table: "downloaded_track_new", to: "downloaded_track")
         }
-        Log.db.debug("v7 migration complete")
     }
 
-    static let v8: (Database) throws -> Void = { db in
-        Log.db.debug("Running v8 migration")
+    static let v8: (Database) throws -> Void = logged("v8") { db in
         // Songs pinned to the homepage Speed Dial.
         if try !db.tableExists("speed_dial") {
             try db.create(table: "speed_dial") { t in
@@ -260,6 +256,5 @@ enum DatabaseMigrations {
                 t.column("pinned_at", .datetime).notNull()
             }
         }
-        Log.db.debug("v8 migration complete")
     }
 }

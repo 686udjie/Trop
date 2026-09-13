@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import OSLog
 
 private let defaultGatewayUrl = DiscordDefaults.gatewayUrl
 private let defaultHeartbeatMs: Int64 = 41_250
@@ -36,8 +35,6 @@ final class DiscordGateway: @unchecked Sendable {
     private let appId: String
     private let tokenProvider: @Sendable () async -> String
     private var gatewayUrl = defaultGatewayUrl
-    private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.686udjie.Trop", category: "DiscordGateway")
-
     private var webSocketTask: URLSessionWebSocketTask?
     private var urlSession: URLSession = .shared
     private lazy var sessionWithDelegate: URLSession = URLSession(configuration: .default, delegate: delegateHandler, delegateQueue: nil)
@@ -236,7 +233,7 @@ final class DiscordGateway: @unchecked Sendable {
     }
 
     private func handleClose(code: Int, reason: String, remote: Bool, wsId: Int64) async {
-        log.warning("Gateway CLOSE code=\(code, privacy: .public) reason=\(reason, privacy: .private) remote=\(remote, privacy: .public)")
+        Log.discord.warning("Gateway CLOSE code=\(code) reason=\(reason) remote=\(remote)")
         guard wsId == activeId else { return }
         if !isOpen, webSocketTask == nil { return }
         isOpen = false
@@ -338,12 +335,7 @@ private final class GatewayDelegate: NSObject, URLSessionWebSocketDelegate {
     ) {
         if closeCode != .normalClosure {
             let reasonStr = reason.flatMap { String(data: $0, encoding: .utf8) } ?? "nil"
-            Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.686udjie.Trop", category: "DiscordGateway")
-                .warning("WebSocket didClose code=\(closeCode.rawValue, privacy: .public) reason=\(reasonStr, privacy: .private)")
+            Log.discord.warning("WebSocket didClose code=\(closeCode.rawValue) reason=\(reasonStr)")
         }
     }
-}
-
-private extension String {
-    var nilIfEmpty: String? { isEmpty ? nil : self }
 }

@@ -11,7 +11,7 @@ struct YouTubeGridItemView: View {
     var item: YTItem
     var onTap: () -> Void
 
-    @State private var resolvedDuration: Int = 0
+    @State private var durations = DurationResolver()
     private let artworkSize: CGFloat = 160
 
     private var videoId: String? {
@@ -25,25 +25,9 @@ struct YouTubeGridItemView: View {
     private var subtitleText: String {
         switch item {
         case .song(let s):
-            let artistStr = s.artists.map(\.name).joined(separator: ", ")
-            let effectiveDuration = s.duration > 0 ? s.duration : resolvedDuration
-            let durationStr = effectiveDuration.formattedDuration
-            let result: String
-            if artistStr.isEmpty {
-                result = durationStr
-            } else if durationStr.isEmpty {
-                result = artistStr
-            } else {
-                result = "\(artistStr) • \(durationStr)"
-            }
-            return result
+            return s.subtitleLine(duration: durations.effectiveDuration(known: s.duration))
         case .episode(let e):
-            let artistStr = e.artists.map(\.name).joined(separator: ", ")
-            let effectiveDuration = e.duration > 0 ? e.duration : resolvedDuration
-            let durationStr = effectiveDuration.formattedDuration
-            if artistStr.isEmpty { return durationStr }
-            if durationStr.isEmpty { return artistStr }
-            return "\(artistStr) • \(durationStr)"
+            return e.toSongItem().subtitleLine(duration: durations.effectiveDuration(known: e.duration))
         case .album(let a):
             let names = a.artists.map(\.name)
             return names.isEmpty ? "" : names.joined(separator: ", ")
@@ -76,35 +60,18 @@ struct YouTubeGridItemView: View {
             .frame(width: artworkSize, height: 220, alignment: .top)
         }
         .buttonStyle(.plain)
-        .task { await resolveDuration() }
+        .task {
+            guard let vid = videoId else { return }
+            let known: Int
+            switch item {
+            case .song(let s): known = s.duration
+            case .episode(let e): known = e.duration
+            default: known = 0
+            }
+            await durations.resolve(videoId: vid, knownDuration: known)
+        }
         .onReceive(NotificationCenter.default.publisher(for: .durationDidUpdate)) { notification in
-            guard let vid = notification.userInfo?["videoId"] as? String, vid == videoId else { return }
-            resolvedDuration = DurationCache.get(vid) ?? 0
-        }
-    }
-
-    private func resolveDuration() async {
-        guard let vid = videoId else { return }
-        switch item {
-        case .song(let s) where s.duration > 0:
-            resolvedDuration = s.duration
-            return
-        case .episode(let e) where e.duration > 0:
-            resolvedDuration = e.duration
-            return
-        default: break
-        }
-        if let cached = DurationCache.get(vid), cached > 0 {
-            resolvedDuration = cached
-            return
-        }
-        guard !DurationCache.isPending(vid) else { return }
-        DurationCache.markPending(vid)
-        do {
-            let duration = try await InnerTube.shared.fetchDuration(videoId: vid)
-            resolvedDuration = duration
-        } catch {
-            DurationCache.clearPending(vid)
+            durations.handleUpdate(notification, videoId: videoId)
         }
     }
 }
@@ -115,17 +82,6 @@ struct YouTubeListItemView: View {
     var onTap: () -> Void
     var onNavigate: ((DetailRoute) -> Void)?
 
-    @State private var resolvedDuration: Int = 0
-    @State private var showSongMenu = false
-
-    private var videoId: String? {
-        switch item {
-        case .song(let s): return s.videoId
-        case .episode(let e): return e.videoId
-        default: return nil
-        }
-    }
-
     private var songItem: SongItem? {
         switch item {
         case .song(let s): return s
@@ -134,118 +90,51 @@ struct YouTubeListItemView: View {
         }
     }
 
-    private var subtitleText: String {
-        switch item {
-        case .song(let s):
-            let artistStr = s.artists.map(\.name).joined(separator: ", ")
-            let effectiveDuration = s.duration > 0 ? s.duration : resolvedDuration
-            let durationStr = effectiveDuration.formattedDuration
-            if artistStr.isEmpty { return durationStr }
-            if durationStr.isEmpty { return artistStr }
-            return "\(artistStr) • \(durationStr)"
-        case .episode(let e):
-            let artistStr = e.artists.map(\.name).joined(separator: ", ")
-            let effectiveDuration = e.duration > 0 ? e.duration : resolvedDuration
-            let durationStr = effectiveDuration.formattedDuration
-            if artistStr.isEmpty { return durationStr }
-            if durationStr.isEmpty { return artistStr }
-            return "\(artistStr) • \(durationStr)"
-        case .album(let a):
-            return a.artists.map(\.name).joined(separator: ", ")
-        default:
-            return ""
-        }
-    }
-
     var body: some View {
-        HStack(spacing: 12) {
-            AsyncImageView(url: item.thumbnailUrl)
-                .frame(width: 48, height: 48)
-                .clipShape(RoundedRectangle(cornerRadius: 4))
+        if let song = songItem {
+            SongRowView(song: song, artSize: 48, onTap: onTap, onNavigate: onNavigate)
+        } else {
+            HStack(spacing: 12) {
+                AsyncImageView(url: item.thumbnailUrl)
+                    .frame(width: 48, height: 48)
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(item.title)
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(item.title)
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
 
-                Text(subtitleText)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
-            }
+                    Text(albumSubtitleText)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
 
-            Spacer()
+                Spacer()
 
-            if let song = songItem {
-                HStack(spacing: 2) {
-                    SongLikeButton(song: song)
-                    SongDownloadButton(song: song)
+                if let url = item.webUrl {
                     Button {
-                        showSongMenu = true
+                        UIPasteboard.general.string = url
                     } label: {
-                        Text("\u{22EE}")
+                        Text("⋮")
                             .font(.body.weight(.black))
                             .foregroundStyle(settings.accentColor)
                     }
                 }
-                .sheet(isPresented: $showSongMenu) {
-                    SongMenuSheet(
-                        song: song,
-                        onNavigate: { onNavigate?($0) }
-                    )
-                }
-            } else if let url = item.webUrl {
-                Button {
-                    UIPasteboard.general.string = url
-                } label: {
-                    Text("\u{22EE}")
-                        .font(.body.weight(.black))
-                        .foregroundStyle(settings.accentColor)
-                }
             }
-        }
-        .background(Group {
-            if let s = songItem {
-                DownloadCellProgressView(song: s)
-            }
-        })
-        .contentShape(Rectangle())
-        .onTapGesture {
-            onTap()
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 6)
-        .task { await resolveDuration() }
-        .onReceive(NotificationCenter.default.publisher(for: .durationDidUpdate)) { notification in
-            guard let vid = notification.userInfo?["videoId"] as? String, vid == videoId else { return }
-            resolvedDuration = DurationCache.get(vid) ?? 0
+            .contentShape(Rectangle())
+            .onTapGesture(perform: onTap)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 6)
         }
     }
 
-    private func resolveDuration() async {
-        guard let vid = videoId else { return }
-        switch item {
-        case .song(let s) where s.duration > 0:
-            resolvedDuration = s.duration
-            return
-        case .episode(let e) where e.duration > 0:
-            resolvedDuration = e.duration
-            return
-        default: break
+    private var albumSubtitleText: String {
+        if case .album(let a) = item {
+            return a.artists.map(\.name).joined(separator: ", ")
         }
-        if let cached = DurationCache.get(vid), cached > 0 {
-            resolvedDuration = cached
-            return
-        }
-        guard !DurationCache.isPending(vid) else { return }
-        DurationCache.markPending(vid)
-        do {
-            let duration = try await InnerTube.shared.fetchDuration(videoId: vid)
-            resolvedDuration = duration
-        } catch {
-            DurationCache.clearPending(vid)
-        }
+        return ""
     }
 }

@@ -159,7 +159,7 @@ final class SearchViewModel {
     private var librarySections: [SearchSection] {
         var sections: [SearchSection] = []
         if !localSongs.isEmpty {
-            sections.append(SearchSection(title: "Songs", items: localSongs.map { YTItem.song(SongItem(entity: $0)) }))
+            sections.append(SearchSection(title: "Songs", items: localSongs.toSongItems().map(YTItem.song)))
         }
         if !localAlbums.isEmpty {
             sections.append(SearchSection(title: "Albums", items: localAlbums.map { YTItem.album(AlbumItem(entity: $0)) }))

@@ -8,7 +8,6 @@
 import Foundation
 import Combine
 import UIKit
-import OSLog
 
 struct DiscordUser: Equatable {
     let id: String
@@ -74,7 +73,7 @@ final class DiscordRpcManager: @unchecked Sendable {
     }
 
     private func log(_ msg: String) {
-        Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.686udjie.Trop", category: "DiscordSvc").info("\(msg, privacy: .private)")
+        Log.discord.info(msg)
     }
 
     // MARK: - Init
@@ -181,8 +180,8 @@ final class DiscordRpcManager: @unchecked Sendable {
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         req.setValue("application/json", forHTTPHeaderField: "Accept")
         req.timeoutInterval = 10
-        guard let (data, resp) = try? await URLSession.shared.data(for: req),
-              let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode),
+        guard let (data, http) = try? await HttpClient.data(for: req),
+              (200...299).contains(http.statusCode),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let id = json["id"] as? String,
               let username = json["username"] as? String else { return nil }

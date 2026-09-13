@@ -221,11 +221,7 @@ enum StreamResolver {
         request.timeoutInterval = 10
 
         do {
-            let (_, response) = try await URLSession.shared.data(for: request)
-            guard let httpResponse = response as? HTTPURLResponse else {
-                Log.streamResolver.error("HEAD validation: invalid response type")
-                return false
-            }
+            let (_, httpResponse) = try await HttpClient.data(for: request)
             let valid = (200...299).contains(httpResponse.statusCode)
             Log.streamResolver.debug("HEAD validation: status=\(httpResponse.statusCode) valid=\(valid)")
             return valid

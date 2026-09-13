@@ -58,13 +58,7 @@ struct KugouProvider: LyricsProvider {
         ]
         guard let url = components.url else { throw LyricsError.invalidURL }
 
-        let (data, response) = try await URLSession.shared.data(for: URLRequest(url: url))
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            throw LyricsError.notFound
-        }
-        guard let decoded = try? JSONDecoder().decode(SearchSongResponse.self, from: data) else {
-            throw LyricsError.decodingFailed
-        }
+        let decoded: SearchSongResponse = try await LyricsHTTP.decoded(SearchSongResponse.self, URLRequest(url: url))
         return decoded.data.info
     }
 
@@ -100,14 +94,7 @@ struct KugouProvider: LyricsProvider {
 
     private func performLyricsSearch(_ components: URLComponents) async throws -> SearchLyricsResponse {
         guard let url = components.url else { throw LyricsError.invalidURL }
-        let (data, response) = try await URLSession.shared.data(for: URLRequest(url: url))
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            throw LyricsError.notFound
-        }
-        guard let decoded = try? JSONDecoder().decode(SearchLyricsResponse.self, from: data) else {
-            throw LyricsError.decodingFailed
-        }
-        return decoded
+        return try await LyricsHTTP.decoded(SearchLyricsResponse.self, URLRequest(url: url))
     }
 
     private func downloadLyrics(id: String, accessKey: String) async throws -> String {
@@ -124,10 +111,7 @@ struct KugouProvider: LyricsProvider {
         ]
         guard let url = components.url else { throw LyricsError.invalidURL }
 
-        let (data, response) = try await URLSession.shared.data(for: URLRequest(url: url))
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            throw LyricsError.notFound
-        }
+        let data = try await LyricsHTTP.get(URLRequest(url: url))
         guard let decoded = try? JSONDecoder().decode(DownloadLyricsResponse.self, from: data),
               let decodedData = Data(base64Encoded: decoded.content),
               let text = String(data: decodedData, encoding: .utf8) else {

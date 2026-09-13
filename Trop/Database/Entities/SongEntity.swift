@@ -47,3 +47,46 @@ struct SongEntity: Codable, Hashable, FetchableRecord, PersistableRecord {
         case modifyDate = "modify_date"
     }
 }
+
+// swiftlint:disable function_parameter_count
+extension SongEntity {
+    /// Merges freshly fetched metadata over the stored row, preserving user
+    /// state (liked, play time, library flags, tokens, original createDate).
+    /// Unknown incoming values (empty title parts, zero duration, nil artwork)
+    /// fall back to the stored row instead of wiping it.
+    static func merging(
+        existing: SongEntity?,
+        id: String,
+        title: String,
+        artistName: String?,
+        albumName: String?,
+        duration: Int,
+        thumbnailUrl: String?,
+        liked: Bool = false,
+        libraryAddToken: String = "",
+        libraryRemoveToken: String = "",
+        isEpisode: Bool = false,
+        isUploaded: Bool = false,
+        isVideo: Bool = false
+    ) -> SongEntity {
+        SongEntity(
+            id: id,
+            title: title,
+            artistName: existing?.artistName ?? artistName,
+            albumName: existing?.albumName ?? albumName,
+            duration: duration > 0 ? duration : existing?.duration ?? 0,
+            thumbnailUrl: thumbnailUrl ?? existing?.thumbnailUrl,
+            liked: existing?.liked ?? liked,
+            totalPlayTime: existing?.totalPlayTime ?? 0,
+            inLibrary: existing?.inLibrary,
+            libraryAddToken: existing?.libraryAddToken ?? libraryAddToken,
+            libraryRemoveToken: existing?.libraryRemoveToken ?? libraryRemoveToken,
+            isEpisode: existing?.isEpisode ?? isEpisode,
+            isUploaded: existing?.isUploaded ?? isUploaded,
+            isVideo: existing?.isVideo ?? isVideo,
+            createDate: existing?.createDate ?? Date(),
+            modifyDate: Date()
+        )
+    }
+}
+// swiftlint:enable function_parameter_count

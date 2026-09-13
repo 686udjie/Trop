@@ -347,25 +347,12 @@ struct SearchView: View {
                         Button {
                             router.searchPath.append(DetailRoute.album(browseId: album.browseId))
                         } label: {
-                            VStack(alignment: .leading, spacing: 4) {
-                                AsyncImageView(url: album.thumbnailUrl)
-                                    .frame(width: 140, height: 140)
-                                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                                Text(album.title)
-                                    .font(.caption)
-                                    .fontWeight(.medium)
-                                    .foregroundStyle(.primary)
-                                    .lineLimit(2)
-                                    .frame(width: 140, alignment: .leading)
-                                let names = album.artists.map(\.name).joined(separator: ", ")
-                                if !names.isEmpty {
-                                    Text(names)
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(1)
-                                        .frame(width: 140, alignment: .leading)
-                                }
-                            }
+                            MediaGridCell(
+                                thumbnailUrl: album.thumbnailUrl,
+                                title: album.title,
+                                subtitle: album.artists.map(\.name).joined(separator: ", "),
+                                size: 140
+                            )
                         }
                         .buttonStyle(.plain)
                     }
@@ -430,32 +417,10 @@ struct SearchView: View {
     }
 
     private func handleItemTap(_ item: YTItem) {
-        switch item {
-        case .song(let s):
-            NowPlaying.shared.setQueue([s], startIndex: 0)
-            playVideo(videoId: s.videoId)
-            Task {
-                guard let radio = try? await PersonalizationService.shared.fetchRadio(videoId: s.videoId),
-                      radio.songs.count > 1 else { return }
-                guard NowPlaying.shared.videoId == s.videoId else { return }
-                NowPlaying.shared.queueSongs = radio.songs
-                NowPlaying.shared.queueIndex = radio.currentIndex
-            }
-        case .episode(let e): playVideo(videoId: e.videoId)
-        case .album(let a):   router.searchPath.append(DetailRoute.album(browseId: a.browseId))
-        case .artist(let a):  router.searchPath.append(DetailRoute.artist(browseId: a.browseId))
-        case .playlist(let p): router.searchPath.append(DetailRoute.playlist(playlistId: p.id))
-        case .podcast(let p): router.searchPath.append(DetailRoute.podcast(browseId: p.browseId))
-        }
-    }
-
-    private func playVideo(videoId: String) {
-        Task {
-            do {
-                try await PlaybackManager.shared.resolveAndPlay(videoId: videoId)
-            } catch {
-                Log.searchView.error("Playback failed: \(error)")
-            }
-        }
+        YTItemRouter.route(
+            item,
+            playSong: { PlaybackQueue.playSingleWithRadio($0, log: Log.searchView) },
+            appendRoute: { router.searchPath.append($0) }
+        )
     }
 }

@@ -9,13 +9,7 @@ import Foundation
 
 enum HomePageParser {
     static func parseHomePage(from json: [String: Any]) -> HomePage? {
-        guard let contents = json["contents"] as? [String: Any],
-              let singleColumn = contents["singleColumnBrowseResultsRenderer"] as? [String: Any],
-              let tabs = singleColumn["tabs"] as? [[String: Any]],
-              let firstTab = tabs.first,
-              let tabRenderer = firstTab["tabRenderer"] as? [String: Any],
-              let content = tabRenderer["content"] as? [String: Any],
-              let sectionList = content["sectionListRenderer"] as? [String: Any] else {
+        guard let sectionList = BrowseLens.sectionList(json) else {
             return nil
         }
 
@@ -49,7 +43,7 @@ extension HomePageParser {
         }
         return chips.compactMap { chipDict in
             guard let chipRenderer = chipDict["chipCloudChipRenderer"] as? [String: Any] else { return nil }
-            let title = extractRunsText(chipRenderer["text"] as? [String: Any]) ?? ""
+            let title = InnerTubeJSON.runsText(chipRenderer["text"] as? [String: Any]) ?? ""
             let nav = chipRenderer["navigationEndpoint"] as? [String: Any]
             let params = (nav?["browseEndpoint"] as? [String: Any])?["params"] as? String
             let deselect = chipRenderer["onDeselectedCommand"] as? [String: Any]
@@ -75,11 +69,11 @@ extension HomePageParser {
     static func parseCarouselSection(from carousel: [String: Any]) -> HomePage.Section? {
         guard let header = carousel["header"] as? [String: Any],
               let basicHeader = header["musicCarouselShelfBasicHeaderRenderer"] as? [String: Any],
-              let title = extractRunsText(basicHeader["title"] as? [String: Any]) else {
+              let title = InnerTubeJSON.runsText(basicHeader["title"] as? [String: Any]) else {
             return nil
         }
 
-        let label = extractRunsText(basicHeader["strapline"] as? [String: Any])
+        let label = InnerTubeJSON.runsText(basicHeader["strapline"] as? [String: Any])
         let thumbnailUrl = extractHeaderThumbnail(basicHeader)
         let browseEndpoint = extractBrowseEndpoint(basicHeader)
         let items = parseItems(from: carousel["contents"] as? [[String: Any]] ?? [])
@@ -146,13 +140,7 @@ extension HomePageParser {
             Log.explore.error("Explore parse failed: missing contents, top keys=\(json.keys.sorted())")
             return []
         }
-        guard let singleColumn = contents["singleColumnBrowseResultsRenderer"] as? [String: Any],
-              let tabs = singleColumn["tabs"] as? [[String: Any]],
-              let firstTab = tabs.first,
-              let tabRenderer = firstTab["tabRenderer"] as? [String: Any],
-              let content = tabRenderer["content"] as? [String: Any],
-              let sectionList = content["sectionListRenderer"] as? [String: Any],
-              let sections = sectionList["contents"] as? [[String: Any]] else {
+        guard let sections = BrowseLens.browseSections(json) else {
             Log.explore.error("Explore parse failed: bad section path, contents keys=\(contents.keys.sorted())")
             return []
         }
@@ -213,7 +201,7 @@ extension HomePageParser {
     ) -> ExploreSection? {
         guard let header = carousel["header"] as? [String: Any],
               let basicHeader = header["musicCarouselShelfBasicHeaderRenderer"] as? [String: Any],
-              let title = extractRunsText(basicHeader["title"] as? [String: Any]) else {
+              let title = InnerTubeJSON.runsText(basicHeader["title"] as? [String: Any]) else {
             Log.explore.debug("Explore section[\(index)] carousel skipped: no basic header")
             return nil
         }
@@ -273,21 +261,21 @@ extension HomePageParser {
     private static func shelfTitle(_ shelf: [String: Any]) -> String? {
         guard let header = shelf["header"] as? [String: Any],
               let basicHeader = header["musicShelfHeaderRenderer"] as? [String: Any] else { return nil }
-        return extractRunsText(basicHeader["title"] as? [String: Any])
+        return InnerTubeJSON.runsText(basicHeader["title"] as? [String: Any])
     }
 
     /// Best-effort mood shortcut parsing (title + category params).
     /// Raw item keys are logged so unknown shapes can be mapped later.
     private static func parseMood(from item: [String: Any], sectionIndex: Int) -> MoodItem? {
         if let twoRow = item["musicTwoRowItemRenderer"] as? [String: Any] {
-            let title = extractRunsText(twoRow["title"] as? [String: Any])
+            let title = InnerTubeJSON.runsText(twoRow["title"] as? [String: Any])
             let params = moodParams(from: twoRow["navigationEndpoint"] as? [String: Any])
             if let title {
                 return MoodItem(title: title, params: params)
             }
         }
         if let button = item["musicNavigationButtonRenderer"] as? [String: Any] {
-            let title = extractRunsText(button["buttonText"] as? [String: Any])
+            let title = InnerTubeJSON.runsText(button["buttonText"] as? [String: Any])
             let params = moodParams(from: button["clickCommand"] as? [String: Any])
             if let title {
                 return MoodItem(title: title, params: params)
@@ -364,9 +352,4 @@ extension HomePageParser {
               let token = nextContinuation["continuation"] as? String else { return nil }
         return token
     }
-}
-
-private func extractRunsText(_ dict: [String: Any]?) -> String? {
-    guard let runs = dict?["runs"] as? [[String: Any]], let first = runs.first else { return nil }
-    return first["text"] as? String
 }

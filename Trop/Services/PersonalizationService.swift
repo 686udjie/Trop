@@ -21,7 +21,7 @@ actor PersonalizationService {
             return .quickPicks(items: [])
         }
         let picked = songs.shuffled().prefix(max(limit, 1))
-        let initialItems = picked.map { YTItem.song(SongItem(entity: $0)) }
+        let initialItems = picked.toSongItems().map(YTItem.song)
         let section = HomeSection.quickPicks(items: Array(initialItems))
         let task = Task { [weak self] in
             guard let self else { return }
@@ -67,11 +67,7 @@ actor PersonalizationService {
         for entity in songs where entity.title.isEmpty {
             guard let metadata = try? await fetchSongMetadata(videoId: entity.id),
                   !metadata.title.isEmpty else { continue }
-            var enriched = entity
-            enriched.title = metadata.title
-            enriched.artistName = metadata.artistName ?? enriched.artistName
-            enriched.thumbnailUrl = metadata.thumbnailUrl ?? enriched.thumbnailUrl
-            if enriched.duration == 0 { enriched.duration = metadata.duration }
+            var enriched = SongEnrichment.merging(entity, with: metadata)
             enriched.modifyDate = Date()
             try? await db.save(enriched)
         }
@@ -81,7 +77,7 @@ actor PersonalizationService {
         guard let songs = try? await db.fetchForgottenFavorites(days: 60, limit: 10), !songs.isEmpty else {
             return .forgottenFavorites(items: [])
         }
-        let initialItems = songs.map { YTItem.song(SongItem(entity: $0)) }
+        let initialItems = songs.toSongItems().map(YTItem.song)
         let section = HomeSection.forgottenFavorites(items: initialItems)
         let task = Task { [weak self] in
             guard let self else { return }
@@ -99,11 +95,7 @@ actor PersonalizationService {
         for entity in toEnrich {
             guard let metadata = try? await fetchSongMetadata(videoId: entity.id),
                   !metadata.title.isEmpty else { continue }
-            var enriched = entity
-            enriched.title = metadata.title
-            enriched.artistName = metadata.artistName ?? enriched.artistName
-            enriched.thumbnailUrl = metadata.thumbnailUrl ?? enriched.thumbnailUrl
-            if enriched.duration == 0 { enriched.duration = metadata.duration }
+            var enriched = SongEnrichment.merging(entity, with: metadata)
             enriched.modifyDate = Date()
             try? await db.save(enriched)
             didEnrich = true
@@ -230,13 +222,6 @@ actor PersonalizationService {
         for task in tasks { await task.value }
     }
 
-    private struct SongMetadata {
-        let title: String
-        let artistName: String?
-        let thumbnailUrl: String?
-        let duration: Int
-    }
-
     private func fetchSongMetadata(videoId: String) async throws -> SongMetadata? {
         let json: [String: Any]
         do {
@@ -255,7 +240,7 @@ actor PersonalizationService {
             thumbnailUrl = list.last?["url"] as? String
         }
         guard !title.isEmpty else { return nil }
-        return SongMetadata(title: title, artistName: author, thumbnailUrl: thumbnailUrl, duration: duration)
+        return SongMetadata(title: title, artistName: author, thumbnailUrl: thumbnailUrl, duration: duration, albumName: nil)
     }
 
     private func isLoggedIn() async -> Bool {
@@ -327,10 +312,10 @@ actor PersonalizationService {
 
     private func parsePlaylistPanelVideoRenderer(_ renderer: [String: Any]) -> SongItem? {
         guard let vid = renderer["videoId"] as? String else { return nil }
-        let title = extractRunsText(renderer["title"] as? [String: Any]) ?? "Unknown"
-        let bylineRuns = extractRawRuns(renderer["longBylineText"] as? [String: Any] ?? renderer["shortBylineText"] as? [String: Any])
+        let title = InnerTubeJSON.runsText(renderer["title"] as? [String: Any]) ?? "Unknown"
+        let bylineRuns = InnerTubeJSON.rawRuns(renderer["longBylineText"] as? [String: Any] ?? renderer["shortBylineText"] as? [String: Any])
         let artists = parseArtists(from: bylineRuns)
-        let thumbnail = extractThumbnailFrom(renderer["thumbnail"] as? [String: Any])
+        let thumbnail = InnerTubeJSON.nestedThumbnailURL(renderer)
         let duration = parseDurationFromRenderer(renderer)
         return SongItem(videoId: vid, title: title, artists: artists, duration: duration, thumbnailUrl: thumbnail, isExplicit: false)
     }
@@ -379,14 +364,7 @@ actor PersonalizationService {
     }
 
     private func extractCommunityPlaylists(from json: [String: Any]) -> [ParsedPlaylist] {
-        guard let contents = json["contents"] as? [String: Any],
-              let singleColumn = contents["singleColumnBrowseResultsRenderer"] as? [String: Any],
-              let tabs = singleColumn["tabs"] as? [[String: Any]],
-              let firstTab = tabs.first,
-              let tabRenderer = firstTab["tabRenderer"] as? [String: Any],
-              let content = tabRenderer["content"] as? [String: Any],
-              let sectionList = content["sectionListRenderer"] as? [String: Any],
-              let sections = sectionList["contents"] as? [[String: Any]] else { return [] }
+        guard let sections = BrowseLens.browseSections(json) else { return [] }
 
         var playlists: [ParsedPlaylist] = []
         for section in sections {
@@ -416,14 +394,7 @@ actor PersonalizationService {
     }
 
     private func parseRelatedItems(from json: [String: Any]) -> [YTItem]? {
-        guard let contents = json["contents"] as? [String: Any],
-              let singleColumn = contents["singleColumnBrowseResultsRenderer"] as? [String: Any],
-              let tabs = singleColumn["tabs"] as? [[String: Any]],
-              let firstTab = tabs.first,
-              let tabRenderer = firstTab["tabRenderer"] as? [String: Any],
-              let content = tabRenderer["content"] as? [String: Any],
-              let sectionList = content["sectionListRenderer"] as? [String: Any],
-              let sections = sectionList["contents"] as? [[String: Any]] else { return nil }
+        guard let sections = BrowseLens.browseSections(json) else { return nil }
 
         var items: [YTItem] = []
         for section in sections {
@@ -440,27 +411,4 @@ actor PersonalizationService {
         }
         return items.isEmpty ? nil : items
     }
-}
-
-private func extractRunsText(_ dict: [String: Any]?) -> String? {
-    guard let runs = dict?["runs"] as? [[String: Any]], let first = runs.first else { return nil }
-    return first["text"] as? String
-}
-
-private func extractRunsTextArray(_ dict: [String: Any]?) -> [String] {
-    guard let runs = dict?["runs"] as? [[String: Any]] else { return [] }
-    return runs.compactMap { $0["text"] as? String }
-        .filter { $0 != " • " && !$0.trimmingCharacters(in: .whitespaces).isEmpty }
-}
-
-private func extractThumbnailFrom(_ dict: [String: Any]?) -> String? {
-    guard let thumb = dict?["thumbnails"] as? [[String: Any]],
-          let last = thumb.last,
-          let url = last["url"] as? String else { return nil }
-    return url
-}
-
-private func extractRawRuns(_ dict: [String: Any]?) -> [[String: Any]] {
-    guard let runs = dict?["runs"] as? [[String: Any]] else { return [] }
-    return runs
 }
