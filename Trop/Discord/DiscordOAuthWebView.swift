@@ -194,18 +194,17 @@ private struct WebViewContainer: UIViewRepresentable {
         }
 
         private func handleCallback(url: URL) {
-            Log.discord.info("handleCallback: \(url.absoluteString)")
             guard let comps = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
                 Log.discord.error("bad callback URL")
                 onComplete(false)
                 return
             }
             let items = comps.queryItems ?? []
+            Log.discord.info("handleCallback params=\(items.map(\.name).sorted().joined(separator: ","))")
             if let error = items.first(where: { $0.name == "error" })?.value, !error.isEmpty {
                 let rawDesc = items.first(where: { $0.name == "error_description" })?.value ?? error
                 let desc = rawDesc.removingPercentEncoding?.replacingOccurrences(of: "+", with: " ") ?? rawDesc
-                Log.discord.error(
-                    "OAuth error: \(error) desc=\(desc) url=\(url.absoluteString)")
+                Log.discord.error("OAuth error: \(error) desc=\(desc)")
                 Log.discord.error("Hint: scope='\(DiscordDefaults.scopes)' appId=\(DiscordDefaults.appId) - check Developer Portal")
                 if error == "invalid_scope", !hasRetriedFallback, DiscordDefaults.scopes == "openid sdk.social_layer_presence" {
                     Log.discord.warning("invalid_scope with primary scopes — retrying with fallback '\(DiscordDefaults.scopesFallback)'")

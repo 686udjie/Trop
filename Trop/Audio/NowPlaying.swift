@@ -319,6 +319,10 @@ final class NowPlaying {
             return
         }
         currentTime = duration
+        if let finishedId = videoId,
+           duration >= 600 || musicVideoType == "MUSIC_VIDEO_TYPE_PODCAST_EPISODE" {
+            Task { await EpisodePlaybackStore.shared.markPlayed(videoId: finishedId) }
+        }
         if isRepeatOn {
             repeatCurrent()
             return
@@ -512,6 +516,14 @@ final class NowPlaying {
         currentTime = PlayerController.shared.currentTime
         duration = PlayerController.shared.duration
         PlayerController.shared.updateNowPlayingProgress()
+        if let videoId, duration >= 600 || musicVideoType == "MUSIC_VIDEO_TYPE_PODCAST_EPISODE" {
+            let vid = videoId
+            let pos = currentTime
+            let dur = duration
+            Task {
+                await EpisodePlaybackStore.shared.savePosition(videoId: vid, position: pos, duration: dur)
+            }
+        }
     }
 
     private func stopTimer() {

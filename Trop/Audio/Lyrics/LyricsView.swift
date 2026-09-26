@@ -20,13 +20,11 @@ struct LyricsView<ProgressSlider: View>: View {
     @ViewBuilder var progressSlider: () -> ProgressSlider
 
     @State private var lines: [LyricLine] = []
-    @State private var isLoading = false
     @State private var activeIndex: Int = 0
     @State private var isFullscreen = false
     @State private var displayTime: TimeInterval = 0
     @State private var showSongMenu = false
     @State private var instrumentalGaps: [InstrumentalGap] = []
-    @State private var allLines: [LyricLine] = []
     @State private var romanizedLines: [String?] = []
 
     struct InstrumentalGap {
@@ -38,7 +36,6 @@ struct LyricsView<ProgressSlider: View>: View {
     // MARK: - Auto-scroll & Re-sync
 
     @State private var isAutoScrollEnabled = true
-    @State private var visibleLineID: LyricLine.ID?
     @State private var userHasScrolled = false
     @State private var scrollProxy: ScrollViewProxy?
 
@@ -83,37 +80,13 @@ struct LyricsView<ProgressSlider: View>: View {
 
     private var lyricsBody: some View {
         Group {
-            if isLoading {
-                lyricsLoadingView
-            } else if lines.isEmpty {
-                VStack(spacing: 12) {
-                    Image(systemName: "quote.bubble")
-                        .font(.largeTitle)
-                        .foregroundStyle(.white.opacity(0.5))
-                    Text("No lyrics available")
-                        .font(.subheadline)
-                        .foregroundStyle(.white.opacity(0.7))
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            if lines.isEmpty {
+                EmptyView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 lyricsContentView
             }
         }
-    }
-
-    // MARK: - Loading Spinner
-
-    private var lyricsLoadingView: some View {
-        VStack(spacing: 16) {
-            ProgressView()
-                .tint(.white)
-                .scaleEffect(1.2)
-
-            Text(LyricsState.shared.providerName.map { "Lyrics from \($0)" } ?? "Searching for lyrics…")
-                .font(.subheadline)
-                .foregroundStyle(.white.opacity(0.7))
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: - Lyrics Content
@@ -146,7 +119,6 @@ struct LyricsView<ProgressSlider: View>: View {
                         .padding(.vertical, 8)
                     }
                     .scrollIndicators(.hidden)
-                    .scrollPosition(id: $visibleLineID)
                     .onScrollPhaseChange { _, newPhase in
                         if newPhase == .tracking || newPhase == .interacting {
                             pauseAutoScroll()
@@ -162,7 +134,7 @@ struct LyricsView<ProgressSlider: View>: View {
                 }
             }
 
-            if userHasScrolled && !isLoading && !lines.isEmpty {
+            if userHasScrolled && !lines.isEmpty {
                 resyncButton
             }
         }
@@ -388,12 +360,15 @@ struct LyricsView<ProgressSlider: View>: View {
         }.value
     }
 
-    /// Fires every 50 ms so letter-sync progress is smooth regardless of NowPlaying update rate.
+    /// Fires on an adaptive cadence so letter-sync stays smooth while playing
     private func runDisplayTimer() async {
         while !Task.isCancelled {
+            let playing = np.isPlaying
+            let hasSynced = lines.contains { $0.startTime != nil }
+            let interval: UInt64 = (playing && hasSynced) ? 120_000_000 : 500_000_000
             let t = np.currentTime
             if t != displayTime { displayTime = t }
-            try? await Task.sleep(for: .milliseconds(50))
+            try? await Task.sleep(nanoseconds: interval)
         }
     }
 
@@ -486,7 +461,8 @@ struct LyricsView<ProgressSlider: View>: View {
                 showLyrics: $showLyrics,
                 showQueue: $showQueue,
                 isRepeatOn: $isRepeatOn,
-                onRepeat: {}
+                onRepeat: {},
+                lyricsAvailable: true
             )
         }
         .padding(.top, 16)
@@ -507,34 +483,23 @@ struct LyricsView<ProgressSlider: View>: View {
             lines = []
             return
         }
-        isLoading = true
         lines = []
-        allLines = []
         instrumentalGaps = []
         activeIndex = 0
         isAutoScrollEnabled = true
         userHasScrolled = false
         LyricsState.shared.providerName = nil
 
-        // Keep waiting for lyrics — they can be matched/published late.
-        // Retries every 15s until found or the song changes (.task(id:) cancels us).
-        while !Task.isCancelled {
-            do {
-                let result = try await LyricsService.shared.fetchLyrics(videoId: videoId)
-                if !result.isEmpty {
-                    let withoutMarkers = result.filter { !Self.isInstrumentalMarker($0) }
-                    allLines = result
-                    lines = withoutMarkers.isEmpty ? result : withoutMarkers
-                    instrumentalGaps = detectGaps(in: result)
-                    isLoading = false
-                    updateActiveLine()
-                    await rebuildRomanization()
-                    return
-                }
-            } catch {
-                // Keep waiting
-            }
-            try? await Task.sleep(for: .seconds(15))
+        guard !Task.isCancelled else { return }
+        do {
+            let result = try await LyricsService.shared.fetchLyrics(videoId: videoId)
+            guard !result.isEmpty else { return }
+            let withoutMarkers = result.filter { !Self.isInstrumentalMarker($0) }
+            lines = withoutMarkers.isEmpty ? result : withoutMarkers
+            instrumentalGaps = detectGaps(in: result)
+            updateActiveLine()
+            await rebuildRomanization()
+        } catch {
         }
     }
 

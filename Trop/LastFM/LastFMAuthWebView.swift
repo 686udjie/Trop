@@ -90,7 +90,7 @@ struct LastFMAuthWebView: View {
             }
             .task { await fetchToken() }
             .onAppear {
-                Log.lastfm.info("OAuth WebView loading: \(authUrl ?? "")")
+                Log.lastfm.info("OAuth WebView loading host=\(authUrl.flatMap { URL(string: $0)?.host } ?? "last.fm")")
             }
             .onDisappear {
                 pollingTask?.cancel()
@@ -117,7 +117,7 @@ struct LastFMAuthWebView: View {
                 self.token = tok
                 self.authUrl = LastFMDefaults.authUrl(token: tok)
                 self.isLoadingToken = false
-                Log.lastfm.info("LastFM auth URL: \(self.authUrl ?? "")")
+                Log.lastfm.info("LastFM auth token issued, loading approval page")
                 startPolling()
             }
         } catch {

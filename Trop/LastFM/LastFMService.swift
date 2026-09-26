@@ -103,12 +103,15 @@ final class LastFMService: @unchecked Sendable {
     }
 
     private func perform<T: Decodable>(_ params: [String: String], decode: T.Type) async throws -> T {
+        let method = params["method"] ?? "?"
+        Log.lastfm.debug("LastFM \(method) params=\(Self.redactedParams(params))")
         let req = try makeRequest(params: params)
         let data: Data
         let httpResponse: HTTPURLResponse
         do {
             (data, httpResponse) = try await HttpClient.data(for: req)
         } catch {
+            Log.lastfm.error("LastFM \(method) transport error: \(error.localizedDescription)")
             throw LastFMError.network(error)
         }
         let status = httpResponse.statusCode
@@ -120,14 +123,17 @@ final class LastFMService: @unchecked Sendable {
             if errorObj.error == 14 {
                 throw LastFMError.unauthorizedToken
             }
+            Log.lastfm.error("LastFM \(method) apiError=\(errorObj.error) msg=\(errorObj.message)")
             throw LastFMError.api(errorObj.error, errorObj.message)
         }
 
         if !(200...299).contains(status) {
             // Try to decode error
             if let err = try? JSONDecoder().decode(LastFMErrorResponse.self, from: data) {
+                Log.lastfm.error("LastFM \(method) status=\(status) apiError=\(err.error) msg=\(err.message)")
                 throw LastFMError.api(err.error, err.message)
             }
+            Log.lastfm.error("LastFM \(method) http=\(status) body=\(bodyStr.prefix(300))")
             throw LastFMError.http(status, bodyStr)
         }
 
@@ -138,10 +144,20 @@ final class LastFMService: @unchecked Sendable {
             if bodyStr.contains("\"error\""),
                let err = try? JSONDecoder().decode(LastFMErrorResponse.self, from: data) {
                 if err.error == 14 { throw LastFMError.unauthorizedToken }
+                Log.lastfm.error("LastFM \(method) apiError=\(err.error) msg=\(err.message)")
                 throw LastFMError.api(err.error, err.message)
             }
+            Log.lastfm.error("LastFM \(method) decode failed body=\(bodyStr.prefix(300))")
             throw LastFMError.network(error)
         }
+    }
+
+    private static let sensitiveParamKeys: Set<String> = ["password", "token", "sk", "api_sig"]
+
+    private static func redactedParams(_ params: [String: String]) -> String {
+        params.keys.sorted().map { key in
+            sensitiveParamKeys.contains(key) ? "\(key)=<redacted>" : "\(key)=\(params[key] ?? "")"
+        }.joined(separator: "&")
     }
 
     // MARK: - Public API
@@ -277,9 +293,11 @@ final class LastFMService: @unchecked Sendable {
             let (data, resp) = try await URLSession.shared.data(for: req)
             let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
             guard (200...299).contains(status) else {
+                Log.lastfm.warning("fetchAvatarURL: http=\(status) user=\(trimmed)")
                 return nil
             }
             if let err = try? JSONDecoder().decode(LastFMErrorResponse.self, from: data), err.error != 0 {
+                Log.lastfm.warning("fetchAvatarURL: apiError=\(err.error) msg=\(err.message)")
                 return nil
             }
             let decoded = try JSONDecoder().decode(UserGetInfoResponse.self, from: data)
@@ -293,8 +311,10 @@ final class LastFMService: @unchecked Sendable {
             if let any = images.first(where: { !$0.text.isEmpty }) {
                 return URL(string: any.text)
             }
+            Log.lastfm.debug("fetchAvatarURL: no image for user=\(trimmed)")
             return nil
         } catch {
+            Log.lastfm.warning("fetchAvatarURL failed: \(error.localizedDescription)")
             return nil
         }
     }

@@ -893,17 +893,6 @@ extension PlayerController {
         }
     }
 
-    private func logBackgroundSnapshot(_ phase: String) {
-        let session = AVAudioSession.sharedInstance()
-        let info = MPNowPlayingInfoCenter.default().nowPlayingInfo
-        Log.player.info(
-            "BG_SNAPSHOT[\(phase)] state=\(playState.value) " +
-            "title=\(nowPlayingInfo[MPMediaItemPropertyTitle] ?? "-") " +
-            "infoKeys=\(info?.keys.count ?? 0) rate=\(info?[MPNowPlayingInfoPropertyPlaybackRate] ?? "-") " +
-            "category=\(session.category.rawValue)"
-        )
-    }
-
     private func observeInterruptions() {
         NotificationCenter.default.addObserver(
             self,
@@ -1027,18 +1016,7 @@ extension PlayerController {
         info[MPNowPlayingInfoPropertyPlaybackQueueCount] = np.queueSongs.count
         nowPlayingInfo = info
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
-
-        if UIApplication.shared.applicationState != .active,
-           Date().timeIntervalSince(Self.lastBackgroundHeartbeat) > 2 {
-            Self.lastBackgroundHeartbeat = Date()
-            Log.player.info(
-                "BG_HEARTBEAT appState=\(UIApplication.shared.applicationState.rawValue) " +
-                "playing=\(np.isPlaying) pos=\(props.pos) keys=\(info.keys.count)"
-            )
-        }
     }
-
-    private static var lastBackgroundHeartbeat = Date.distantPast
 }
 
 // MARK: - Remote commands
@@ -1109,37 +1087,19 @@ extension PlayerController {
         }
 
         NotificationCenter.default.addObserver(
-            forName: UIApplication.willResignActiveNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.logBackgroundSnapshot("resignActive") }
-        }
-        NotificationCenter.default.addObserver(
             forName: UIApplication.didEnterBackgroundNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
             guard let self else { return }
-            MainActor.assumeIsolated {
-                self.logBackgroundSnapshot("enterBackground")
-            }
             for delaySeconds in [0.6, 3] as [Double] {
                 Task { @MainActor [weak self] in
                     try? await Task.sleep(nanoseconds: UInt64(delaySeconds * 1_000_000_000))
                     guard let self, UIApplication.shared.applicationState != .active else { return }
                     self.setNowPlayingMetadata()
                     self.updateNowPlayingProgress()
-                    Log.player.info("BG_REPUBLISH after=\(delaySeconds)s")
                 }
             }
-        }
-        NotificationCenter.default.addObserver(
-            forName: UIApplication.didBecomeActiveNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.logBackgroundSnapshot("becomeActive") }
         }
     }
 }

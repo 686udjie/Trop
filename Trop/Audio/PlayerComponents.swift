@@ -101,6 +101,8 @@ struct SecondaryActionsRow: View {
     @Binding var showQueue: Bool
     @Binding var isRepeatOn: Bool
     let onRepeat: () -> Void
+    /// Greyed out until lyrics are confirmed for the current song
+    var lyricsAvailable: Bool = true
 
     var body: some View {
         HStack(spacing: 0) {
@@ -110,12 +112,14 @@ struct SecondaryActionsRow: View {
             } label: {
                 Image(systemName: "quote.bubble")
                     .font(.title3)
-                    .foregroundStyle(showLyrics ? .white : .white.opacity(0.7))
+                    .foregroundStyle(showLyrics ? .white : .white.opacity(lyricsAvailable ? 0.7 : 0.3))
                     .padding(10)
                     .background(showLyrics ? Circle().fill(.white.opacity(0.15)) : Circle().fill(.clear))
             }
             .frame(maxWidth: .infinity)
-            .accessibilityLabel("Lyrics")
+            .disabled(!lyricsAvailable)
+            .opacity(lyricsAvailable ? 1 : 0.4)
+            .accessibilityLabel(lyricsAvailable ? "Lyrics" : "Lyrics unavailable")
 
             Button {
                 // airplay, handled by overlay

@@ -24,7 +24,10 @@ func presentShareSheet(items: [Any], afterDismiss dismiss: (() -> Void)? = nil) 
     }
     if let dismiss {
         dismiss()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: present)
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(300))
+            present()
+        }
     } else {
         present()
     }

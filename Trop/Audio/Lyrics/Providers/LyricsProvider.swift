@@ -8,7 +8,7 @@
 import Foundation
 
 /// A normalized query used to look up lyrics across providers
-struct LyricsQuery {
+struct LyricsQuery: Sendable {
     let title: String
     let artist: String
     let album: String?

@@ -297,6 +297,10 @@ final class SettingsStore {
         didSet { Self.defaults.set(autoDownloadOnLike, forKey: Keys.autoDownloadOnLike) }
     }
 
+    var autoDownloadNewEpisodes: Bool {
+        didSet { Self.defaults.set(autoDownloadNewEpisodes, forKey: Keys.autoDownloadNewEpisodes) }
+    }
+
     // MARK: - Sync
 
     var syncArtists: Bool {
@@ -339,6 +343,7 @@ final class SettingsStore {
         static let downloadQuality = "settings.downloadQuality"
         static let wifiOnlyDownloads = "settings.wifiOnlyDownloads"
         static let autoDownloadOnLike = "settings.autoDownloadOnLike"
+        static let autoDownloadNewEpisodes = "settings.autoDownloadNewEpisodes"
         static let syncArtists = "settings.syncArtists"
         static let syncPlaylists = "settings.syncPlaylists"
     }
@@ -397,6 +402,7 @@ final class SettingsStore {
         downloadQuality = Self.loadEnum(Keys.downloadQuality, default: .auto)
         wifiOnlyDownloads = Self.load(Keys.wifiOnlyDownloads, default: false)
         autoDownloadOnLike = Self.load(Keys.autoDownloadOnLike, default: false)
+        autoDownloadNewEpisodes = Self.load(Keys.autoDownloadNewEpisodes, default: false)
         syncArtists = Self.load(Keys.syncArtists, default: true)
         syncPlaylists = Self.load(Keys.syncPlaylists, default: true)
     }

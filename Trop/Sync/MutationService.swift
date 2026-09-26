@@ -86,7 +86,7 @@ actor MutationService {
                 SongEnrichment.skeleton(id: id, liked: false),
                 with: metadata
             )
-            try? await db.insert(repaired, onConflict: .ignore)
+            _ = try? await db.insert(repaired, onConflict: .ignore)
         }
     }
 

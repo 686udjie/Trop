@@ -84,6 +84,13 @@ class DownloadManager: ObservableObject {
             || currentPath.usesInterfaceType(.wiredEthernet) == true
     }
 
+    // MARK: - Filename
+
+    func fileURL(forVideoId videoId: String) -> URL {
+        ensureDirectories()
+        return downloadsDir.appendingPathComponent(videoId + ".m4a")
+    }
+
     /// AAC transcode bitrate for the download quality preference.
     nonisolated static func transcodeBitrate(for quality: DownloadQuality) -> Int {
         switch quality {
@@ -102,6 +109,25 @@ extension DownloadManager {
             Log.downloadManager.debug("Download already in progress for \(videoId)")
             return
         }
+        if let existing = await localURL(for: videoId) {
+            let values = try? existing.resourceValues(forKeys: [.fileSizeKey])
+            if (values?.fileSize ?? 0) >= 8_192 {
+                downloads[videoId] = .completed
+                downloadedVideoIds.insert(videoId)
+                persistedDownloadCount = downloadedVideoIds.count
+                objectWillChange.send()
+                return
+            }
+        }
+
+        var bgTask: UIBackgroundTaskIdentifier = .invalid
+        bgTask = UIApplication.shared.beginBackgroundTask(withName: "trop-download-\(videoId)") {
+            UIApplication.shared.endBackgroundTask(bgTask)
+            bgTask = .invalid
+        }
+        defer {
+            if bgTask != .invalid { UIApplication.shared.endBackgroundTask(bgTask) }
+        }
 
         cancelledDownloadIds.remove(videoId)
         lastReportedProgress.removeValue(forKey: videoId)
@@ -118,9 +144,7 @@ extension DownloadManager {
         setProgress(0.02, for: videoId)
 
         do {
-            let fileURL = downloadsDir.appendingPathComponent(
-                sanitizedFileName("\(artist) - \(song.title).m4a")
-            )
+            let fileURL = fileURL(forVideoId: videoId)
             if fileManager.fileExists(atPath: fileURL.path) {
                 try? fileManager.removeItem(at: fileURL)
             }
@@ -474,20 +498,20 @@ extension DownloadManager {
             return storedURL
         }
 
-        let currentURL = downloadsDir.appendingPathComponent(
-            sanitizedFileName("\(entity.artist) - \(entity.title).m4a")
-        )
-        if fileManager.fileExists(atPath: currentURL.path) {
-            Log.downloadManager.debug("localURL: \(videoId) resolved via current downloadsDir")
+        // Canonical `<videoId>.m4a` path — covers DB rows written before the
+        // stored path was backfilled.
+        let canonicalURL = fileURL(forVideoId: videoId)
+        if fileManager.fileExists(atPath: canonicalURL.path) {
+            Log.downloadManager.debug("localURL: \(videoId) resolved via canonical videoId path")
             try? await DatabaseService.shared.write { db in
                 var updated = entity
-                updated.localPath = currentURL.path
+                updated.localPath = canonicalURL.path
                 try updated.update(db)
             }
-            return currentURL
+            return canonicalURL
         }
 
-        Log.downloadManager.debug("localURL: \(videoId) file not found (stored=\(entity.localPath), current=\(currentURL.path))")
+        Log.downloadManager.debug("localURL: \(videoId) file not found (stored=\(entity.localPath))")
         return nil
     }
 
@@ -673,12 +697,6 @@ extension DownloadManager {
         let title: String
         let artist: String
         let artworkData: Data?
-    }
-
-    private func sanitizedFileName(_ s: String) -> String {
-        let invalid = CharacterSet(charactersIn: ":/\\?%*|\"<>")
-        return s.components(separatedBy: invalid).joined(separator: " ")
-            .trimmingCharacters(in: .whitespaces)
     }
 }
 
