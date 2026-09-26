@@ -59,17 +59,7 @@ struct DiscordSettingsView: View {
             Section("Account") {
                 if let user = currentUser {
                     HStack(spacing: 14) {
-                        AsyncImage(url: avatarURL(for: user)) { phase in
-                            switch phase {
-                            case .success(let img): img.resizable().scaledToFill()
-                            case .failure: Image(systemName: "person.circle.fill")
-                                    .resizable().foregroundStyle(.secondary)
-                            case .empty: ProgressView()
-                            @unknown default: Color.gray.opacity(0.2)
-                            }
-                        }
-                        .frame(width: 56, height: 56)
-                        .clipShape(Circle())
+                        CachedAvatarView(url: avatarURL(for: user), size: 56)
 
                         VStack(alignment: .leading, spacing: 2) {
                             Text(user.name).font(.headline)

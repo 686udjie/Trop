@@ -249,6 +249,10 @@ actor PersonalizationService {
     }
 
     func fetchRadio(videoId: String) async throws -> (songs: [SongItem], currentIndex: Int) {
+        try await fetchRadio(videoId: videoId, options: .default)
+    }
+
+    func fetchRadio(videoId: String, options: RadioOptions) async throws -> (songs: [SongItem], currentIndex: Int) {
         let playlistId = "RDAMVM\(videoId)"
         let json = try await innerTube.next(videoId: videoId, playlistId: playlistId)
         let panel = try extractPlaylistPanel(from: json)
@@ -262,12 +266,32 @@ actor PersonalizationService {
         }
         guard !songs.isEmpty else { throw NSError(domain: "fetchRadio", code: 1, userInfo: [:]) }
         let currentIndex = songs.firstIndex(where: { $0.1 }) ?? 0
-        let resultSongs = songs.map(\.0)
+        var resultSongs = songs.map(\.0)
         if let automixItems = await tryResolveAutomix(from: panel) {
             let deduped = automixItems.filter { a in !resultSongs.contains(where: { $0.videoId == a.videoId }) }
-            return (resultSongs + deduped, currentIndex)
+            resultSongs += deduped
         }
-        return (resultSongs, currentIndex)
+        switch options.style {
+        case .similar:
+            break
+        case .variety:
+            if resultSongs.count > 2 {
+                let head = Array(resultSongs.prefix(2))
+                let tail = Array(resultSongs.dropFirst(2)).shuffled()
+                resultSongs = head + tail
+            }
+        case .deepCuts:
+            if resultSongs.count > 5 {
+                resultSongs = Array(resultSongs.dropFirst(3))
+            }
+        }
+        if !options.allowExplicit {
+            resultSongs = resultSongs.filter { !$0.isExplicit }
+        }
+        resultSongs = Array(resultSongs.prefix(max(1, options.limit)))
+        guard !resultSongs.isEmpty else { throw NSError(domain: "fetchRadio", code: 1, userInfo: [:]) }
+        let clampedIndex = min(currentIndex, resultSongs.count - 1)
+        return (resultSongs, clampedIndex)
     }
 
     private struct PlaylistPanel { let contents: [[String: Any]] }

@@ -22,6 +22,7 @@ struct QueueView<ProgressSlider: View>: View {
 
     @ObservedObject private var likeStore = LikeStore.shared
     @State private var showSongMenu = false
+    @State private var lyricsState = LyricsState.shared
 
     private var isLiked: Bool {
         guard let song = np.queueSongs.indices.contains(np.queueIndex) ? np.queueSongs[np.queueIndex] : nil else { return false }
@@ -88,7 +89,8 @@ struct QueueView<ProgressSlider: View>: View {
                     showLyrics: $showLyrics,
                     showQueue: $showQueue,
                     isRepeatOn: $isRepeatOn,
-                    onRepeat: {}
+                    onRepeat: {},
+                    lyricsAvailable: lyricsState.isAvailable(for: np.videoId)
                 )
             }
             .padding(.bottom, 16)

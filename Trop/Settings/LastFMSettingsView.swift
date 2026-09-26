@@ -35,24 +35,8 @@ struct LastFMSettingsView: View {
             Section("Account") {
                 if isLoggedIn {
                     HStack(spacing: 14) {
-                        AsyncImage(url: avatarURL) { phase in
-                            switch phase {
-                            case .success(let img):
-                                img.resizable().scaledToFill()
-                            case .failure:
-                                Image(systemName: "person.circle.fill")
-                                    .resizable()
-                                    .scaledToFit()
-                                    .foregroundStyle(.red)
-                            case .empty:
-                                ProgressView()
-                            @unknown default:
-                                Color.gray.opacity(0.2)
-                            }
-                        }
-                        .frame(width: 56, height: 56)
-                        .clipShape(Circle())
-                        .overlay(Circle().stroke(Color.white.opacity(0.08), lineWidth: 1))
+                        CachedAvatarView(url: avatarURL, size: 56)
+                            .overlay(Circle().stroke(Color.white.opacity(0.08), lineWidth: 1))
 
                         VStack(alignment: .leading, spacing: 2) {
                             Text(username.isEmpty ? "Last.fm User" : username).font(.headline)
@@ -226,12 +210,22 @@ struct LastFMSettingsView: View {
         scrobbleDelayPercentStored
     }
 
+    private func avatarCacheKey(username: String) -> String {
+        "lastfm.avatarURL.\(username.lowercased())"
+    }
+
     private func fetchAvatar() async {
         guard isLoggedIn, !username.isEmpty else { return }
+        if avatarURL == nil,
+           let cached = UserDefaults.standard.string(forKey: avatarCacheKey(username: username)),
+           let url = URL(string: cached) {
+            avatarURL = url
+        }
         if avatarLoading { return }
         avatarLoading = true
         defer { avatarLoading = false }
         if let url = await LastFMService.shared.fetchAvatarURL(username: username) {
+            UserDefaults.standard.set(url.absoluteString, forKey: avatarCacheKey(username: username))
             await MainActor.run { self.avatarURL = url }
         }
     }

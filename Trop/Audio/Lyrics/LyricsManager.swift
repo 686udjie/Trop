@@ -104,25 +104,60 @@ actor LyricsManager {
         }
     }
 
+    private struct ProviderHit: Sendable {
+        let order: Int
+        let lines: [LyricLine]
+        let providerName: String
+    }
+
     func fetchLyricsReturningProvider(query: LyricsQuery) async throws -> ([LyricLine], providerName: String?) {
         let order = await LyricsSettings.shared.providerOrder
         let disabled = SettingsStore.shared.disabledLyricsProviders
-        var lastError: Error?
-
-        for id in order {
-            guard !disabled.contains(id) else { continue }
-            guard let provider = LyricsProviderRegistry.provider(for: id) else { continue }
-            do {
-                let lines = try await provider.fetch(query: query)
-                if !lines.isEmpty {
-                    return (lines, provider.name)
-                }
-            } catch {
-                lastError = error
-                continue
-            }
+        let candidates: [(index: Int, provider: LyricsProvider)] = order.enumerated().compactMap { index, id in
+            guard !disabled.contains(id), let provider = LyricsProviderRegistry.provider(for: id) else { return nil }
+            return (index, provider)
         }
+        guard !candidates.isEmpty else { throw LyricsError.notFound }
 
-        throw lastError ?? LyricsError.notFound
+        let results = await withTaskGroup(of: ProviderHit?.self) { group in
+            for (index, provider) in candidates {
+                group.addTask {
+                    do {
+                        let lines = try await Self.withTimeout(seconds: 10) {
+                            try await provider.fetch(query: query)
+                        }
+                        guard !lines.isEmpty else { return nil }
+                        return ProviderHit(order: index, lines: lines, providerName: provider.name)
+                    } catch {
+                        return nil
+                    }
+                }
+            }
+            var collected: [ProviderHit] = []
+            for await item in group {
+                if let item { collected.append(item) }
+            }
+            return collected
+        }
+        guard let best = results.min(by: { $0.order < $1.order }) else {
+            throw LyricsError.notFound
+        }
+        return (best.lines, best.providerName)
+    }
+
+    private static func withTimeout<T: Sendable>(seconds: Double, work: @escaping @Sendable () async throws -> T) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask { try await work() }
+            group.addTask {
+                try await Task.sleep(for: .seconds(seconds))
+                throw LyricsError.notFound
+            }
+            guard let first = try await group.next() else {
+                group.cancelAll()
+                throw LyricsError.notFound
+            }
+            group.cancelAll()
+            return first
+        }
     }
 }

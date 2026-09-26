@@ -14,10 +14,16 @@ import Foundation
 /// DetailParser. Lookup paths are preserved exactly — only the leaf
 /// extraction is unified.
 enum InnerTubeJSON {
-    /// First run's text from `{runs: [{text}]}`.
+    /// First run's text from `{runs: [{text}]}`. Tolerant: joins split runs,
+    /// falls back to `simpleText`/`text` (see `InnerTubeDecode`).
     static func runsText(_ dict: [String: Any]?) -> String? {
-        guard let runs = dict?["runs"] as? [[String: Any]], let first = runs.first else { return nil }
-        return first["text"] as? String
+        guard let dict else { return nil }
+        if let runs = dict["runs"] as? [[String: Any]], !runs.isEmpty {
+            let texts = runs.compactMap { $0["text"] as? String }
+            let joined = texts.joined()
+            if !joined.isEmpty { return joined }
+        }
+        return InnerTubeDecode.runsTextTolerant(dict)
     }
 
     /// All non-blank run texts, dropping `" • "` separators.
@@ -47,20 +53,12 @@ enum InnerTubeJSON {
 
     /// Largest thumbnail URL across InnerTube thumbnail formats:
     /// `musicThumbnailRenderer` first, then plain `thumbnails`, then
-    /// `croppedSquareThumbnail`.
+    /// `croppedSquareThumbnail`. Tolerant to unknown envelopes (nil, logged).
     static func musicThumbnailURL(_ dict: [String: Any]) -> String? {
-        if let thumbnail = dict["thumbnail"] as? [String: Any],
-           let musicThumb = thumbnail["musicThumbnailRenderer"] as? [String: Any] {
-            if let url = nestedThumbnailURL(musicThumb) {
-                return url
-            }
-        }
-        if let url = nestedThumbnailURL(dict) {
+        if let url = InnerTubeDecode.thumbnailURLTolerant(dict) {
             return url
         }
-        if let cropped = dict["croppedSquareThumbnail"] as? [String: Any] {
-            return lastThumbnailURL(cropped["thumbnails"] as? [[String: Any]])
-        }
+        InnerTubeDecode.warnOnce("musicThumbnailURL: unknown thumbnail envelope keys=\(dict.keys.sorted())")
         return nil
     }
 }

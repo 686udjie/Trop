@@ -19,12 +19,14 @@ struct PlayerMenuSheet: View {
     enum Destination: Hashable {
         case equalizer
         case details
+        case similar
     }
 
     // Loaded state
     @State private var pin = PinState()
     @State private var showPlaylistPicker = false
     @State private var showArtistPicker = false
+    @State private var showRadioOptions = false
     @State private var isResolvingArtist = false
     @Environment(\.downloadManager) private var downloadManager
 
@@ -51,6 +53,21 @@ struct PlayerMenuSheet: View {
                         MenuRowLabel(icon: "info.circle", title: "Details", subtitle: "Metadata & stream information")
                     }
                     .buttonStyle(.plain)
+                    Divider()
+                    NavigationLink(value: Destination.similar) {
+                        MenuRowLabel(
+                            icon: "dot.radiowaves.left.and.right",
+                            title: "Similar to this song",
+                            subtitle: "More like “\(song.title)”"
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    Divider()
+                    MenuRow(
+                        icon: "slider.horizontal.3",
+                        title: "Customize Radio",
+                        subtitle: "Style, size & explicit filter"
+                    ) { showRadioOptions = true }
                 }
             }
             .navigationDestination(for: Destination.self) { dest in
@@ -59,6 +76,8 @@ struct PlayerMenuSheet: View {
                     EqualizerView()
                 case .details:
                     SongDetailsView(song: song)
+                case .similar:
+                    SimilarSongsView(song: song, onNavigate: { navigate($0) })
                 }
             }
         }
@@ -71,6 +90,9 @@ struct PlayerMenuSheet: View {
         }
         .sheet(isPresented: $showPlaylistPicker) {
             AddSongToPlaylistSheet(song: song)
+        }
+        .sheet(isPresented: $showRadioOptions) {
+            RadioOptionsSheet(song: song)
         }
         .task { await pin.load(videoId: song.videoId) }
     }

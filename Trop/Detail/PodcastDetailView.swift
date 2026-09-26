@@ -33,6 +33,15 @@ final class PodcastDetailViewModel {
             Log.podcastDetail.debug("title=\(parsed.title) author=\(parsed.author ?? "nil") episodes=\(parsed.episodes.count)")
             podcast = parsed
             isLoading = false
+
+            let fresh = await EpisodePlaybackStore.shared.syncKnownEpisodes(
+                parsed.episodes, podcastId: browseId, podcastName: parsed.title
+            )
+            if SettingsStore.shared.autoDownloadNewEpisodes, !fresh.isEmpty {
+                for episode in fresh.prefix(10) {
+                    await DownloadManager.shared.download(song: episode.toSongItem())
+                }
+            }
         } catch {
             self.error = error
             isLoading = false
@@ -313,8 +322,8 @@ struct PodcastDetailView: View {
     private func episodeList(for podcast: PodcastDetailInfo) -> some View {
         VStack(spacing: 0) {
             ForEach(Array(podcast.episodes.enumerated()), id: \.offset) { index, episode in
-                SongRowView(
-                    song: episode.toSongItem(),
+                EpisodeRowView(
+                    episode: episode,
                     onTap: { playEpisode(episode, in: podcast) },
                     onNavigate: { pendingRoute = $0 }
                 )
@@ -335,6 +344,87 @@ struct PodcastDetailView: View {
 
     private func playEpisode(_ episode: EpisodeItem, in podcast: PodcastDetailInfo) {
         let songs = podcast.episodes.map { $0.toSongItem() }
-        PlaybackQueue.play(episode.toSongItem(), in: songs, log: Log.podcastDetail, context: "playEpisode")
+        let song = episode.toSongItem()
+        PlaybackQueue.play(song, in: songs, log: Log.podcastDetail, context: "playEpisode")
+        Task {
+            if let saved = await EpisodePlaybackStore.shared.position(for: episode.videoId),
+               saved.position > 10, !saved.isFinished {
+                // Seek after resolve starts; NowPlaying push happens in play().
+                try? await Task.sleep(for: .milliseconds(800))
+                PlayerController.shared.seek(to: saved.position)
+            }
+        }
+    }
+}
+
+// MARK: - Episode row with NEW badge + resume progress + offline state
+
+private struct EpisodeRowView: View {
+    let episode: EpisodeItem
+    var onTap: () -> Void
+    var onNavigate: ((DetailRoute) -> Void)?
+
+    @Environment(\.downloadManager) private var downloadManager
+    @State private var isNew = false
+    @State private var progress: Double = 0
+    @State private var hasResume = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 6) {
+                if isNew {
+                    Text("NEW")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Capsule().fill(Color.blue))
+                        .accessibilityLabel("New episode")
+                }
+                if downloadManager.isDownloaded(videoId: episode.videoId) {
+                    Image(systemName: "arrow.down.circle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .accessibilityLabel("Downloaded")
+                }
+                if hasResume {
+                    Text("Resume")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.leading, 68)
+            .padding(.top, (isNew || hasResume || downloadManager.isDownloaded(videoId: episode.videoId)) ? 6 : 0)
+
+            SongRowView(
+                song: episode.toSongItem(),
+                onTap: onTap,
+                onNavigate: onNavigate
+            )
+
+            if hasResume {
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(Color(.systemGray5))
+                        Capsule().fill(Color.accentColor)
+                            .frame(width: max(4, geo.size.width * progress))
+                    }
+                }
+                .frame(height: 3)
+                .padding(.leading, 68)
+                .padding(.trailing, 16)
+                .padding(.bottom, 6)
+            }
+        }
+        .task(id: episode.videoId) {
+            isNew = await EpisodePlaybackStore.shared.isNewEpisode(videoId: episode.videoId)
+            if let saved = await EpisodePlaybackStore.shared.position(for: episode.videoId),
+               !saved.isFinished, saved.position > 10 {
+                progress = saved.progress
+                hasResume = true
+            } else {
+                hasResume = false
+            }
+        }
     }
 }

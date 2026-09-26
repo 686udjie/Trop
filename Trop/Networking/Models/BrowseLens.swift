@@ -13,16 +13,28 @@ import Foundation
 /// parser. Lookup paths are preserved exactly — only the spine is unified,
 /// leaf interpretation stays per call site.
 enum BrowseLens {
-    /// The `sectionListRenderer` dict of a browse response.
+    /// The `sectionListRenderer` dict of a browse response. Tolerates both
+    /// single- and two-column layouts plus tabbed/sectionList nesting drift;
+    /// returns nil (with a diagnostic) instead of crashing call sites
     static func sectionList(_ json: [String: Any]) -> [String: Any]? {
-        guard let contents = json["contents"] as? [String: Any],
-              let singleColumn = contents["singleColumnBrowseResultsRenderer"] as? [String: Any],
-              let tabs = singleColumn["tabs"] as? [[String: Any]],
-              let firstTab = tabs.first,
-              let tabRenderer = firstTab["tabRenderer"] as? [String: Any],
-              let content = tabRenderer["content"] as? [String: Any],
-              let sectionList = content["sectionListRenderer"] as? [String: Any] else { return nil }
-        return sectionList
+        if let sl = InnerTubeDecode.dict(at: ["contents", "singleColumnBrowseResultsRenderer"], in: json)
+            .flatMap({ $0["tabs"] as? [[String: Any]] })?.first
+            .flatMap({ $0["tabRenderer"] as? [String: Any] })
+            .flatMap({ $0["content"] as? [String: Any] })
+            .flatMap({ $0["sectionListRenderer"] as? [String: Any] }) {
+            return sl
+        }
+        if let twoCol = InnerTubeDecode.dict(at: ["contents", "twoColumnBrowseResultsRenderer"], in: json),
+           let tabs = twoCol["tabs"] as? [[String: Any]],
+           let first = tabs.first,
+           let tabRenderer = first["tabRenderer"] as? [String: Any],
+           let content = tabRenderer["content"] as? [String: Any],
+           let sl = content["sectionListRenderer"] as? [String: Any] {
+            return sl
+        }
+        let topKeys = (json["contents"] as? [String: Any])?.keys.sorted() ?? []
+        InnerTubeDecode.warnOnce("BrowseLens.sectionList: no sectionListRenderer (top keys=\(topKeys))")
+        return nil
     }
 
     /// The section array of a browse response.

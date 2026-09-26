@@ -7,7 +7,7 @@
 
 import Foundation
 
-struct LyricLine: Identifiable, Equatable {
+struct LyricLine: Identifiable, Equatable, Sendable {
     let id = UUID()
     let text: String
     let startTime: TimeInterval?
@@ -20,9 +20,16 @@ struct LyricLine: Identifiable, Equatable {
 final class LyricsState {
     static let shared = LyricsState()
 
-    var isAvailable: Bool = false
+    /// Songs with confirmed lyrics. Populated by preload/fetch; the player
+    /// button enables per-song via `isAvailable(for:)`.
+    var availableVideoIds: Set<String> = []
     var providerName: String?
     var refreshToken: Int = 0
+
+    func isAvailable(for videoId: String?) -> Bool {
+        guard let videoId else { return false }
+        return availableVideoIds.contains(videoId)
+    }
 
     private init() {}
 }
@@ -32,11 +39,17 @@ actor LyricsService {
 
     private var cache: [String: [LyricLine]] = [:]
     private var customs: [String: (lines: [LyricLine], providerName: String)] = [:]
+    private var inFlight: [String: Task<FetchResult, Error>] = [:]
 
     private init() {}
 
     private static func customKey(_ videoId: String) -> String { "lyrics.custom.\(videoId)" }
     private static func customProviderKey(_ videoId: String) -> String { "lyrics.customProvider.\(videoId)" }
+
+    private struct FetchResult: Sendable {
+        let lines: [LyricLine]
+        let providerName: String?
+    }
 
     func fetchLyrics(videoId: String) async throws -> [LyricLine] {
         if let custom = customEntry(for: videoId) {
@@ -47,18 +60,35 @@ actor LyricsService {
             await updateAvailability(videoId: videoId, available: !cached.isEmpty)
             return cached
         }
+        if let flight = inFlight[videoId] {
+            return try await flight.value.lines
+        }
         guard let query = await resolveQuery(videoId: videoId) else {
             await updateAvailability(videoId: videoId, available: false)
             throw LyricsError.notFound
         }
-        let (lines, providerName) = try await LyricsManager.shared.fetchLyricsReturningProvider(query: query)
-        // Only cache successful lookups — empty results should be retried later
-        // since lyrics can be matched/published after playback starts.
-        if !lines.isEmpty {
-            cache[videoId] = lines
+        let flight = Task<FetchResult, Error> {
+            let (lines, providerName) = try await LyricsManager.shared.fetchLyricsReturningProvider(query: query)
+            return FetchResult(lines: lines, providerName: providerName)
         }
-        await updateAvailability(videoId: videoId, available: !lines.isEmpty, providerName: providerName)
-        return lines
+        inFlight[videoId] = flight
+        do {
+            let result = try await flight.value
+            inFlight.removeValue(forKey: videoId)
+            // Only cache successful lookups — empty results should be retried later
+            // since lyrics can be matched/published after playback starts.
+            if !result.lines.isEmpty {
+                cache[videoId] = result.lines
+            }
+            await updateAvailability(videoId: videoId, available: !result.lines.isEmpty, providerName: result.providerName)
+            return result.lines
+        } catch {
+            inFlight.removeValue(forKey: videoId)
+            if !(error is CancellationError) {
+                await updateAvailability(videoId: videoId, available: false)
+            }
+            throw error
+        }
     }
 
     // MARK: - Manual Manipulations (edit / refetch / search selection / copy)
@@ -100,6 +130,7 @@ actor LyricsService {
         cache.removeValue(forKey: videoId)
         Task {
             await MainActor.run {
+                LyricsState.shared.availableVideoIds.insert(videoId)
                 LyricsState.shared.providerName = provider
                 LyricsState.shared.refreshToken += 1
             }
@@ -116,6 +147,7 @@ actor LyricsService {
         guard let query = await resolveQuery(videoId: videoId),
               let (fetchedLines, fetchedProvider) = try? await LyricsManager.shared.fetchLyricsReturningProvider(query: query),
               !fetchedLines.isEmpty else {
+            await updateAvailability(videoId: videoId, available: false)
             signalReload()
             return
         }
@@ -142,16 +174,22 @@ actor LyricsService {
 
     func preload(videoId: String, upcoming: [String] = []) async {
         _ = try? await fetchLyrics(videoId: videoId)
-        for id in upcoming where cache[id] == nil {
+        for id in upcoming where cache[id] == nil && customEntry(for: id) == nil {
             _ = try? await fetchLyrics(videoId: id)
         }
     }
 
     private func updateAvailability(videoId: String, available: Bool, providerName: String? = nil) async {
+        await MainActor.run {
+            if available {
+                LyricsState.shared.availableVideoIds.insert(videoId)
+            } else {
+                LyricsState.shared.availableVideoIds.remove(videoId)
+            }
+        }
         let currentId = await MainActor.run { NowPlaying.shared.videoId }
         guard currentId == videoId else { return }
         await MainActor.run {
-            LyricsState.shared.isAvailable = available
             if available { LyricsState.shared.providerName = providerName }
         }
     }

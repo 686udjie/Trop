@@ -28,6 +28,11 @@ struct FullPlayerView: View {
     @State private var pendingRoute: DetailRoute?
     @State private var showSongMenu = false
     @State private var artworkEntryOffset: CGFloat = 0
+    @State private var lyricsState = LyricsState.shared
+
+    private var lyricsAvailable: Bool {
+        lyricsState.isAvailable(for: np.videoId)
+    }
 
     var body: some View {
         ZStack {
@@ -131,7 +136,8 @@ struct FullPlayerView: View {
                         showLyrics: $showLyrics,
                         showQueue: $showQueue,
                         isRepeatOn: $np.isRepeatOn,
-                        onRepeat: {}
+                        onRepeat: {},
+                        lyricsAvailable: lyricsAvailable
                     )
 
                     Spacer(minLength: 8)
@@ -144,6 +150,9 @@ struct FullPlayerView: View {
         .simultaneousGesture(collapseDrag)
         .onChange(of: np.videoId) { _, _ in
             np.isVideoMode = false
+            // Lyrics are per-song: close the view on track change; the button
+            // re-enables once preload confirms lyrics for the new song.
+            showLyrics = false
             preloadLyrics()
         }
         .onChange(of: np.queueSongs.count) { _, _ in

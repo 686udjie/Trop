@@ -29,6 +29,7 @@ struct DownloadSettingsView: View {
                 SettingsPickerRow("Download Quality", icon: "waveform", selection: $settings.downloadQuality)
                 SettingsToggleRow("Wi-Fi Only", icon: "wifi", isOn: $settings.wifiOnlyDownloads)
                 SettingsToggleRow("Auto-Download on Like", icon: "heart.fill", isOn: $settings.autoDownloadOnLike)
+                SettingsToggleRow("Auto-Download New Episodes", icon: "antenna.radiowaves.left.and.right", isOn: $settings.autoDownloadNewEpisodes)
             } header: {
                 Text("Preferences")
             } footer: {

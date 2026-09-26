@@ -57,6 +57,9 @@ struct MarqueeText: View {
                 containerWidth = width
                 ensureTask()
             }
+            .onDisappear {
+                stop()
+            }
             .onChange(of: width) { _, newWidth in
                 let wasScrolling = shouldScroll
                 containerWidth = newWidth
@@ -65,6 +68,8 @@ struct MarqueeText: View {
                 }
             }
             .onPreferenceChange(TextWidthKey.self) { newWidth in
+                // Ignore sub-point jitter — only restart on real overflow flips.
+                guard abs(newWidth - measuredWidth) > 1 else { return }
                 let wasScrolling = shouldScroll
                 measuredWidth = newWidth
                 if wasScrolling != shouldScroll {
@@ -73,7 +78,9 @@ struct MarqueeText: View {
             }
         }
         .frame(height: frameHeight)
-        .onChange(of: text) { _, _ in
+        .accessibilityLabel(text)
+        .onChange(of: text) { oldText, newText in
+            guard oldText != newText else { return }
             restart()
         }
     }
@@ -99,14 +106,22 @@ struct MarqueeText: View {
 
     // MARK: - Animation task
     private func ensureTask() {
-        if animationTask == nil {
-            startTask()
-        }
+        // Never spin the infinite loop for non-overflowing text — this was
+        // the "always-animating" churn: a task per MarqueeText that slept
+        // 2s then re-checked forever even when nothing would scroll.
+        guard shouldScroll, animationTask == nil else { return }
+        startTask()
     }
 
     private func startTask() {
         animationTask?.cancel()
-        animationTask = Task {
+        // Static text needs no task at all.
+        guard shouldScroll else {
+            animationTask = nil
+            resetOffset()
+            return
+        }
+        animationTask = Task { @MainActor in
             while !Task.isCancelled {
                 resetOffset()
 
@@ -120,11 +135,9 @@ struct MarqueeText: View {
                 let distance = overflow + fadeWidth
                 let duration = Double(distance / speed)
 
-                await MainActor.run {
-                    isAnimating = true
-                    withAnimation(animationCurve(duration: duration)) {
-                        offset = -distance
-                    }
+                isAnimating = true
+                withAnimation(animationCurve(duration: duration)) {
+                    offset = -distance
                 }
 
                 try? await Task.sleep(nanoseconds: UInt64(duration * 1_000_000_000))
@@ -140,7 +153,9 @@ struct MarqueeText: View {
     }
 
     private func restart() {
-        startTask()
+        // Tearing down first avoids stacking tasks when width/text flaps.
+        stop()
+        ensureTask()
     }
 
     private func stop() {

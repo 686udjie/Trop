@@ -179,6 +179,7 @@ final class DiscordAuth: NSObject {
         for (k, v) in extra { items.append(URLQueryItem(name: k, value: v)) }
         components.queryItems = items
         let bodyString = components.percentEncodedQuery ?? ""
+        Log.discord.debug("Token exchange grant=\(grantType) params=\(items.map(\.name).sorted().joined(separator: ","))")
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
@@ -190,6 +191,7 @@ final class DiscordAuth: NSObject {
         do {
             (data, httpResponse) = try await HttpClient.data(for: request)
         } catch {
+            Log.discord.error("Token exchange grant=\(grantType) transport error: \(error.localizedDescription)")
             throw DiscordAuthError.networkFailure(error)
         }
         let status = httpResponse.statusCode
@@ -197,19 +199,25 @@ final class DiscordAuth: NSObject {
 
         if (200...299).contains(status) {
             guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                   let accessToken = json["access_token"] as? String else {
+                    let accessToken = json["access_token"] as? String else {
+                Log.discord.error("Token exchange grant=\(grantType) status=\(status) but no access_token in response")
                 throw DiscordAuthError.networkFailure(NSError(domain: "DiscordAuth", code: status, userInfo: [NSLocalizedDescriptionKey: body]))
             }
             let refreshToken = json["refresh_token"] as? String ?? ""
             let expiresIn = (json["expires_in"] as? NSNumber)?.int64Value ?? Int64((json["expires_in"] as? Int ?? 0))
             let scope = json["scope"] as? String ?? DiscordDefaults.scopes
+            Log.discord.info("Token exchange ok grant=\(grantType) status=\(status) scope=\(scope) expiresIn=\(expiresIn)s")
+            Log.discord.debug("Token exchange hasRefresh=\(!refreshToken.isEmpty)")
             return DiscordAuthResult(accessToken: accessToken, refreshToken: refreshToken, expiresInSec: expiresIn, scope: scope)
         }
 
         var errorCode = ""
+        var errorDesc = ""
         if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
             errorCode = json["error"] as? String ?? ""
+            errorDesc = json["error_description"] as? String ?? ""
         }
+        Log.discord.error("Token exchange failed grant=\(grantType) status=\(status) error=\(errorCode) desc=\(errorDesc)")
         if status == 400 || status == 401,
            ["invalid_grant", "invalid_client", "invalid_request", "unauthorized_client"].contains(errorCode) {
             throw DiscordAuthError.invalidGrant
