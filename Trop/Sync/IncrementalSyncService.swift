@@ -37,16 +37,4 @@ actor IncrementalSyncService {
         _ = await librarySync.syncAll()
         defaults.set(Date(), forKey: lastSyncKey)
     }
-
-    // Token-based incremental sync: send feedback tokens to push local state changes
-    func pushFeedbackTokens(addTokens: [String], removeTokens: [String]) async throws {
-        let allTokens = addTokens + removeTokens
-        guard !allTokens.isEmpty else { return }
-        _ = try await innerTube.feedback(tokens: allTokens)
-        defaults.set(Date(), forKey: lastSyncKey)
-    }
-
-    func clearSyncTimestamp() {
-        defaults.removeObject(forKey: lastSyncKey)
-    }
 }

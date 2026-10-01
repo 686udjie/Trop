@@ -90,12 +90,15 @@ enum YTItemRouter {
     }
 }
 
-enum TopPeriod: String, CaseIterable, Hashable {
+enum TopPeriod: String, CaseIterable, Hashable, Identifiable {
     case allTime = "All Time"
     case year = "Past Year"
     case month = "Past Month"
     case week = "Past Week"
     case day = "Past 24 Hours"
+
+    var id: String { rawValue }
+    var displayName: String { rawValue }
 
     var dateFrom: Date {
         let now = Date()

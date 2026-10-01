@@ -69,15 +69,6 @@ actor PlaylistDetailService {
         return allItems.count
     }
 
-    func fetchAlbum(albumBrowseId: String) async throws -> Int {
-        let json = try await innerTube.browse(browseId: albumBrowseId)
-        // Extract playlistId from the album page microformat
-        guard let playlistId = extractAlbumPlaylistId(from: json) else {
-            throw PlaylistError.noPlaylistId
-        }
-        return try await fetchPlaylist(playlistId: playlistId)
-    }
-
     private func extractPlaylistItems(from json: [String: Any]) -> [[String: Any]]? {
         if let firstSection = BrowseLens.firstBrowseSection(json),
            let shelf = (firstSection["musicPlaylistShelfRenderer"] as? [String: Any])
@@ -109,30 +100,4 @@ actor PlaylistDetailService {
         }
         return nil
     }
-
-    private func extractAlbumPlaylistId(from json: [String: Any]) -> String? {
-        guard let microformat = json["microformat"] as? [String: Any] ?? (json["header"] as? [String: Any]) else { return nil }
-        // Try various paths to find the playlistId in the album microformat
-        let renderers = [microformat["musicMicroformatRenderer"], microformat["microformatDataRenderer"]]
-            .compactMap { ($0 as? [String: Any])?["urlCanonical"] as? String }
-        for urlString in renderers {
-            guard let url = URL(string: urlString),
-                  let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { continue }
-            // Canonical album URLs look like https://music.youtube.com/playlist?list=OLAK5uy_...
-            if let list = components.queryItems?.first(where: { $0.name == "list" })?.value,
-               !list.isEmpty, list != "playlist" {
-                return list
-            }
-            // Fallback: a path like /playlist/OLAK5uy_... — but never the bare "playlist" segment
-            if let last = url.pathComponents.last, last != "playlist", !last.isEmpty {
-                return last
-            }
-        }
-        return nil
-    }
-}
-
-enum PlaylistError: Error, LocalizedError {
-    case noPlaylistId
-    var errorDescription: String? { "Could not extract playlist ID from album page" }
 }

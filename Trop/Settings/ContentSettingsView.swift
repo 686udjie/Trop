@@ -42,6 +42,26 @@ struct ContentSettingsView: View {
             } footer: {
                 Text("Controls the region used for YouTube Music requests.")
             }
+
+            Section {
+                SettingsToggleRow("Track Search History", icon: "magnifyingglass", isOn: $settings.trackSearchHistory)
+                SettingsToggleRow("Track Play History", icon: "clock.arrow.circlepath", isOn: $settings.trackPlayHistory)
+            } header: {
+                Text("Privacy")
+            } footer: {
+                Text("When off, searches and playback are not recorded locally.")
+            }
+
+            Section {
+                SettingsToggleRow("Sync Artists", icon: "music.mic", isOn: $settings.syncArtists)
+                SettingsToggleRow("Sync Playlists", icon: "music.note.list", isOn: $settings.syncPlaylists)
+                SettingsToggleRow("Sync Albums", icon: "square.stack", isOn: $settings.syncAlbums)
+                SettingsToggleRow("Sync Podcasts", icon: "antenna.radiowaves.left.and.right", isOn: $settings.syncPodcasts)
+            } header: {
+                Text("Library Sync")
+            } footer: {
+                Text("Choose which library sections sync from your YouTube Music account.")
+            }
         }
         .navigationTitle("Content")
         .navigationBarTitleDisplayMode(.inline)

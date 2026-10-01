@@ -16,6 +16,7 @@ final class AlbumDetailViewModel {
     var album: AlbumDetailInfo?
     var isLoading = true
     var error: Error?
+    var isSaved = false
 
     private let innerTube = InnerTube.shared
 
@@ -36,11 +37,40 @@ final class AlbumDetailViewModel {
             album = parsed
             Log.albumDetailViewModel.debug("Parsed album: \(parsed.title), \(parsed.songs.count) songs")
             isLoading = false
+            await refreshSavedState()
         } catch {
             Log.albumDetailViewModel.error("Failed: \(error)")
             self.error = error
             isLoading = false
         }
+    }
+
+    func refreshSavedState() async {
+        let entity = try? await DatabaseService.shared.fetchOne(AlbumEntity.self, key: browseId)
+        isSaved = entity?.bookmarkedAt != nil
+    }
+
+    func toggleSave() async {
+        guard let album else { return }
+        let currentlySaved = isSaved
+        isSaved = !currentlySaved
+        do {
+            if currentlySaved {
+                try await MutationService.shared.unsaveAlbum(browseId: browseId)
+            } else {
+                try await MutationService.shared.saveAlbum(
+                    browseId: browseId,
+                    title: album.title,
+                    thumbnailUrl: album.thumbnailUrl,
+                    playlistId: album.playlistId,
+                    songCount: album.songCount,
+                    duration: album.duration
+                )
+            }
+        } catch {
+            Log.albumDetailViewModel.error("Toggle save failed: \(error)")
+        }
+        await refreshSavedState()
     }
 }
 
@@ -248,6 +278,7 @@ struct AlbumDetailView: View {
     let browseId: String
     @State private var viewModel: AlbumDetailViewModel
     @State private var pendingRoute: DetailRoute?
+    @State private var showMoreSheet = false
 
     @Environment(\.dismiss) private var dismiss
 
@@ -345,13 +376,24 @@ struct AlbumDetailView: View {
                     .foregroundStyle(.tertiary)
             }
 
-            // Action buttons: shuffle, play
+            // Action buttons: shuffle, play, more (matches playlist header)
             PlaybackControlsView(
+                showsMore: true,
                 onPlay: { playAll(album) },
-                onShuffle: { shufflePlay(album) }
+                onShuffle: { shufflePlay(album) },
+                onMore: { showMoreSheet = true }
             )
         }
         .padding(.vertical, 16)
+        .sheet(isPresented: $showMoreSheet) {
+            if let album = viewModel.album {
+                AlbumMoreSheet(
+                    album: album,
+                    isSaved: viewModel.isSaved,
+                    onToggleSave: { Task { await viewModel.toggleSave() } }
+                )
+            }
+        }
     }
 
     @ViewBuilder
@@ -395,5 +437,77 @@ struct AlbumDetailView: View {
         if album.songCount > 0 { parts.append("\(album.songCount) song\(album.songCount != 1 ? "s" : "")") }
         if album.duration > 0 { parts.append(album.duration.formattedDuration) }
         return parts
+    }
+}
+
+// MARK: - Album More Sheet
+
+/// Overflow menu matching PlaylistMoreSheet, with Save to Library as the
+/// first row (mirrors album.bookmarked_at).
+struct AlbumMoreSheet: View {
+    let album: AlbumDetailInfo
+    let isSaved: Bool
+    var onToggleSave: (() -> Void)?
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        SheetChrome {
+            MenuCard {
+                MenuRow(
+                    icon: isSaved ? "bookmark.fill" : "bookmark",
+                    title: isSaved ? "Saved" : "Save to Library",
+                    subtitle: isSaved ? "Remove from your library" : "Add to your library"
+                ) {
+                    onToggleSave?()
+                    dismiss()
+                }
+                Divider()
+                MenuRow(
+                    icon: "list.bullet",
+                    title: "Add to Queue",
+                    subtitle: "Add to the end of the queue"
+                ) {
+                    addToQueue()
+                    dismiss()
+                }
+                Divider()
+                MenuRow(
+                    icon: "square.and.arrow.down",
+                    title: "Download",
+                    subtitle: "Download all songs for offline playback"
+                ) {
+                    downloadAll()
+                    dismiss()
+                }
+                Divider()
+                MenuRow(
+                    icon: "square.and.arrow.up",
+                    title: "Share",
+                    subtitle: "Share this album with others"
+                ) {
+                    share()
+                    dismiss()
+                }
+            }
+        }
+    }
+
+    private func addToQueue() {
+        let np = NowPlaying.shared
+        np.queueSongs.append(contentsOf: album.songs)
+        np.persistQueueState()
+    }
+
+    private func downloadAll() {
+        for song in album.songs {
+            Task { await DownloadManager.shared.download(song: song) }
+        }
+    }
+
+    private func share() {
+        guard let url = URL(string: "https://music.youtube.com/browse/\(album.browseId)") else { return }
+        presentShareSheet(items: [url])
+        dismiss()
     }
 }

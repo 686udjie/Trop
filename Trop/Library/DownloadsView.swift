@@ -11,6 +11,7 @@ struct DownloadsView: View {
     @Environment(\.downloadManager) private var downloadManager
     @State private var pendingRoute: DetailRoute?
     @State private var showMoreSheet = false
+    @State private var sort: DownloadManager.DownloadSort = .recent
 
     var body: some View {
         Group {
@@ -26,11 +27,24 @@ struct DownloadsView: View {
         .background(Color(.systemGroupedBackground))
         .navigationTitle("Downloads")
         .navigationBarTitleDisplayMode(.inline)
-        .refreshable { await viewModel.load() }
-        .task { await viewModel.load() }
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Picker("Sort", selection: $sort) {
+                    ForEach(DownloadManager.DownloadSort.allCases) { option in
+                        Text(option.displayName).tag(option)
+                    }
+                }
+                .pickerStyle(.menu)
+            }
+        }
+        .refreshable { await viewModel.load(sort: sort) }
+        .task { await viewModel.load(sort: sort) }
+        .onChange(of: sort) { _, newSort in
+            Task { await viewModel.load(sort: newSort) }
+        }
         .onChange(of: downloadManager.downloads) { old, new in
             guard DownloadManager.shouldRefreshPersistedLibrary(old: old, new: new) else { return }
-            Task { await viewModel.refreshTracks() }
+            Task { await viewModel.refreshTracks(sort: sort) }
         }
         .detailRouteSheet(item: $pendingRoute)
     }
@@ -181,13 +195,13 @@ final class DownloadsViewModel {
     var totalDuration: Int { tracks.reduce(0) { $0 + $1.duration } }
     var thumbnailUrls: [String] { tracks.prefix(4).compactMap(\.thumbnailUrl) }
 
-    func load() async {
+    func load(sort: DownloadManager.DownloadSort = .recent) async {
         isLoading = true
-        await refreshTracks()
+        await refreshTracks(sort: sort)
         isLoading = false
     }
 
-    func refreshTracks() async {
-        tracks = await downloadManager.fetchAllSorted(by: .recent)
+    func refreshTracks(sort: DownloadManager.DownloadSort = .recent) async {
+        tracks = await downloadManager.fetchAllSorted(by: sort)
     }
 }

@@ -30,7 +30,33 @@ enum DurationFormat {
         return "\(total / 60):\(String(format: "%02d", total % 60))"
     }
 
-    /// Compact "45s" / "3m 20s" for scrobble settings.
+    /// Parses spoken durations like "1 hr 23 mins", "45 mins" or "2 hours".
+    static func parseSpoken(_ text: String) -> Int? {
+        let lower = text.lowercased()
+        var total = 0
+        var found = false
+        // Matches "<number> <unit>" pairs; units cover hr/hour/h, min/m, sec/s.
+        let pattern = "(\\d+)\\s*(hours?|hrs?|\\bh\\b|minutes?|mins?|\\bm\\b|seconds?|secs?|\\bs\\b)"
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let range = NSRange(lower.startIndex..., in: lower)
+        for match in regex.matches(in: lower, range: range) {
+            guard let numRange = Range(match.range(at: 1), in: lower),
+                  let unitRange = Range(match.range(at: 2), in: lower),
+                  let number = Int(lower[numRange]) else { continue }
+            let unit = String(lower[unitRange])
+            if unit.hasPrefix("h") {
+                total += number * 3600
+                found = true
+            } else if unit.hasPrefix("m") {
+                total += number * 60
+                found = true
+            } else if unit.hasPrefix("s") {
+                total += number
+                found = true
+            }
+        }
+        return found ? total : nil
+    }
     static func shortDuration(_ seconds: Int) -> String {
         if seconds < 60 { return "\(seconds)s" }
         let m = seconds / 60
@@ -50,5 +76,21 @@ extension Int {
             return "\(hours):\(String(format: "%02d", minutes)):\(String(format: "%02d", secs))"
         }
         return "\(minutes):\(String(format: "%02d", secs))"
+    }
+
+    var wordsDuration: String {
+        guard self > 0 else { return "" }
+        let hours = self / 3600
+        let minutes = (self % 3600) / 60
+        switch (hours, minutes) {
+        case (0, 0):
+            return "\(self % 60) sec"
+        case (0, _):
+            return "\(minutes) min"
+        case (_, 0):
+            return "\(hours) h"
+        default:
+            return "\(hours) h \(minutes) min"
+        }
     }
 }

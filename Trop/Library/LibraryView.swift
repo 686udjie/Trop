@@ -398,8 +398,14 @@ struct LibraryView: View {
 
     private func loadContent() async {
         do {
-            async let artistsFetch = DatabaseService.shared.fetchAll(ArtistEntity.self, sql: "SELECT * FROM artist ORDER BY name LIMIT 50")
-            async let playlistsFetch = DatabaseService.shared.fetchAll(PlaylistEntity.self, sql: "SELECT * FROM playlist ORDER BY name LIMIT 50")
+            async let artistsFetch = DatabaseService.shared.fetchAll(
+                ArtistEntity.self,
+                sql: "SELECT * FROM artist WHERE bookmarked_at IS NOT NULL ORDER BY name LIMIT 50"
+            )
+            async let playlistsFetch = DatabaseService.shared.fetchAll(
+                PlaylistEntity.self,
+                sql: "SELECT * FROM playlist WHERE bookmarked_at IS NOT NULL ORDER BY name LIMIT 50"
+            )
             async let albumsFetch = DatabaseService.shared.fetchAllAlbums()
             async let podcastsFetch = DatabaseService.shared.fetchAllPodcasts()
             async let countFetch = DatabaseService.shared.fetchAllLikedSongCount()

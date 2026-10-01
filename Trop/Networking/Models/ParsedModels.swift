@@ -52,14 +52,3 @@ struct ParsedPodcast {
     var thumbnailUrl: String?
     var isSubscribed: Bool
 }
-
-struct ParsedEpisode {
-    var videoId: String
-    var title: String
-    var duration: Int
-    var thumbnailUrl: String?
-    var podcastId: String?
-    var podcastName: String?
-    var isPlayed: Bool
-    var savedAt: Date?
-}

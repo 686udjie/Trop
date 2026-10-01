@@ -247,11 +247,14 @@ extension DatabaseService {
     }
 }
 
-enum LibrarySongSort: String, CaseIterable, Sendable {
+enum LibrarySongSort: String, CaseIterable, Sendable, Identifiable {
     case recentlyAdded = "Recently Added"
     case title = "Title"
     case artist = "Artist"
     case mostPlayed = "Most Played"
+
+    var id: String { rawValue }
+    var displayName: String { rawValue }
 }
 
 // MARK: Personalization Queries
@@ -308,6 +311,7 @@ extension DatabaseService {
     func fetchAlbums(limit: Int = 10) async throws -> [AlbumEntity] {
         try await dbPool.read { db in
             try AlbumEntity
+                .filter(Column("bookmarked_at") != nil)
                 .order(Column("bookmarked_at").desc)
                 .limit(limit)
                 .fetchAll(db)
@@ -356,6 +360,7 @@ extension DatabaseService {
     func fetchAllAlbums() async throws -> [AlbumEntity] {
         try await dbPool.read { db in
             try AlbumEntity
+                .filter(Column("bookmarked_at") != nil)
                 .order(Column("title").asc)
                 .fetchAll(db)
         }
@@ -364,6 +369,7 @@ extension DatabaseService {
     func fetchAllPodcasts() async throws -> [PodcastEntity] {
         try await dbPool.read { db in
             try PodcastEntity
+                .filter(Column("subscribed_at") != nil)
                 .order(Column("name").asc)
                 .fetchAll(db)
         }

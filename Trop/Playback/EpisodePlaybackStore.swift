@@ -81,21 +81,7 @@ actor EpisodePlaybackStore {
         persist()
     }
 
-    // MARK: - Played / NEW badges
-
-    /// NEW badge: episode row shows NEW when never played and (no record or
-    /// saved within the last 14 days). Backed by the existing episode table.
-    func isNewEpisode(videoId: String) async -> Bool {
-        let entity: EpisodeEntity? = (try? await DatabaseService.shared.fetchOne(EpisodeEntity.self, key: videoId)) ?? nil
-        if let entity {
-            guard !entity.isPlayed else { return false }
-            if let saved = entity.savedAt {
-                return Date().timeIntervalSince(saved) < 14 * 24 * 3600
-            }
-            return true
-        }
-        return true
-    }
+    // MARK: - Played tracking
 
     func markPlayed(videoId: String) async {
         let entity: EpisodeEntity? = (try? await DatabaseService.shared.fetchOne(EpisodeEntity.self, key: videoId)) ?? nil

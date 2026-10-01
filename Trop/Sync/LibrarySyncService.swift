@@ -22,6 +22,12 @@ actor LibrarySyncService {
         if settings.syncPlaylists {
             do { result.playlistIds = try await syncLikedPlaylists() } catch { Log.sync.error("syncLikedPlaylists error: \(error)") }
         }
+        if settings.syncAlbums {
+            do { result.albumIds = try await syncSavedAlbums() } catch { Log.sync.error("syncSavedAlbums error: \(error)") }
+        }
+        if settings.syncPodcasts {
+            do { result.podcastIds = try await syncSubscribedPodcasts() } catch { Log.sync.error("syncSubscribedPodcasts error: \(error)") }
+        }
         return result
     }
 }
@@ -88,6 +94,66 @@ extension LibrarySyncService {
                     DELETE FROM playlist WHERE is_auto_sync = 1 AND browse_id IS NOT NULL
                     AND browse_id NOT IN (\(DatabaseService.placeholders(count: remoteIds.count)))
                     """, arguments: StatementArguments(Array(remoteIds)))
+            }
+        }
+        return remoteIds
+    }
+
+    func syncSavedAlbums() async throws -> Set<String> {
+        let items = try await fetchAllPages(browseId: "FEmusic_liked_albums") { json in
+            LibraryBrowseParser.parseAlbums(from: json)
+        }
+        let remoteIds = Set(items.map(\.browseId))
+        try await db.write { db in
+            for item in items {
+                let existing = try AlbumEntity.fetchOne(db, key: item.browseId)
+                let entity = AlbumEntity(
+                    id: item.browseId,
+                    title: item.title,
+                    playlistId: item.playlistId ?? existing?.playlistId,
+                    thumbnailUrl: item.thumbnailUrl ?? existing?.thumbnailUrl,
+                    songCount: item.songCount != 0 ? item.songCount : (existing?.songCount ?? 0),
+                    duration: item.duration != 0 ? item.duration : (existing?.duration ?? 0),
+                    bookmarkedAt: existing?.bookmarkedAt ?? Date(),
+                    isUploaded: existing?.isUploaded ?? false
+                )
+                try entity.save(db)
+            }
+            // Unset bookmarked_at for albums no longer saved remotely
+            if !remoteIds.isEmpty {
+                let placeholders = DatabaseService.placeholders(count: remoteIds.count)
+                try db.execute(
+                    sql: "UPDATE album SET bookmarked_at = NULL WHERE bookmarked_at IS NOT NULL AND id NOT IN (\(placeholders))",
+                    arguments: StatementArguments(Array(remoteIds))
+                )
+            }
+        }
+        return remoteIds
+    }
+
+    func syncSubscribedPodcasts() async throws -> Set<String> {
+        let items = try await fetchAllPages(browseId: "FEmusic_library_non_music_audio_list") { json in
+            LibraryBrowseParser.parsePodcasts(from: json)
+        }
+        let remoteIds = Set(items.map(\.browseId))
+        try await db.write { db in
+            for item in items {
+                let existing = try PodcastEntity.fetchOne(db, key: item.browseId)
+                let entity = PodcastEntity(
+                    id: item.browseId,
+                    name: item.name,
+                    thumbnailUrl: item.thumbnailUrl ?? existing?.thumbnailUrl,
+                    subscribedAt: existing?.subscribedAt ?? Date()
+                )
+                try entity.save(db)
+            }
+            // Unset subscribed_at for podcasts no longer subscribed remotely
+            if !remoteIds.isEmpty {
+                let placeholders = DatabaseService.placeholders(count: remoteIds.count)
+                try db.execute(
+                    sql: "UPDATE podcast SET subscribed_at = NULL WHERE subscribed_at IS NOT NULL AND id NOT IN (\(placeholders))",
+                    arguments: StatementArguments(Array(remoteIds))
+                )
             }
         }
         return remoteIds

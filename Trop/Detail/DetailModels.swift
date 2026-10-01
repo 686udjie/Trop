@@ -53,5 +53,6 @@ struct PodcastDetailInfo {
     var descriptionText: String?
     var thumbnailUrl: String?
     var browseId: String
+    var isSubscribed: Bool
     var episodes: [EpisodeItem]
 }

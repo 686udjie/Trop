@@ -486,6 +486,10 @@ struct PlaylistDetailView: View {
             header(for: playlist)
                 .padding(.bottom, 8)
 
+            if viewModel.autoRoute != nil {
+                sortControls
+            }
+
             if playlist.songs.isEmpty {
                 VStack(spacing: 8) {
                     Spacer().frame(height: 40)
@@ -597,6 +601,45 @@ struct PlaylistDetailView: View {
                 .fontWeight(.medium)
                 .foregroundColor(.secondary)
         }
+    }
+
+    @ViewBuilder
+    private var sortControls: some View {
+        HStack {
+            Spacer()
+            switch viewModel.autoRoute {
+            case .likedSongs:
+                Picker("Sort", selection: Binding(
+                    get: { viewModel.autoSongSort },
+                    set: { viewModel.autoSongSort = $0 }
+                )) {
+                    ForEach(LibrarySongSort.allCases) { sort in
+                        Text(sort.displayName).tag(sort)
+                    }
+                }
+                .pickerStyle(.menu)
+                .onChange(of: viewModel.autoSongSort) {
+                    Task { await viewModel.load() }
+                }
+            case .topSongs:
+                Picker("Period", selection: Binding(
+                    get: { viewModel.autoTopPeriod },
+                    set: { viewModel.autoTopPeriod = $0 }
+                )) {
+                    ForEach(TopPeriod.allCases) { period in
+                        Text(period.displayName).tag(period)
+                    }
+                }
+                .pickerStyle(.menu)
+                .onChange(of: viewModel.autoTopPeriod) {
+                    Task { await viewModel.load() }
+                }
+            case nil:
+                EmptyView()
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.bottom, 8)
     }
 
     @ViewBuilder

@@ -632,13 +632,59 @@ struct EpisodeItem {
     var duration: Int
     var thumbnailUrl: String?
     var publishDate: String?
+    var descriptionText: String?
+    var viewsText: String?
 
     static func from(_ renderer: [String: Any]) -> EpisodeItem? {
         guard let videoId = extractVideoId(renderer) else { return nil }
         let title = InnerTubeJSON.runsText(renderer["title"] as? [String: Any]) ?? "Unknown"
         let thumbnailUrl = extractTwoRowThumbnail(renderer)
-        let duration = parseDurationFromRenderer(renderer)
-        return EpisodeItem(videoId: videoId, title: title, artists: [], duration: duration, thumbnailUrl: thumbnailUrl)
+        var duration = parseDurationFromRenderer(renderer)
+        if duration == 0,
+           let progress = renderer["playbackProgress"] as? [String: Any],
+           let progressRenderer = progress["musicPlaybackProgressRenderer"] as? [String: Any],
+           let durationText = InnerTubeJSON.runsText(progressRenderer["durationText"] as? [String: Any]),
+           !durationText.isEmpty {
+            duration = DurationFormat.parseClock(durationText)
+                ?? DurationFormat.parseSpoken(durationText)
+                ?? 0
+        }
+        // Subtitle runs carry "views • date" alongside the duration.
+        var publishDate: String?
+        var viewsText: String?
+        if let flexColumns = renderer["flexColumns"] as? [[String: Any]] {
+            for run in flexTextRuns(flexColumns, index: 1) {
+                guard let text = run["text"] as? String else { continue }
+                let trimmed = text.trimmingCharacters(in: .whitespaces)
+                if trimmed.isEmpty || trimmed == "•" || trimmed.contains(":") { continue }
+                let lower = trimmed.lowercased()
+                if lower.contains("view") || lower.contains("listening") || lower.contains("download") {
+                    viewsText = viewsText ?? trimmed
+                } else if publishDate == nil {
+                    publishDate = trimmed
+                }
+            }
+        }
+        return EpisodeItem(
+            videoId: videoId,
+            title: title,
+            artists: [],
+            duration: duration,
+            thumbnailUrl: thumbnailUrl,
+            publishDate: publishDate,
+            descriptionText: InnerTubeJSON.runsText(renderer["description"] as? [String: Any]),
+            viewsText: viewsText
+        )
+    }
+
+    /// "17k views • 4 hr ago • 1 hr 23 mins" meta line under each episode.
+    var metaLine: String {
+        var parts: [String] = []
+        if let views = viewsText, !views.isEmpty { parts.append(views) }
+        if let date = publishDate, !date.isEmpty { parts.append(date) }
+        let durationStr = duration.wordsDuration
+        if !durationStr.isEmpty { parts.append(durationStr) }
+        return parts.joined(separator: " • ")
     }
 }
 

@@ -314,6 +314,137 @@ actor MutationService {
         )
     }
 
+    // MARK: - Albums
+
+    func saveAlbum(
+        browseId: String,
+        title: String,
+        thumbnailUrl: String? = nil,
+        playlistId: String? = nil,
+        songCount: Int = 0,
+        duration: Int = 0,
+        feedbackToken: String? = nil
+    ) async throws {
+        if var existing = try await db.fetchOne(AlbumEntity.self, key: browseId) {
+            existing.bookmarkedAt = Date()
+            if let thumbnailUrl { existing.thumbnailUrl = thumbnailUrl }
+            if let playlistId { existing.playlistId = playlistId }
+            if !title.isEmpty { existing.title = title }
+            if songCount > 0 { existing.songCount = songCount }
+            if duration > 0 { existing.duration = duration }
+            try? await db.save(existing)
+        } else {
+            let entity = AlbumEntity(
+                id: browseId,
+                title: title,
+                playlistId: playlistId,
+                thumbnailUrl: thumbnailUrl,
+                songCount: songCount,
+                duration: duration,
+                bookmarkedAt: Date()
+            )
+            try? await db.save(entity)
+        }
+        guard let token = feedbackToken, !token.isEmpty else { return }
+        let dbCopy = db
+        try await attemptingRemote(
+            { _ = try await innerTube.feedback(tokens: [token]) },
+            rollback: { [dbCopy] in
+                if var restored = try? await dbCopy.fetchOne(AlbumEntity.self, key: browseId) {
+                    restored.bookmarkedAt = nil
+                    try? await dbCopy.save(restored)
+                }
+            }
+        )
+    }
+
+    func unsaveAlbum(browseId: String, feedbackToken: String? = nil) async throws {
+        var hadBookmark = false
+        if var existing = try await db.fetchOne(AlbumEntity.self, key: browseId) {
+            hadBookmark = existing.bookmarkedAt != nil
+            existing.bookmarkedAt = nil
+            try? await db.save(existing)
+        }
+        guard let token = feedbackToken, !token.isEmpty else { return }
+        let dbCopy = db
+        try await attemptingRemote(
+            { _ = try await innerTube.feedback(tokens: [token]) },
+            rollback: { [dbCopy] in
+                if hadBookmark, var restored = try? await dbCopy.fetchOne(AlbumEntity.self, key: browseId) {
+                    restored.bookmarkedAt = Date()
+                    try? await dbCopy.save(restored)
+                }
+            }
+        )
+    }
+
+    // MARK: - Podcasts
+
+    func subscribePodcast(
+        browseId: String,
+        name: String,
+        thumbnailUrl: String? = nil,
+        channelId: String? = nil,
+        feedbackToken: String? = nil
+    ) async throws {
+        if var existing = try await db.fetchOne(PodcastEntity.self, key: browseId) {
+            existing.subscribedAt = Date()
+            if !name.isEmpty { existing.name = name }
+            if let thumbnailUrl { existing.thumbnailUrl = thumbnailUrl }
+            try? await db.save(existing)
+        } else {
+            let entity = PodcastEntity(
+                id: browseId,
+                name: name,
+                thumbnailUrl: thumbnailUrl,
+                subscribedAt: Date()
+            )
+            try? await db.save(entity)
+        }
+        if feedbackToken == nil {
+            let channel = channelId ?? browseId
+            if !channel.isEmpty {
+                // Best-effort remote subscribe; podcast channels share the subscription endpoint.
+                _ = try? await innerTube.subscribe(channelId: channel)
+            }
+            return
+        }
+        guard let token = feedbackToken, !token.isEmpty else { return }
+        try await attemptingRemote(
+            { _ = try await innerTube.feedback(tokens: [token]) },
+            rollback: {
+                if var restored = try? await db.fetchOne(PodcastEntity.self, key: browseId) {
+                    restored.subscribedAt = nil
+                    try? await db.save(restored)
+                }
+            }
+        )
+    }
+
+    func unsubscribePodcast(browseId: String, channelId: String? = nil, feedbackToken: String? = nil) async throws {
+        if var existing = try await db.fetchOne(PodcastEntity.self, key: browseId) {
+            existing.subscribedAt = nil
+            try? await db.save(existing)
+        }
+        if feedbackToken == nil {
+            let channel = channelId ?? browseId
+            if !channel.isEmpty {
+                _ = try? await innerTube.unsubscribe(channelId: channel)
+            }
+            return
+        }
+        guard let token = feedbackToken, !token.isEmpty else { return }
+        try await attemptingRemote(
+            { _ = try await innerTube.feedback(tokens: [token]) },
+            rollback: {
+                if var restored = try? await db.fetchOne(PodcastEntity.self, key: browseId) {
+                    restored.subscribedAt = restored.subscribedAt ?? Date()
+                    try? await db.save(restored)
+                }
+            }
+        )
+    }
+
     private func extractPlaylistId(from json: [String: Any]) -> String? {
         if let playlistId = json["playlistId"] as? String { return playlistId }
         if let response = json["response"] as? [String: Any],

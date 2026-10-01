@@ -311,6 +311,14 @@ final class SettingsStore {
         didSet { Self.defaults.set(syncPlaylists, forKey: Keys.syncPlaylists) }
     }
 
+    var syncAlbums: Bool {
+        didSet { Self.defaults.set(syncAlbums, forKey: Keys.syncAlbums) }
+    }
+
+    var syncPodcasts: Bool {
+        didSet { Self.defaults.set(syncPodcasts, forKey: Keys.syncPodcasts) }
+    }
+
     // MARK: - Keys
 
     private enum Keys {
@@ -346,6 +354,8 @@ final class SettingsStore {
         static let autoDownloadNewEpisodes = "settings.autoDownloadNewEpisodes"
         static let syncArtists = "settings.syncArtists"
         static let syncPlaylists = "settings.syncPlaylists"
+        static let syncAlbums = "settings.syncAlbums"
+        static let syncPodcasts = "settings.syncPodcasts"
     }
 
     private static let defaults: UserDefaults = .standard
@@ -405,6 +415,8 @@ final class SettingsStore {
         autoDownloadNewEpisodes = Self.load(Keys.autoDownloadNewEpisodes, default: false)
         syncArtists = Self.load(Keys.syncArtists, default: true)
         syncPlaylists = Self.load(Keys.syncPlaylists, default: true)
+        syncAlbums = Self.load(Keys.syncAlbums, default: true)
+        syncPodcasts = Self.load(Keys.syncPodcasts, default: true)
     }
 }
 

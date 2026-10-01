@@ -508,6 +508,16 @@ extension LibraryBrowseParser {
 
 extension LibraryBrowseParser {
     static func parsePodcast(_ item: [String: Any]) -> ParsedPodcast? {
+        if let renderer = twoRowItem(item),
+           let bid = twoRowBrowseId(renderer: renderer, item: item) {
+            let title = twoRowTitle(renderer) ?? "Unknown"
+            return ParsedPodcast(
+                browseId: bid,
+                name: title,
+                thumbnailUrl: twoRowThumbnailUrl(renderer),
+                isSubscribed: true
+            )
+        }
         guard let renderer = responsiveListItem(item),
               let bid = browseId(renderer) else { return nil }
         let title = flexText(renderer, index: 0) ?? "Unknown"
@@ -517,27 +527,6 @@ extension LibraryBrowseParser {
             name: title,
             thumbnailUrl: thumbnailUrl(renderer),
             isSubscribed: tokens.isToggled
-        )
-    }
-
-    static func parseEpisode(_ item: [String: Any]) -> ParsedEpisode? {
-        guard let renderer = responsiveListItem(item),
-              let videoId = renderer["videoId"] as? String else { return nil }
-        let title = flexText(renderer, index: 0) ?? "Unknown"
-        let tokens = libraryTokens(renderer)
-        let subtitleRuns = allFlexTextRuns(renderer, index: 1)
-        let podcastName = subtitleRuns.first(where: { $0 != " • " && !$0.hasPrefix("http") })
-        // The podcastId might come from navigation endpoint or playlistId
-        let pid = playlistId(renderer)
-        return ParsedEpisode(
-            videoId: videoId,
-            title: title,
-            duration: durationSeconds(renderer),
-            thumbnailUrl: thumbnailUrl(renderer),
-            podcastId: pid,
-            podcastName: podcastName,
-            isPlayed: false,
-            savedAt: tokens.isToggled ? Date() : nil
         )
     }
 }
@@ -568,10 +557,5 @@ extension LibraryBrowseParser {
     static func parsePodcasts(from response: [String: Any]) -> [ParsedPodcast] {
         guard let items = extractItems(from: response) else { return [] }
         return items.compactMap { parsePodcast($0) }
-    }
-
-    static func parseEpisodes(from response: [String: Any]) -> [ParsedEpisode] {
-        guard let items = extractItems(from: response) else { return [] }
-        return items.compactMap { parseEpisode($0) }
     }
 }
