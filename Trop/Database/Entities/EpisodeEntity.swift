@@ -16,7 +16,6 @@ struct EpisodeEntity: Codable, Hashable, FetchableRecord, PersistableRecord {
     var podcastId: String?
     var podcastName: String?
     var isPlayed: Bool = false
-    var savedAt: Date?
 
     static let databaseTableName = "episode"
 
@@ -28,6 +27,5 @@ struct EpisodeEntity: Codable, Hashable, FetchableRecord, PersistableRecord {
         case podcastId = "podcast_id"
         case podcastName = "podcast_name"
         case isPlayed = "is_played"
-        case savedAt = "saved_at"
     }
 }

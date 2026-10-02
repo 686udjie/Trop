@@ -81,18 +81,31 @@ actor InnerTube {
     }
 
     /// Follows browse continuations, collecting parsed items from every page.
+    /// Guarded against stuck servers: stops on repeated tokens and caps pages.
     func paginate<T>(
         browseId: String,
         params: String? = nil,
+        maxPages: Int = 50,
         parse: @escaping ([String: Any]) -> [T],
         continuation: @escaping ([String: Any]) -> String?
     ) async throws -> [T] {
         var allItems: [T] = []
         var token: String?
+        var seenTokens = Set<String>()
+        var pages = 0
         repeat {
             let json = try await browse(browseId: browseId, params: params, continuation: token)
             allItems.append(contentsOf: parse(json))
             token = continuation(json)
+            pages += 1
+            if let token, !seenTokens.insert(token).inserted {
+                Log.innerTube.error("paginate \(browseId): repeated continuation token, stopping")
+                break
+            }
+            if pages >= maxPages {
+                Log.innerTube.error("paginate \(browseId): hit \(maxPages)-page cap, stopping")
+                break
+            }
         } while token != nil
         return allItems
     }

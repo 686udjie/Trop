@@ -169,7 +169,6 @@ extension LibrarySyncService {
     /// Merges YTM's Liked Music auto-playlist (VLLM) into the permanent local
     /// Liked Songs list (`song.liked`), like Metrolist. The LM playlist row
     /// itself is deleted right away so it never appears in the library.
-    /// Additive only — songs are never unliked by this sync.
     func syncLikedSongs() async throws -> Set<String> {
         _ = try await PlaylistDetailService.shared.fetchPlaylist(playlistId: "LM")
         let remoteIds = try await db.read { db in
@@ -190,6 +189,11 @@ extension LibrarySyncService {
                         arguments: [base, base.addingTimeInterval(TimeInterval(-index)), songId]
                     )
                 }
+                let placeholders = DatabaseService.placeholders(count: remoteIds.count)
+                try db.execute(
+                    sql: "UPDATE song SET liked = 0 WHERE liked = 1 AND id NOT IN (\(placeholders))",
+                    arguments: StatementArguments(Array(remoteIds))
+                )
             }
             try db.execute(sql: "DELETE FROM playlist_song_map WHERE playlist_id = 'LM'")
             try db.execute(sql: "DELETE FROM playlist WHERE id = 'LM'")

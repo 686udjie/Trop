@@ -33,6 +33,12 @@ actor MutationService {
         SongEnrichment.skeleton(id: id, liked: liked, addToken: addToken)
     }
 
+    private static let orphanRepairInterval: TimeInterval = 10 * 60
+    private static let orphanRepairBatchSize = 10
+
+    private var lastOrphanRepair: Date?
+    private var unrecoverableOrphans = Set<String>()
+
     private func enrichEmptySong(_ entity: SongEntity) async -> SongEntity {
         guard entity.title.isEmpty else { return entity }
         guard let metadata = try? await fetchSongMetadata(videoId: entity.id) else { return entity }
@@ -72,21 +78,32 @@ actor MutationService {
     }
 
     func repairOrphanSongs() async {
+        if let last = lastOrphanRepair, Date().timeIntervalSince(last) < Self.orphanRepairInterval {
+            return
+        }
+        lastOrphanRepair = Date()
         let orphans: [String]
         do {
-            orphans = try await db.orphanSongIds()
+            orphans = try await db.orphanSongIds().filter { !unrecoverableOrphans.contains($0) }
         } catch {
             return
         }
         guard !orphans.isEmpty else { return }
-        for id in orphans {
-            guard let metadata = try? await fetchSongMetadata(videoId: id),
-                  !metadata.title.isEmpty else { continue }
-            let repaired = SongEnrichment.merging(
-                SongEnrichment.skeleton(id: id, liked: false),
-                with: metadata
-            )
-            _ = try? await db.insert(repaired, onConflict: .ignore)
+        for id in orphans.prefix(Self.orphanRepairBatchSize) {
+            do {
+                guard let metadata = try await fetchSongMetadata(videoId: id),
+                      !metadata.title.isEmpty else {
+                    unrecoverableOrphans.insert(id)
+                    continue
+                }
+                let repaired = SongEnrichment.merging(
+                    SongEnrichment.skeleton(id: id, liked: false),
+                    with: metadata
+                )
+                _ = try? await db.insert(repaired, onConflict: .ignore)
+            } catch {
+                continue
+            }
         }
     }
 

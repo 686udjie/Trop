@@ -105,8 +105,7 @@ actor EpisodePlaybackStore {
                     thumbnailUrl: episode.thumbnailUrl,
                     podcastId: podcastId,
                     podcastName: podcastName,
-                    isPlayed: false,
-                    savedAt: Date()
+                    isPlayed: false
                 )
                 _ = try? await DatabaseService.shared.insertOrReplace(entity)
             }

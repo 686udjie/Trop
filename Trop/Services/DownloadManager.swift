@@ -29,22 +29,6 @@ class DownloadManager: ObservableObject {
         case failed(String)
     }
 
-    enum DownloadSort: String, CaseIterable, Identifiable {
-        case recent
-        case title
-        case artist
-
-        var id: String { rawValue }
-
-        var displayName: String {
-            switch self {
-            case .recent: return "Recent"
-            case .title: return "Title"
-            case .artist: return "Artist"
-            }
-        }
-    }
-
     private let fileManager = FileManager.default
     private let pathMonitor = NWPathMonitor()
     private var currentPath: NWPath?
@@ -89,6 +73,44 @@ class DownloadManager: ObservableObject {
     func fileURL(forVideoId videoId: String) -> URL {
         ensureDirectories()
         return downloadsDir.appendingPathComponent(videoId + ".m4a")
+    }
+
+    func fileURL(for song: SongItem) async -> URL {
+        await displayDestinationURL(
+            title: song.title,
+            artist: song.artists.map(\.name).joined(separator: ", "),
+            videoId: song.videoId
+        )
+    }
+
+    func displayDestinationURL(title: String, artist: String, videoId: String) async -> URL {
+        ensureDirectories()
+        let rawStem = title.isEmpty ? videoId : (artist.isEmpty ? title : "\(artist) - \(title)")
+        let stem = Self.sanitizeFileName(rawStem)
+        var url = downloadsDir.appendingPathComponent(stem + ".m4a")
+        if fileManager.fileExists(atPath: url.path) {
+            let owner = try? await DatabaseService.shared.fetchAll(
+                DownloadedTrackEntity.self,
+                sql: "SELECT * FROM downloaded_track WHERE local_path = ? LIMIT 1",
+                arguments: [url.path]
+            ).first
+            if owner?.id != videoId {
+                url = downloadsDir.appendingPathComponent(stem + " [\(videoId)].m4a")
+            }
+        }
+        return url
+    }
+
+    /// Strips characters illegal on filesystems, trims whitespace/dots and
+    /// caps length for APFS's 255-byte limit.
+    nonisolated static func sanitizeFileName(_ name: String) -> String {
+        var stem = name.replacingOccurrences(of: "/", with: "-")
+        let illegal = CharacterSet(charactersIn: ":\\?%*|\"<>").union(.controlCharacters)
+        stem = stem.components(separatedBy: illegal).joined(separator: "-")
+        stem = stem.trimmingCharacters(in: .whitespacesAndNewlines)
+        while stem.utf8.count > 150 { stem = String(stem.dropLast()) }
+        stem = stem.trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: ".")))
+        return stem.isEmpty ? "Untitled" : stem
     }
 
     /// AAC transcode bitrate for the download quality preference.
@@ -144,7 +166,7 @@ extension DownloadManager {
         setProgress(0.02, for: videoId)
 
         do {
-            let fileURL = fileURL(forVideoId: videoId)
+            let fileURL = await fileURL(for: song)
             if fileManager.fileExists(atPath: fileURL.path) {
                 try? fileManager.removeItem(at: fileURL)
             }
@@ -527,6 +549,7 @@ extension DownloadManager {
         for track in allTracks {
             if await localURL(for: track.id) != nil {
                 validIds.insert(track.id)
+                await migrateLegacyFileName(track)
             } else {
                 _ = try? await DatabaseService.shared.delete(track)
             }
@@ -538,23 +561,28 @@ extension DownloadManager {
         }
     }
 
+    private func migrateLegacyFileName(_ track: DownloadedTrackEntity) async {
+        guard URL(fileURLWithPath: track.localPath).lastPathComponent == "\(track.id).m4a" else { return }
+        let destination = await displayDestinationURL(title: track.title, artist: track.artist, videoId: track.id)
+        guard destination.path != track.localPath else { return }
+        do {
+            try fileManager.moveItem(atPath: track.localPath, toPath: destination.path)
+            var updated = track
+            updated.localPath = destination.path
+            try await DatabaseService.shared.save(updated)
+        } catch {
+            Log.downloadManager.error("Failed to rename download \(track.id): \(error)")
+        }
+    }
+
     func fetchAll() async -> [DownloadedTrackEntity] {
         (try? await DatabaseService.shared.fetchAll(DownloadedTrackEntity.self)) ?? []
     }
 
-    func fetchAllSorted(by sort: DownloadSort) async -> [DownloadedTrackEntity] {
-        let orderClause: String
-        switch sort {
-        case .recent:
-            orderClause = "ORDER BY downloaded_at DESC"
-        case .title:
-            orderClause = "ORDER BY title COLLATE NOCASE ASC"
-        case .artist:
-            orderClause = "ORDER BY artist COLLATE NOCASE ASC, title COLLATE NOCASE ASC"
-        }
-        return (try? await DatabaseService.shared.fetchAll(
+    func fetchAllSorted() async -> [DownloadedTrackEntity] {
+        (try? await DatabaseService.shared.fetchAll(
             DownloadedTrackEntity.self,
-            sql: "SELECT * FROM downloaded_track \(orderClause)"
+            sql: "SELECT * FROM downloaded_track ORDER BY downloaded_at DESC"
         )) ?? []
     }
 

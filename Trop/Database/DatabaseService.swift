@@ -208,43 +208,6 @@ extension DatabaseService {
             return mutable
         }
     }
-
-    func transferSongStats(from sourceSongId: String, to destSongId: String) async throws {
-        try await dbPool.write { db in
-            try db.execute(
-                sql: """
-                    UPDATE song SET total_play_time = total_play_time + (
-                        SELECT COALESCE(total_play_time, 0) FROM song WHERE id = ?
-                    ) WHERE id = ?
-                    """,
-                arguments: [sourceSongId, destSongId])
-
-            try db.execute(
-                sql: "UPDATE OR IGNORE event SET song_id = ? WHERE song_id = ?",
-                arguments: [destSongId, sourceSongId])
-
-            try db.execute(
-                sql: "DELETE FROM event WHERE song_id = ?",
-                arguments: [sourceSongId])
-
-            try db.execute(
-                sql: """
-                    INSERT INTO play_count (song_id, year, month, count)
-                    SELECT ?, year, month, count FROM play_count WHERE song_id = ?
-                    ON CONFLICT(song_id, year, month) DO UPDATE SET
-                        count = play_count.count + excluded.count
-                    """,
-                arguments: [destSongId, sourceSongId])
-
-            try db.execute(
-                sql: "DELETE FROM play_count WHERE song_id = ?",
-                arguments: [sourceSongId])
-
-            try db.execute(
-                sql: "DELETE FROM song WHERE id = ?",
-                arguments: [sourceSongId])
-        }
-    }
 }
 
 enum LibrarySongSort: String, CaseIterable, Sendable, Identifiable {

@@ -17,10 +17,15 @@ actor PlaylistDetailService {
         let browseId = "VL\(playlistId)"
         var allItems: [[String: Any]] = []
         var token: String?
+        var seenTokens = Set<String>()
         repeat {
             let json = try await innerTube.browse(browseId: browseId, continuation: token)
             allItems += extractPlaylistItems(from: json) ?? []
             token = extractPlaylistContinuation(from: json)
+            if let token, !seenTokens.insert(token).inserted {
+                Log.sync.error("fetchPlaylist \(playlistId): repeated continuation token, stopping")
+                break
+            }
         } while token != nil
 
         let snapshot = allItems

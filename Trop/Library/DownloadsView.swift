@@ -188,6 +188,6 @@ final class DownloadsViewModel {
     }
 
     func refreshTracks() async {
-        tracks = await downloadManager.fetchAllSorted(by: .recent)
+        tracks = await downloadManager.fetchAllSorted()
     }
 }

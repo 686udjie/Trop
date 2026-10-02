@@ -273,6 +273,7 @@ struct ArtistDetailView: View {
 
     @State private var scrollOffset: CGFloat = 0
     @State private var linkCopied = false
+    @State private var linkResetTask: Task<Void, Never>?
 
     private static let barFadeStart: CGFloat = 80
     private static let barFadeDistance: CGFloat = 120
@@ -317,6 +318,7 @@ struct ArtistDetailView: View {
 
             customTopBar
         }
+        .onDisappear { linkResetTask?.cancel() }
     }
 
     private var customTopBar: some View {
@@ -398,8 +400,10 @@ struct ArtistDetailView: View {
               let url = URL(string: "https://music.youtube.com/channel/\(artist.browseId)") else { return }
         UIPasteboard.general.string = url.absoluteString
         linkCopied = true
-        Task { @MainActor in
+        linkResetTask?.cancel()
+        linkResetTask = Task { @MainActor in
             try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
             linkCopied = false
         }
     }
