@@ -143,7 +143,7 @@ struct MiniPlayerBarView: View {
                     )
                 }
 
-                Text(artistDisplayString(from: song.artists))
+                Text(artistLine(for: song))
                     .font(.system(size: 12, weight: .regular))
                     .foregroundStyle(artistColor)
                     .lineLimit(1)
@@ -202,6 +202,16 @@ struct MiniPlayerBarView: View {
     private var prevSong: SongItem? {
         guard np.queueSongs.indices.contains(np.queueIndex - 1) else { return nil }
         return np.queueSongs[np.queueIndex - 1]
+    }
+
+    /// Artist line for a queued song, falling back to the resolved author
+    /// (what the big player shows via `displayArtist`) when the queued item
+    /// carries no artist runs — e.g. videos or cache-repaired songs.
+    private func artistLine(for song: SongItem) -> String {
+        let own = artistDisplayString(from: song.artists)
+        if !own.isEmpty { return own }
+        if song.videoId == np.videoId { return np.displayArtist }
+        return own
     }
 
     private var nextSong: SongItem? {

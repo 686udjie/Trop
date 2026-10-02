@@ -47,7 +47,8 @@ final class ArtistDetailViewModel {
 extension ArtistDetailViewModel {
     /// Parses InnerTube browse JSON into an ArtistDetailInfo.
     /// Handles both musicImmersiveHeaderRenderer and musicResponsiveHeaderRenderer for the header,
-    /// then extracts songs from musicShelfRenderer and albums from musicCarouselShelfRenderer.
+    /// then extracts top songs from musicShelfRenderer and albums, singles, videos,
+    /// playlists and related artists from musicCarouselShelfRenderer shelves.
     static func parseArtistDetail(from json: [String: Any], browseId: String) -> ArtistDetailInfo {
         var name = "Unknown Artist"
         var thumbnailUrl: String?
@@ -55,7 +56,7 @@ extension ArtistDetailViewModel {
         var descriptionText: String?
         var isSubscribed = false
         var songs: [SongItem] = []
-        var albums: [AlbumItem] = []
+        var buckets = ArtistCarouselBuckets()
 
         // --- Header ---
         // Artist pages can use either an immersive header (large background image)
@@ -108,18 +109,14 @@ extension ArtistDetailViewModel {
                     }
                 }
 
-                // musicCarouselShelfRenderer typically contains albums, singles, etc.
+                // musicCarouselShelfRenderer holds albums, singles, videos,
+                // playlists and related artists — classified per shelf below.
                 if let carousel = sectionDict["musicCarouselShelfRenderer"] as? [String: Any],
                    let items = carousel["contents"] as? [[String: Any]] {
+                    let shelfTitle = extractCarouselTitle(carousel)
                     for itemDict in items {
-                        if let twoRow = itemDict["musicTwoRowItemRenderer"] as? [String: Any] {
-                            let pageType = HomePageParser.extractPageType(twoRow)
-                            if pageType == "MUSIC_PAGE_TYPE_ALBUM" || pageType == "MUSIC_PAGE_TYPE_AUDIOBOOK" {
-                                if let albumItem = AlbumItem.from(twoRow) {
-                                    albums.append(albumItem)
-                                }
-                            }
-                        }
+                        guard let twoRow = itemDict["musicTwoRowItemRenderer"] as? [String: Any] else { continue }
+                        classifyCarouselItem(twoRow, shelfTitle: shelfTitle, buckets: &buckets)
                     }
                 }
             }
@@ -133,8 +130,72 @@ extension ArtistDetailViewModel {
             isSubscribed: isSubscribed,
             browseId: browseId,
             songs: songs,
-            albums: albums
+            albums: buckets.albums,
+            singles: buckets.singles,
+            videos: buckets.videos,
+            playlists: buckets.playlists,
+            relatedArtists: buckets.relatedArtists
         )
+    }
+
+    /// Buckets for one artist page's carousel shelves.
+    private struct ArtistCarouselBuckets {
+        var albums: [AlbumItem] = []
+        var singles: [AlbumItem] = []
+        var videos: [SongItem] = []
+        var playlists: [PlaylistItem] = []
+        var relatedArtists: [ArtistItem] = []
+    }
+
+    /// Routes one carousel tile into albums, singles, videos, playlists or
+    /// related artists based on its page type (and shelf/subtitle hints for
+    /// singles & EPs, which share the album page type).
+    private static func classifyCarouselItem(
+        _ twoRow: [String: Any],
+        shelfTitle: String,
+        buckets: inout ArtistCarouselBuckets
+    ) {
+        let pageType = HomePageParser.extractPageType(twoRow)
+        switch pageType {
+        case "MUSIC_PAGE_TYPE_ALBUM", "MUSIC_PAGE_TYPE_AUDIOBOOK":
+            guard let albumItem = AlbumItem.from(twoRow) else { return }
+            if isSingleOrEP(shelfTitle: shelfTitle, renderer: twoRow) {
+                buckets.singles.append(albumItem)
+            } else {
+                buckets.albums.append(albumItem)
+            }
+        case "MUSIC_PAGE_TYPE_ARTIST", "MUSIC_PAGE_TYPE_USER_CHANNEL":
+            if let artistItem = ArtistItem.from(twoRow) {
+                buckets.relatedArtists.append(artistItem)
+            }
+        case "MUSIC_PAGE_TYPE_PLAYLIST":
+            if let playlistItem = PlaylistItem.from(twoRow) {
+                buckets.playlists.append(playlistItem)
+            }
+        default:
+            // Music videos expose a watch endpoint instead of a browse page.
+            if pageType == "MUSIC_PAGE_TYPE_VIDEO" || HomePageParser.hasWatchEndpoint(twoRow),
+               let video = SongItem.from(twoRow) {
+                buckets.videos.append(video)
+            }
+        }
+    }
+
+    /// Singles & EPs share the album page type, so the shelf title
+    /// ("Singles & EPs") or subtitle ("Single • 2024") decides.
+    private static let singleOrEPWords: Set<String> = ["single", "singles", "ep", "eps"]
+
+    private static func words(in text: String) -> [String] {
+        text.lowercased().components(separatedBy: CharacterSet.alphanumerics.inverted)
+    }
+
+    private static func isSingleOrEP(shelfTitle: String, renderer: [String: Any]) -> Bool {
+        if words(in: shelfTitle).contains(where: singleOrEPWords.contains) {
+            return true
+        }
+        let subtitleWords = InnerTubeJSON.runsTexts(renderer["subtitle"] as? [String: Any])
+            .flatMap { words(in: $0) }
+        return subtitleWords.contains(where: singleOrEPWords.contains)
     }
 
     /// Warms Nuke's cache before the artist screen appears, avoiding a second
@@ -211,6 +272,7 @@ struct ArtistDetailView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     @State private var scrollOffset: CGFloat = 0
+    @State private var linkCopied = false
 
     private static let barFadeStart: CGFloat = 80
     private static let barFadeDistance: CGFloat = 120
@@ -269,6 +331,8 @@ struct ArtistDetailView: View {
             }
 
             Spacer(minLength: 0)
+
+            topBarCopyLinkButton
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
@@ -285,23 +349,59 @@ struct ArtistDetailView: View {
     }
 
     private var topBarBackButton: some View {
-        Button(action: { dismiss() }, label: {
+        topBarCircleButton(
+            systemName: "chevron.left",
+            accessibilityLabel: "Back",
+            action: { dismiss() }
+        )
+    }
+
+    private var topBarCopyLinkButton: some View {
+        topBarCircleButton(
+            systemName: linkCopied ? "checkmark" : "link",
+            fadedColor: linkCopied ? Color.accentColor : .primary,
+            accessibilityLabel: linkCopied ? "Artist link copied" : "Copy artist link",
+            action: { copyArtistLink() }
+        )
+        .disabled(viewModel.artist == nil)
+    }
+
+    /// Round top-bar button matching the back chevron: white with shadow over
+    /// the banner artwork, crossfading to `fadedColor` as the bar fills in.
+    private func topBarCircleButton(
+        systemName: String,
+        fadedColor: Color = .primary,
+        accessibilityLabel: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action, label: {
             ZStack {
-                Image(systemName: "chevron.left")
+                Image(systemName: systemName)
                     .font(.body.weight(.semibold))
                     .foregroundStyle(.white)
                     .shadow(color: .black.opacity(0.5), radius: 3, y: 1)
                     .opacity(1 - barProgress)
-                Image(systemName: "chevron.left")
+                Image(systemName: systemName)
                     .font(.body.weight(.semibold))
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(fadedColor)
                     .opacity(barProgress)
             }
             .frame(width: 40, height: 40)
             .contentShape(Rectangle())
         })
         .buttonStyle(.plain)
-        .accessibilityLabel("Back")
+        .accessibilityLabel(accessibilityLabel)
+    }
+
+    private func copyArtistLink() {
+        guard let artist = viewModel.artist,
+              let url = URL(string: "https://music.youtube.com/channel/\(artist.browseId)") else { return }
+        UIPasteboard.general.string = url.absoluteString
+        linkCopied = true
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2))
+            linkCopied = false
+        }
     }
 
     @ViewBuilder
@@ -317,11 +417,28 @@ struct ArtistDetailView: View {
                 albumsSection(albums: artist.albums)
             }
 
+            if !artist.singles.isEmpty {
+                singlesSection(singles: artist.singles)
+            }
+
+            if !artist.videos.isEmpty {
+                videosSection(videos: artist.videos)
+            }
+
+            if !artist.playlists.isEmpty {
+                playlistsSection(playlists: artist.playlists)
+            }
+
+            if !artist.relatedArtists.isEmpty {
+                relatedArtistsSection(artists: artist.relatedArtists)
+            }
+
             if let description = artist.descriptionText, !description.isEmpty {
                 aboutSection(description: description)
             }
 
-            if artist.songs.isEmpty && artist.albums.isEmpty {
+            if artist.songs.isEmpty && artist.albums.isEmpty && artist.singles.isEmpty
+                && artist.videos.isEmpty && artist.playlists.isEmpty && artist.relatedArtists.isEmpty {
                 VStack(spacing: 8) {
                     Spacer().frame(height: 40)
                     Text("No content found")
@@ -493,28 +610,124 @@ struct ArtistDetailView: View {
 
     @ViewBuilder
     private func albumsSection(albums: [AlbumItem]) -> some View {
+        carouselSection(title: "Albums") {
+            ForEach(albums.indices, id: \.self) { i in
+                let album = albums[i]
+                NavigationLink(value: DetailRoute.album(browseId: album.browseId)) {
+                    MediaGridCell(
+                        thumbnailUrl: album.thumbnailUrl,
+                        title: album.title,
+                        subtitle: album.artists.map(\.name).joined(separator: ", "),
+                        size: 156
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func singlesSection(singles: [AlbumItem]) -> some View {
+        carouselSection(title: "Singles & EPs") {
+            ForEach(singles.indices, id: \.self) { i in
+                let single = singles[i]
+                NavigationLink(value: DetailRoute.album(browseId: single.browseId)) {
+                    MediaGridCell(
+                        thumbnailUrl: single.thumbnailUrl,
+                        title: single.title,
+                        subtitle: single.artists.map(\.name).joined(separator: ", "),
+                        size: 156
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func videosSection(videos: [SongItem]) -> some View {
+        carouselSection(title: "Videos") {
+            ForEach(videos.indices, id: \.self) { i in
+                let video = videos[i]
+                Button(action: { playVideo(video) }, label: {
+                    VStack(alignment: .leading, spacing: 6) {
+                        AsyncImageView(url: video.thumbnailUrl)
+                            .frame(width: 200, height: 112)
+                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        Text(video.title)
+                            .font(.caption)
+                            .fontWeight(.medium)
+                            .foregroundColor(.primary)
+                            .lineLimit(2)
+                            .frame(width: 200, alignment: .leading)
+                        if !video.duration.formattedDuration.isEmpty {
+                            Text(video.duration.formattedDuration)
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                })
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func playlistsSection(playlists: [PlaylistItem]) -> some View {
+        carouselSection(title: "Playlists") {
+            ForEach(playlists.indices, id: \.self) { i in
+                let playlist = playlists[i]
+                NavigationLink(value: DetailRoute.playlist(playlistId: playlist.id)) {
+                    MediaGridCell(
+                        thumbnailUrl: playlist.thumbnailUrl,
+                        title: playlist.title,
+                        subtitle: playlistSubtitle(playlist.author),
+                        size: 156
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func relatedArtistsSection(artists: [ArtistItem]) -> some View {
+        carouselSection(title: "Fans Also Like", spacing: 16) {
+            ForEach(artists.indices, id: \.self) { i in
+                let related = artists[i]
+                NavigationLink(value: DetailRoute.artist(browseId: related.browseId)) {
+                    VStack(spacing: 8) {
+                        AsyncImageView(url: related.thumbnailUrl)
+                            .frame(width: 120, height: 120)
+                            .clipShape(Circle())
+                        Text(related.name)
+                            .lineLimit(1)
+                            .font(.callout)
+                    }
+                    .frame(width: 120)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    /// Shared shell for the artist page's horizontal carousels.
+    @ViewBuilder
+    private func carouselSection<Content: View>(
+        title: String,
+        spacing: CGFloat = 12,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Albums")
+            Text(title)
                 .font(.title2)
                 .fontWeight(.bold)
                 .padding(.horizontal, 16)
                 .padding(.top, 24)
 
-            // Horizontal album carousel
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 12) {
-                    ForEach(albums.indices, id: \.self) { i in
-                        let album = albums[i]
-                        NavigationLink(value: DetailRoute.album(browseId: album.browseId)) {
-                            MediaGridCell(
-                                thumbnailUrl: album.thumbnailUrl,
-                                title: album.title,
-                                subtitle: album.artists.map(\.name).joined(separator: ", "),
-                                size: 156
-                            )
-                        }
-                        .buttonStyle(.plain)
-                    }
+                HStack(spacing: spacing) {
+                    content()
                 }
                 .padding(.horizontal, 16)
             }
@@ -531,6 +744,19 @@ struct ArtistDetailView: View {
     private func playSong(_ song: SongItem) {
         guard let artist = viewModel.artist else { return }
         PlaybackQueue.play(song, in: artist.songs, log: Log.artistDetail, context: "Playback")
+    }
+
+    private func playVideo(_ video: SongItem) {
+        guard let artist = viewModel.artist else { return }
+        PlaybackQueue.play(video, in: artist.videos, log: Log.artistDetail, context: "Video playback")
+    }
+
+    /// The tile subtitle's first run is the generic "Playlist" type label —
+    /// redundant under the Playlists header, so only show a real author.
+    private func playlistSubtitle(_ author: String?) -> String? {
+        guard let author, !author.isEmpty,
+              author.localizedCaseInsensitiveCompare("playlist") != .orderedSame else { return nil }
+        return author
     }
 
     private func toggleSubscribe(_ artist: ArtistDetailInfo) {
@@ -562,7 +788,11 @@ struct ArtistDetailView: View {
                         isSubscribed: !current.isSubscribed,
                         browseId: current.browseId,
                         songs: current.songs,
-                        albums: current.albums
+                        albums: current.albums,
+                        singles: current.singles,
+                        videos: current.videos,
+                        playlists: current.playlists,
+                        relatedArtists: current.relatedArtists
                     )
                 }
             }

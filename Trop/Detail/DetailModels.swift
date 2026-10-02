@@ -30,6 +30,10 @@ struct ArtistDetailInfo {
     var browseId: String
     var songs: [SongItem]
     var albums: [AlbumItem]
+    var singles: [AlbumItem] = []
+    var videos: [SongItem] = []
+    var playlists: [PlaylistItem] = []
+    var relatedArtists: [ArtistItem] = []
 }
 
 /// Parsed detail data for a playlist page.
