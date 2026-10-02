@@ -381,6 +381,17 @@ extension DatabaseService {
         }
     }
 
+    func fetchTopSongs(limit: Int) async throws -> [SongEntity] {
+        try await dbPool.read { db in
+            try SongEntity.fetchAll(db, sql: """
+                SELECT * FROM song
+                WHERE total_play_time > 0
+                ORDER BY total_play_time DESC
+                LIMIT ?
+            """, arguments: [limit])
+        }
+    }
+
     func fetchTopSongs(limit: Int, from: Date, to: Date) async throws -> [SongEntity] {
         try await dbPool.read { db in
             try SongEntity.fetchAll(db, sql: """

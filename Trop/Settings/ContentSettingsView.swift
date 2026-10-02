@@ -57,6 +57,7 @@ struct ContentSettingsView: View {
                 SettingsToggleRow("Sync Playlists", icon: "music.note.list", isOn: $settings.syncPlaylists)
                 SettingsToggleRow("Sync Albums", icon: "square.stack", isOn: $settings.syncAlbums)
                 SettingsToggleRow("Sync Podcasts", icon: "antenna.radiowaves.left.and.right", isOn: $settings.syncPodcasts)
+                SettingsToggleRow("Sync Liked Songs", icon: "heart.fill", isOn: $settings.syncSongs)
             } header: {
                 Text("Library Sync")
             } footer: {

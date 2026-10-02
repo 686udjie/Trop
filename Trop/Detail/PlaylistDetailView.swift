@@ -156,7 +156,11 @@ final class PlaylistDetailViewModel {
             case .topSongs(let limit):
                 title = "My Top \(limit)"
                 Task { await MutationService.shared.repairOrphanSongs() }
-                entities = try await DatabaseService.shared.fetchTopSongs(limit: limit, from: autoTopPeriod.dateFrom, to: Date())
+                if autoTopPeriod == .allTime {
+                    entities = try await DatabaseService.shared.fetchTopSongs(limit: limit)
+                } else {
+                    entities = try await DatabaseService.shared.fetchTopSongs(limit: limit, from: autoTopPeriod.dateFrom, to: Date())
+                }
             }
             var songs = entities.toSongItems()
 

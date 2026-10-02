@@ -28,6 +28,10 @@ actor LibrarySyncService {
         if settings.syncPodcasts {
             do { result.podcastIds = try await syncSubscribedPodcasts() } catch { Log.sync.error("syncSubscribedPodcasts error: \(error)") }
         }
+        if settings.syncSongs {
+            do { result.songIds = try await syncLikedSongs() } catch { Log.sync.error("syncLikedSongs error: \(error)") }
+        }
+        await LikeStore.shared.refresh()
         return result
     }
 }
@@ -61,8 +65,11 @@ extension LibrarySyncService {
     }
 
     func syncLikedPlaylists() async throws -> Set<String> {
+        // YTM's Liked Music pseudo-playlist must never materialize as a
+        // library row — its members merge into Liked Songs via syncLikedSongs.
+        let likedMusicIds: Set<String> = ["LM", "VLLM"]
         let items = try await fetchAllPages(browseId: "FEmusic_liked_playlists") { json in
-            LibraryBrowseParser.parsePlaylists(from: json)
+            LibraryBrowseParser.parsePlaylists(from: json).filter { !likedMusicIds.contains($0.browseId) }
         }
         let remoteIds = Set(items.map(\.browseId))
         try await db.write { db in
@@ -155,6 +162,37 @@ extension LibrarySyncService {
                     arguments: StatementArguments(Array(remoteIds))
                 )
             }
+        }
+        return remoteIds
+    }
+
+    /// Merges YTM's Liked Music auto-playlist (VLLM) into the permanent local
+    /// Liked Songs list (`song.liked`), like Metrolist. The LM playlist row
+    /// itself is deleted right away so it never appears in the library.
+    /// Additive only — songs are never unliked by this sync.
+    func syncLikedSongs() async throws -> Set<String> {
+        _ = try await PlaylistDetailService.shared.fetchPlaylist(playlistId: "LM")
+        let remoteIds = try await db.read { db in
+            try Set(String.fetchAll(db, sql: "SELECT song_id FROM playlist_song_map WHERE playlist_id = 'LM'"))
+        }
+        try await db.write { db in
+            if !remoteIds.isEmpty {
+                // Mirror YTM's liked order in the local Liked Songs list, which
+                // sorts by create_date: newest like first, staggered by shelf position.
+                let orderedIds = try String.fetchAll(
+                    db,
+                    sql: "SELECT song_id FROM playlist_song_map WHERE playlist_id = 'LM' ORDER BY position"
+                )
+                let base = Date()
+                for (index, songId) in orderedIds.enumerated() {
+                    try db.execute(
+                        sql: "UPDATE song SET liked = 1, modify_date = ?, create_date = ? WHERE id = ?",
+                        arguments: [base, base.addingTimeInterval(TimeInterval(-index)), songId]
+                    )
+                }
+            }
+            try db.execute(sql: "DELETE FROM playlist_song_map WHERE playlist_id = 'LM'")
+            try db.execute(sql: "DELETE FROM playlist WHERE id = 'LM'")
         }
         return remoteIds
     }
