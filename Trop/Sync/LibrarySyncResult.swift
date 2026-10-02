@@ -13,4 +13,5 @@ struct LibrarySyncResult {
     var albumIds: Set<String> = []
     var podcastIds: Set<String> = []
     var songIds: Set<String> = []
+    var completedSections = 0
 }

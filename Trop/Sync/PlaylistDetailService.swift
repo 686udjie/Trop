@@ -13,20 +13,34 @@ actor PlaylistDetailService {
     private let innerTube = InnerTube.shared
     private let db = DatabaseService.shared
 
-    func fetchPlaylist(playlistId: String) async throws -> Int {
+    func fetchPlaylist(playlistId: String, maxPages: Int = 100) async throws -> Int {
         let browseId = "VL\(playlistId)"
         var allItems: [[String: Any]] = []
         var token: String?
         var seenTokens = Set<String>()
+        var pages = 0
+        var hadShelf = false
         repeat {
             let json = try await innerTube.browse(browseId: browseId, continuation: token)
-            allItems += extractPlaylistItems(from: json) ?? []
+            if let items = extractPlaylistItems(from: json) {
+                hadShelf = true
+                allItems += items
+            }
             token = extractPlaylistContinuation(from: json)
+            pages += 1
             if let token, !seenTokens.insert(token).inserted {
                 Log.sync.error("fetchPlaylist \(playlistId): repeated continuation token, stopping")
                 break
             }
+            if pages >= maxPages {
+                Log.sync.error("fetchPlaylist \(playlistId): hit \(maxPages)-page cap, stopping")
+                break
+            }
         } while token != nil
+
+        guard hadShelf else {
+            throw InnerTubeError.invalidResponse
+        }
 
         let snapshot = allItems
         try await db.write { db in

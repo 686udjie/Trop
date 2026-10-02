@@ -34,7 +34,7 @@ enum ClientFallbackChain {
     static var preferred: [FallbackClient] { base }
 
     /// Download resolve order — same proven direct-URL clients as playback.
-    /// HEAD validation stays on for early clients so we don't download dead URLs;
-    /// iOS/webRemix still skip HEAD (they often break HEAD while GET works).
+    /// Range validation stays on for early clients so we don't download dead URLs;
+    /// iOS/webRemix still skip validation (their Range responses often break it while GET works).
     static var forDownload: [FallbackClient] { base }
 }

@@ -29,8 +29,12 @@ actor StreamCache {
         return entry.result
     }
 
+    func getExpired(videoId: String) -> PlaybackResult? {
+        cache[videoId]?.result
+    }
+
     func set(videoId: String, result: PlaybackResult) {
-        let ttl = max(result.expiresInSeconds, 60)
+        let ttl = result.expiresInSeconds > 60 ? result.expiresInSeconds : 5 * 3600
         let entry = Entry(result: result, expiresAt: Date().addingTimeInterval(TimeInterval(ttl)))
         cache[videoId] = entry
         Log.streamCache.debug("Cached videoId=\(videoId) expires in \(ttl)s")

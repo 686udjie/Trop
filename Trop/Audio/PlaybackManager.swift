@@ -147,7 +147,7 @@ actor PlaybackManager {
                 }
 
                 guard await StreamResolver.validateStream(url: result.streamUrl) else {
-                    Log.playbackManager.debug("\(result.clientName) HEAD validation failed, trying next")
+                    Log.playbackManager.debug("\(result.clientName) Range validation failed, trying next")
                     lastError = StreamError.validationFailed(result.clientName)
                     continue
                 }
@@ -182,6 +182,11 @@ actor PlaybackManager {
             }
         }
 
+        if let expired = await StreamCache.shared.getExpired(videoId: videoId),
+           expired.expiresInSeconds != Int.max {
+            Log.playbackManager.notice("All clients failed for \(videoId), falling back to expired cache")
+            return expired
+        }
         throw lastError ?? StreamError.allClientsFailed
     }
 
@@ -383,7 +388,7 @@ actor PlaybackManager {
                 if !fb.skipValidation {
                     guard await StreamResolver.validateStream(url: result.streamUrl) else {
                         lastError = StreamError.validationFailed(result.clientName)
-                        Log.playbackManager.debug("\(result.clientName) HEAD validation failed, trying next")
+                        Log.playbackManager.debug("\(result.clientName) Range validation failed, trying next")
                         continue
                     }
                 }
@@ -418,6 +423,10 @@ actor PlaybackManager {
             return fallback
         }
 
+        if !forDownload, let expired = await StreamCache.shared.getExpired(videoId: videoId) {
+            Log.playbackManager.notice("All clients failed for \(videoId), falling back to expired cache")
+            return expired
+        }
         throw lastError ?? StreamError.allClientsFailed
     }
 }

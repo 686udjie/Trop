@@ -171,9 +171,12 @@ actor PoTokenGenerator: NSObject {
 
                 // If the script never posts a message, fail rather than hang.
                 Task { [weak self] in
-                    try? await Task.sleep(nanoseconds: 2_000_000_000)
-                    Log.poToken.error("PoToken JS evaluation timed out")
-                    await self?.resolveContinuation(id, result: .failure(BotGuardError.descrambleFailed))
+                    try? await Task.sleep(nanoseconds: 15_000_000_000)
+                    guard let self else { return }
+                    let didResolve = await self.resolveContinuation(id, result: .failure(BotGuardError.descrambleFailed))
+                    if didResolve {
+                        Log.poToken.error("PoToken JS evaluation timed out")
+                    }
                 }
 
                 let fullJS = """
@@ -223,13 +226,15 @@ actor PoTokenGenerator: NSObject {
         contQueue.sync { continuations[id] = cont }
     }
 
-    private func resolveContinuation(_ id: String, result: Result<String, Error>) {
+    @discardableResult
+    private func resolveContinuation(_ id: String, result: Result<String, Error>) -> Bool {
         contQueue.sync {
             let cont = continuations.removeValue(forKey: id)
             switch result {
             case .success(let v): cont?.resume(returning: v)
             case .failure(let e): cont?.resume(throwing: e)
             }
+            return cont != nil
         }
     }
 

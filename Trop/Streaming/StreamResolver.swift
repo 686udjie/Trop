@@ -209,7 +209,7 @@ enum StreamResolver {
         value.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? value
     }
 
-    // Validates a stream URL by sending a HEAD request
+    // Validates a stream URL with a 1 KiB Range GET
     static func validateStream(url: String) async -> Bool {
         guard let url = URL(string: url) else {
             Log.streamResolver.error("Invalid URL for validation")
@@ -217,16 +217,22 @@ enum StreamResolver {
         }
 
         var request = URLRequest(url: url)
-        request.httpMethod = "HEAD"
+        request.httpMethod = "GET"
         request.timeoutInterval = 10
+        request.setValue("bytes=0-1023", forHTTPHeaderField: "Range")
 
         do {
             let (_, httpResponse) = try await HttpClient.data(for: request)
             let valid = (200...299).contains(httpResponse.statusCode)
-            Log.streamResolver.debug("HEAD validation: status=\(httpResponse.statusCode) valid=\(valid)")
+            if !valid {
+                Log.streamResolver.debug("Range validation: status=\(httpResponse.statusCode) valid=false")
+            }
+            if httpResponse.statusCode == 403 {
+                await PlayerConfigStore.shared.notifyStreamRejection()
+            }
             return valid
         } catch {
-            Log.streamResolver.error("HEAD validation failed: \(error.localizedDescription)")
+            Log.streamResolver.error("Range validation failed: \(error.localizedDescription)")
             return false
         }
     }
@@ -252,7 +258,7 @@ enum StreamError: Error, LocalizedError {
         case .noStreamUrl:
             return "Format has no direct stream URL and no cipher data"
         case .validationFailed(let client):
-            return "\(client) stream URL failed HEAD validation"
+            return "\(client) stream URL failed Range validation"
         case .allClientsFailed:
             return "All clients failed to resolve a valid stream URL"
         }

@@ -17,19 +17,34 @@ actor LibrarySyncService {
         var result = LibrarySyncResult()
         let settings = SettingsStore.shared
         if settings.syncArtists {
-            do { result.artistIds = try await syncSubscribedArtists() } catch { Log.sync.error("syncSubscribedArtists error: \(error)") }
+            do {
+                result.artistIds = try await syncSubscribedArtists()
+                result.completedSections += 1
+            } catch { Log.sync.error("syncSubscribedArtists error: \(error)") }
         }
         if settings.syncPlaylists {
-            do { result.playlistIds = try await syncLikedPlaylists() } catch { Log.sync.error("syncLikedPlaylists error: \(error)") }
+            do {
+                result.playlistIds = try await syncLikedPlaylists()
+                result.completedSections += 1
+            } catch { Log.sync.error("syncLikedPlaylists error: \(error)") }
         }
         if settings.syncAlbums {
-            do { result.albumIds = try await syncSavedAlbums() } catch { Log.sync.error("syncSavedAlbums error: \(error)") }
+            do {
+                result.albumIds = try await syncSavedAlbums()
+                result.completedSections += 1
+            } catch { Log.sync.error("syncSavedAlbums error: \(error)") }
         }
         if settings.syncPodcasts {
-            do { result.podcastIds = try await syncSubscribedPodcasts() } catch { Log.sync.error("syncSubscribedPodcasts error: \(error)") }
+            do {
+                result.podcastIds = try await syncSubscribedPodcasts()
+                result.completedSections += 1
+            } catch { Log.sync.error("syncPodcasts error: \(error)") }
         }
         if settings.syncSongs {
-            do { result.songIds = try await syncLikedSongs() } catch { Log.sync.error("syncLikedSongs error: \(error)") }
+            do {
+                result.songIds = try await syncLikedSongs()
+                result.completedSections += 1
+            } catch { Log.sync.error("syncLikedSongs error: \(error)") }
         }
         await LikeStore.shared.refresh()
         return result
@@ -189,11 +204,22 @@ extension LibrarySyncService {
                         arguments: [base, base.addingTimeInterval(TimeInterval(-index)), songId]
                     )
                 }
-                let placeholders = DatabaseService.placeholders(count: remoteIds.count)
-                try db.execute(
-                    sql: "UPDATE song SET liked = 0 WHERE liked = 1 AND id NOT IN (\(placeholders))",
-                    arguments: StatementArguments(Array(remoteIds))
+                let graceCutoff = Date().addingTimeInterval(-5 * 60)
+                let staleIds = try String.fetchAll(
+                    db,
+                    sql: """
+                        SELECT id FROM song WHERE liked = 1
+                        AND id NOT IN (\(DatabaseService.placeholders(count: remoteIds.count)))
+                        AND modify_date < ?
+                        """,
+                    arguments: StatementArguments(Array(remoteIds) + [graceCutoff])
                 )
+                for chunk in DatabaseService.chunked(staleIds) {
+                    try db.execute(
+                        sql: "UPDATE song SET liked = 0 WHERE id IN (\(DatabaseService.placeholders(count: chunk.count)))",
+                        arguments: StatementArguments(chunk)
+                    )
+                }
             }
             try db.execute(sql: "DELETE FROM playlist_song_map WHERE playlist_id = 'LM'")
             try db.execute(sql: "DELETE FROM playlist WHERE id = 'LM'")

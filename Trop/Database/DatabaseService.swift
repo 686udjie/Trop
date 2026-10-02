@@ -165,6 +165,13 @@ extension DatabaseService {
         Array(repeating: "?", count: max(count, 0)).joined(separator: ",")
     }
 
+    static func chunked(_ ids: [String], size: Int = 500) -> [[String]] {
+        guard !ids.isEmpty else { return [] }
+        return stride(from: 0, to: ids.count, by: size).map {
+            Array(ids[$0..<min($0 + size, ids.count)])
+        }
+    }
+
     /// Songs keyed by id. Empty input → `[:]`.
     static func fetchSongMapByIds(_ ids: [String], db: Database) throws -> [String: SongEntity] {
         guard !ids.isEmpty else { return [:] }

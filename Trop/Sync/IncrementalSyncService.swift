@@ -34,7 +34,8 @@ actor IncrementalSyncService {
         // Verify login first
         guard (try? await innerTube.accountMenu()) != nil else { return }
 
-        _ = await librarySync.syncAll()
+        let result = await librarySync.syncAll()
+        guard result.completedSections > 0 else { return }
         defaults.set(Date(), forKey: lastSyncKey)
     }
 }
