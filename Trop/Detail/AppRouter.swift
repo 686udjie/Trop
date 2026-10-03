@@ -26,6 +26,25 @@ final class AppRouter: ObservableObject {
 
     @Published private(set) var playerExpandToken = 0
 
+    var activePathDepth: Int {
+        switch selectedTabIndex {
+        case 1: libraryPath.count
+        case 2: explorePath.count
+        case 3: searchPath.count
+        default: homePath.count
+        }
+    }
+
+    func popActiveRoute() {
+        guard activePathDepth > 0 else { return }
+        switch selectedTabIndex {
+        case 1: libraryPath.removeLast()
+        case 2: explorePath.removeLast()
+        case 3: searchPath.removeLast()
+        default: homePath.removeLast()
+        }
+    }
+
     func expandPlayer() {
         playerExpandToken += 1
     }

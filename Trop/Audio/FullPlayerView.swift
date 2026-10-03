@@ -28,13 +28,24 @@ struct FullPlayerView: View {
     @State private var pendingRoute: DetailRoute?
     @State private var showSongMenu = false
     @State private var artworkEntryOffset: CGFloat = 0
-    @State private var lyricsState = LyricsState.shared
+    @State private var currentLyrics: [LyricLine] = []
 
-    private var lyricsAvailable: Bool {
-        lyricsState.isAvailable(for: np.videoId)
+    private var activeLyricText: String? {
+        let synchronizedLines = currentLyrics.filter {
+            $0.startTime != nil &&
+                !$0.text.trimmingCharacters(in: CharacterSet(charactersIn: "♪*· ")).isEmpty
+        }
+        guard let firstLine = synchronizedLines.first else { return nil }
+
+        let lyricTime = np.currentTime + settings.lyricsOffsetSeconds
+        return synchronizedLines.last { line in
+            guard let startTime = line.startTime else { return false }
+            return startTime <= lyricTime
+        }?.text ?? firstLine.text
     }
 
     var body: some View {
+        GeometryReader { geometry in
         ZStack {
             if settings.playerBackgroundStyle == .solid {
                 Color.black
@@ -66,6 +77,27 @@ struct FullPlayerView: View {
                 }
             }
 
+            if !showLyrics && !showQueue {
+                artwork
+                    .frame(maxWidth: .infinity)
+                    .frame(height: (geometry.size.height + geometry.safeAreaInsets.top) * 0.58)
+                    .compositingGroup()
+                    .clipped()
+                    .mask {
+                        LinearGradient(
+                            stops: [
+                                .init(color: .white, location: 0),
+                                .init(color: .white, location: 0.62),
+                                .init(color: .clear, location: 1)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    }
+                    .offset(y: -geometry.safeAreaInsets.top)
+                    .frame(maxHeight: .infinity, alignment: .top)
+            }
+
             VStack(spacing: 0) {
                 Capsule()
                     .fill(.white.opacity(0.3))
@@ -73,19 +105,22 @@ struct FullPlayerView: View {
                     .padding(.top, 16)
                     .padding(.bottom, 16)
                     .contentShape(Rectangle().size(width: 60, height: 30))
-                    .accessibilityLabel("Collapse player")
+                    .onTapGesture {
+                        guard showLyrics else { return }
+                        withAnimation(.easeInOut(duration: 0.3)) {
+                            showLyrics = false
+                        }
+                    }
+                    .accessibilityLabel(showLyrics ? "Close lyrics" : "Collapse player")
 
                     if showLyrics {
                     LyricsView(
                         showLyrics: $showLyrics,
-                        showQueue: $showQueue,
-                        isRepeatOn: $np.isRepeatOn,
                         pendingRoute: $pendingRoute,
                         progressSlider: { progressSlider }
                     )
                     } else if showQueue {
                     QueueView(
-                        showLyrics: $showLyrics,
                         showQueue: $showQueue,
                         isShuffleOn: $np.isShuffleOn,
                         isRepeatOn: $np.isRepeatOn,
@@ -95,31 +130,60 @@ struct FullPlayerView: View {
                         progressSlider: { progressSlider }
                     )
                     } else {
-                    Spacer(minLength: 8)
+                    Color.clear.frame(height: 8)
 
-                    artwork
-                        .clipShape(
-                            RoundedRectangle(
-                                cornerRadius: np.isVideoMode ? 10 : 24,
-                                style: .continuous
-                            )
-                        )
-                        .shadow(
-                            color: .black.opacity(0.4),
-                            radius: 20,
-                            x: 0,
-                            y: 12
-                        )
+                    Color.clear
+                        .aspectRatio(1, contentMode: .fit)
                         .padding(.horizontal, 32)
+                        .allowsHitTesting(false)
 
-                        Spacer(minLength: np.isVideoMode ? 12 : 16)
+                        Color.clear.frame(height: np.isVideoMode ? 12 : 16)
 
                     titleAndActionsRow
+                        .padding(.top, 20)
                         .padding(.horizontal, 32)
                         .padding(.bottom, 16)
+                        .offset(y: 20)
+
+                    Spacer(minLength: geometry.size.height * 0.04)
+
+                    Group {
+                        if let activeLyricText {
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.3)) {
+                                    showLyrics = true
+                                }
+                            } label: {
+                                HStack(spacing: 8) {
+                                    Text(activeLyricText)
+                                        .font(.system(size: 14, weight: .medium))
+                                        .lineLimit(1)
+                                        .truncationMode(.tail)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                                    Image(systemName: "chevron.right")
+                                        .font(.system(size: 10, weight: .semibold))
+                                        .foregroundStyle(.white.opacity(0.55))
+                                }
+                                .foregroundStyle(.white.opacity(0.82))
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .padding(.horizontal, 32)
+                            .padding(.bottom, 8)
+                            .accessibilityLabel("Current lyric: \(activeLyricText). Open lyrics")
+                        } else {
+                            Color.clear
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 33, alignment: .bottom)
 
                     progressSlider
+                        .padding(.top, 4)
                         .padding(.bottom, 16)
+
+                    Color.clear.frame(height: 8)
 
                     PlaybackControlsRow(
                         isPlaying: np.isPlaying,
@@ -132,15 +196,14 @@ struct FullPlayerView: View {
                     .animation(.spring(response: 0.3, dampingFraction: 0.7), value: np.isPlaying)
                     .padding(.bottom, 8)
 
+                    Color.clear.frame(height: 12)
+
                     SecondaryActionsRow(
-                        showLyrics: $showLyrics,
                         showQueue: $showQueue,
-                        isRepeatOn: $np.isRepeatOn,
-                        onRepeat: {},
-                        lyricsAvailable: lyricsAvailable
+                        isRepeatOn: $np.isRepeatOn
                     )
 
-                    Spacer(minLength: 8)
+                    Color.clear.frame(height: 8)
                     }
             }
         }
@@ -166,6 +229,7 @@ struct FullPlayerView: View {
             if newValue { np.preloadNeighborArtwork() }
         }
         .task { np.preloadNeighborArtwork() }
+        .task(id: np.videoId) { await loadCurrentLyrics() }
         .sheet(isPresented: $showSongMenu) {
             if let song = np.queueSongs.indices.contains(np.queueIndex) ? np.queueSongs[np.queueIndex] : nil {
                 PlayerMenuSheet(song: song, onCollapseRequest: { onCollapse() })
@@ -175,6 +239,7 @@ struct FullPlayerView: View {
             Color.clear
                 .detailRouteSheet(item: $pendingRoute)
         )
+        }
     }
 
     // MARK: - Gestures
@@ -204,20 +269,16 @@ struct FullPlayerView: View {
         }
     }
 
-    /// Swipe down anywhere to collapse. Vertical-dominant drags only, and
-    /// disabled while lyrics/queue are shown so their ScrollViews keep
-    /// owning vertical pans.
+    /// Swipe down anywhere to collapse. Vertical-dominant drags only.
     private var collapseDrag: some Gesture {
         DragGesture(minimumDistance: 12)
             .onChanged { value in
-                guard !showLyrics, !showQueue else { return }
                 guard value.translation.height > 0,
                       value.translation.height > abs(value.translation.width) else { return }
                 collapseOffset = value.translation.height
             }
             .onEnded { value in
                 defer { collapseOffset = 0 }
-                guard !showLyrics, !showQueue else { return }
                 let isVertical = value.translation.height > abs(value.translation.width)
                 if isVertical, value.translation.height > 140 {
                     onCollapse()
@@ -231,6 +292,18 @@ struct FullPlayerView: View {
         guard let id = np.videoId else { return }
         let upcoming = np.upcomingSongs(prefixLimit: 3).map(\.videoId)
         Task { await LyricsService.shared.preload(videoId: id, upcoming: upcoming) }
+    }
+
+    private func loadCurrentLyrics() async {
+        guard let videoId = np.videoId else {
+            currentLyrics = []
+            return
+        }
+        currentLyrics = []
+        guard let lines = try? await LyricsService.shared.fetchLyrics(videoId: videoId),
+              !Task.isCancelled,
+              np.videoId == videoId else { return }
+        currentLyrics = lines
     }
 
     private var titleAndActionsRow: some View {
@@ -266,6 +339,18 @@ struct FullPlayerView: View {
             if np.isVideoMode, np.hasVideo {
                 ZStack {
                     VideoPlayerView()
+                        .mask {
+                            LinearGradient(
+                                stops: [
+                                    .init(color: .clear, location: 0),
+                                    .init(color: .white, location: 0.12),
+                                    .init(color: .white, location: 0.95),
+                                    .init(color: .clear, location: 1)
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        }
                     if !np.isVideoReady {
                         artworkImage
                             .transition(.opacity)
@@ -278,7 +363,6 @@ struct FullPlayerView: View {
                 }
             } else {
                 artworkImage
-                .aspectRatio(1, contentMode: .fit)
                 .onTapGesture {
                     guard np.hasVideo else { return }
                     player.setVideoMode()
@@ -299,6 +383,7 @@ struct FullPlayerView: View {
                         .resizable()
                         .scaledToFill()
                         .frame(width: geo.size.width, height: geo.size.height)
+                        .clipped()
                 }
             } else {
                 ZStack {

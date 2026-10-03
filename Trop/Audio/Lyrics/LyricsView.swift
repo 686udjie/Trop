@@ -14,14 +14,12 @@ struct LyricsView<ProgressSlider: View>: View {
     @Environment(SettingsStore.self) private var settings
 
     @Binding var showLyrics: Bool
-    @Binding var showQueue: Bool
-    @Binding var isRepeatOn: Bool
     let pendingRoute: Binding<DetailRoute?>
     @ViewBuilder var progressSlider: () -> ProgressSlider
 
+    @ObservedObject private var likeStore = LikeStore.shared
     @State private var lines: [LyricLine] = []
     @State private var activeIndex: Int = 0
-    @State private var isFullscreen = false
     @State private var displayTime: TimeInterval = 0
     @State private var showSongMenu = false
     @State private var instrumentalGaps: [InstrumentalGap] = []
@@ -37,23 +35,26 @@ struct LyricsView<ProgressSlider: View>: View {
 
     @State private var isAutoScrollEnabled = true
     @State private var userHasScrolled = false
+    @State private var hasPositionedInitialLyrics = false
     @State private var scrollProxy: ScrollViewProxy?
+
+    private var isLiked: Bool {
+        guard let song = np.queueSongs.indices.contains(np.queueIndex) ? np.queueSongs[np.queueIndex] : nil else { return false }
+        return likeStore.isLiked(videoId: song.videoId)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             headerBar
+            songInfoRow
 
             lyricsBody
                 .layoutPriority(1)
 
-            if isFullscreen {
-                fullscreenBottomRow
-            } else {
-                bottomBar
-            }
+            playbackControls
         }
         .ignoresSafeArea(edges: .bottom)
-        .animation(.easeInOut(duration: 0.3), value: isFullscreen)
+        .simultaneousGesture(swipeBackGesture)
         .sheet(isPresented: $showSongMenu) {
             LyricsMenuSheet()
         }
@@ -74,6 +75,19 @@ struct LyricsView<ProgressSlider: View>: View {
     private var headerBar: some View {
         Color.clear
             .padding(.top, 16)
+    }
+
+    private var swipeBackGesture: some Gesture {
+        DragGesture(minimumDistance: 16)
+            .onEnded { value in
+                let isHorizontal = abs(value.translation.width) > abs(value.translation.height)
+                guard value.startLocation.x <= 28,
+                      isHorizontal,
+                      value.translation.width > 80 else { return }
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    showLyrics = false
+                }
+            }
     }
 
     // MARK: - Lyrics Body
@@ -97,9 +111,7 @@ struct LyricsView<ProgressSlider: View>: View {
                 ScrollViewReader { proxy in
                     ScrollView {
                         VStack(alignment: settings.lyricsAlignment.textAlignment.horizontal, spacing: 18) {
-                            // Oversized insets so any line can be centered —
-                            // Metrolist-style.
-                            Spacer().frame(height: geo.size.height * 0.38)
+                            Spacer().frame(height: 20)
 
                             if let provider = LyricsState.shared.providerName {
                                 Text("Lyrics from \(provider)")
@@ -128,7 +140,11 @@ struct LyricsView<ProgressSlider: View>: View {
                     .onChange(of: activeIndex) { _, newIndex in
                         guard lines.indices.contains(newIndex) else { return }
                         if isAutoScrollEnabled && !userHasScrolled {
-                            scrollToActive()
+                            if hasPositionedInitialLyrics {
+                                scrollToActive()
+                            } else {
+                                hasPositionedInitialLyrics = true
+                            }
                         }
                     }
                 }
@@ -210,34 +226,6 @@ struct LyricsView<ProgressSlider: View>: View {
         }
     }
 
-    private func progressForLine(at index: Int) -> Double {
-        guard lines.indices.contains(index), index == activeIndex else { return 0 }
-        let line = lines[index]
-        guard let start = line.startTime else { return 0 }
-        let t = displayTime + settings.lyricsOffsetSeconds
-
-        // Use the actual next line's start time as end, like Metrolist does
-        var end: TimeInterval
-        if index + 1 < lines.count, let nextStart = lines[index + 1].startTime, nextStart > start {
-            end = nextStart
-        } else {
-            let charCount = max(1, line.text.count)
-            end = start + min(8, max(2, Double(charCount) * 0.08))
-        }
-
-        // Hand the rest of the slot to the interval ring — the line's fill
-        // finishes when the words end, never bleeding into instrumental time.
-        if let gap = instrumentalGaps.last(where: { $0.afterIndex == index }) {
-            let capped = min(end, gap.start)
-            if capped > start { end = capped }
-        }
-
-        if t < start { return 0 }
-        if t >= end { return 1 }
-        let progress = (t - start) / max(0.01, end - start)
-        return min(1, max(0, progress))
-    }
-
     // MARK: - Interval Indicator (instrumental gaps)
 
     /// A lyric line plus its interval ring, which only exists in the hierarchy
@@ -248,10 +236,9 @@ struct LyricsView<ProgressSlider: View>: View {
         let romanized = romanization(for: index)
 
         return VStack(spacing: 0) {
-            LetterSyncLineView(
+            LyricsLineView(
                 text: line.text,
                 isActive: index == activeIndex,
-                progress: progressForLine(at: index),
                 alignment: settings.lyricsAlignment,
                 fontSize: settings.lyricsFontSize,
                 lineOpacity: index == activeIndex ? 1 : opacityForDistance(abs(index - activeIndex)),
@@ -374,106 +361,58 @@ struct LyricsView<ProgressSlider: View>: View {
 
     // MARK: - Shared Song Info Row
 
-    private func songInfoRow(showFullscreenButton: Bool) -> some View {
+    private var songInfoRow: some View {
         HStack(spacing: 12) {
             if let uiImage = np.thumbnailUIImage {
                 Image(uiImage: uiImage.centerCroppedSquare())
                     .resizable()
                     .scaledToFill()
-                    .frame(width: 48, height: 48)
+                    .frame(width: 64, height: 64)
                     .clipShape(RoundedRectangle(cornerRadius: 8))
             } else {
                 Image(systemName: "music.note")
-                    .font(.title3)
+                    .font(.title2)
                     .foregroundStyle(.white.opacity(0.4))
-                    .frame(width: 48, height: 48)
+                    .frame(width: 64, height: 64)
             }
 
             PlayerTitleBlock(title: np.title, artist: np.displayArtist)
 
             Spacer()
 
-            if showFullscreenButton {
-                fullscreenToggleButton
+            PlayerLikeButton(
+                isLiked: isLiked,
+                activeColor: .white,
+                inactiveColor: .white.opacity(0.6),
+                fontSize: 18
+            ) {
+                guard let song = np.queueSongs.indices.contains(np.queueIndex) ? np.queueSongs[np.queueIndex] : nil else { return }
+                Task { await likeStore.toggle(song: song) }
             }
 
             if np.queueSongs.indices.contains(np.queueIndex) {
-                PlayerOptionsButton {
+                PlayerOptionsButton(color: .white.opacity(0.6)) {
                     showSongMenu = true
                 }
             }
         }
-    }
-
-    private var fullscreenToggleButton: some View {
-        Button {
-            withAnimation { isFullscreen.toggle() }
-        } label: {
-            Image(systemName: isFullscreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
-                .font(.system(size: 18))
-                .foregroundStyle(.white)
-                .frame(width: 36, height: 36)
-        }
-    }
-
-    // MARK: - Fullscreen Bottom Row
-
-    private var fullscreenBottomRow: some View {
-        VStack(spacing: 6) {
-            songInfoRow(showFullscreenButton: true)
-
-            progressSlider()
-
-            PlaybackControlsRow(
-                isPlaying: np.isPlaying,
-                hasPrevious: np.hasPrevious,
-                hasNext: np.hasNext,
-                onPrevious: { np.playPrevious() },
-                onPlayPause: { player.togglePlayPause() },
-                onNext: { np.playNext() }
-            )
-            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: np.isPlaying)
-        }
         .padding(.horizontal, 20)
-        .padding(.bottom, 16)
+        .padding(.top, 12)
+        .padding(.bottom, 12)
     }
 
-    // MARK: - Bottom Bar
-
-    private var bottomBar: some View {
+    private var playbackControls: some View {
         VStack(spacing: 6) {
-            songInfoRow(showFullscreenButton: true)
-                .padding(.horizontal, 20)
-
             progressSlider()
 
-            PlaybackControlsRow(
-                isPlaying: np.isPlaying,
-                hasPrevious: np.hasPrevious,
-                hasNext: np.hasNext,
-                onPrevious: { np.playPrevious() },
-                onPlayPause: { player.togglePlayPause() },
-                onNext: { np.playNext() }
-            )
+            PlayerPlayPauseButton(isPlaying: np.isPlaying) {
+                player.togglePlayPause()
+            }
             .animation(.spring(response: 0.3, dampingFraction: 0.7), value: np.isPlaying)
-
-            SecondaryActionsRow(
-                showLyrics: $showLyrics,
-                showQueue: $showQueue,
-                isRepeatOn: $isRepeatOn,
-                onRepeat: {},
-                lyricsAvailable: true
-            )
         }
-        .padding(.top, 16)
-        .padding(.bottom, 16)
-        .background(
-            LinearGradient(
-                colors: [.clear, .black.opacity(0.35)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        )
+        .frame(maxWidth: .infinity)
+        .padding(.top, 12)
+        .padding(.bottom, 20)
     }
 
     // MARK: - Data
@@ -486,6 +425,7 @@ struct LyricsView<ProgressSlider: View>: View {
         lines = []
         instrumentalGaps = []
         activeIndex = 0
+        hasPositionedInitialLyrics = false
         isAutoScrollEnabled = true
         userHasScrolled = false
         LyricsState.shared.providerName = nil
@@ -588,12 +528,11 @@ private struct IntervalIndicatorView: View {
     }
 }
 
-// MARK: - Letter-by-Letter Sync Line View
+// MARK: - Lyrics Line View
 
-private struct LetterSyncLineView: View {
+private struct LyricsLineView: View {
     let text: String
     let isActive: Bool
-    let progress: Double
     let alignment: LyricsAlignment
     let fontSize: Double
     var lineOpacity: Double = 1
@@ -607,18 +546,10 @@ private struct LetterSyncLineView: View {
 
         Button(action: onTap) {
             VStack(alignment: alignment.textAlignment.horizontal, spacing: 4) {
-                Group {
-                    if isActive {
-                        Text(revealedAttributedString(for: textToDisplay))
-                            .font(.system(size: fontSize, weight: .bold))
-                            .multilineTextAlignment(alignment.multilineTextAlignment)
-                    } else {
-                        Text(textToDisplay)
-                            .font(.system(size: fontSize, weight: .semibold))
-                            .foregroundStyle(Color.white)
-                            .multilineTextAlignment(alignment.multilineTextAlignment)
-                    }
-                }
+                Text(textToDisplay)
+                    .font(.system(size: fontSize, weight: isActive ? .bold : .semibold))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(alignment.multilineTextAlignment)
 
                 if let romanizedText, !romanizedText.isEmpty {
                     Text(romanizedText)
@@ -635,21 +566,5 @@ private struct LetterSyncLineView: View {
         .opacity(lineOpacity)
         .scaleEffect(lineScale, anchor: alignment.textAlignment == .leading ? .leading : alignment.textAlignment == .trailing ? .trailing : .center)
         .animation(.easeInOut(duration: 0.3), value: isActive)
-    }
-
-    /// Builds an AttributedString where the first `revealedCount` characters are
-    /// bright white and the remainder are dim — character-accurate, wrap-safe.
-    private func revealedAttributedString(for string: String) -> AttributedString {
-        let characters = Array(string)
-        let total = characters.count
-        let revealedCount = Int((Double(total) * max(0, min(1, progress))).rounded(.up))
-
-        var result = AttributedString()
-        for (i, char) in characters.enumerated() {
-            var part = AttributedString(String(char))
-            part.foregroundColor = i < revealedCount ? .white : UIColor(white: 1, alpha: 0.4)
-            result.append(part)
-        }
-        return result
     }
 }

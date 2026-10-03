@@ -50,6 +50,22 @@ struct ProgressBar: View {
 }
 
 // MARK: - PlaybackControlsRow
+struct PlayerPlayPauseButton: View {
+    let isPlaying: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                .font(.system(size: 42))
+                .foregroundStyle(.white)
+                .contentTransition(.symbolEffect(.replace))
+        }
+        .frame(width: 80, height: 80)
+        .accessibilityLabel(isPlaying ? "Pause" : "Play")
+    }
+}
+
 struct PlaybackControlsRow: View {
     let isPlaying: Bool
     let hasPrevious: Bool
@@ -71,15 +87,8 @@ struct PlaybackControlsRow: View {
             .frame(maxWidth: .infinity)
             .accessibilityLabel("Previous")
 
-            Button(action: onPlayPause) {
-                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(size: 42))
-                    .foregroundStyle(.white)
-                    .contentTransition(.symbolEffect(.replace))
-            }
-            .frame(width: 80, height: 80)
+            PlayerPlayPauseButton(isPlaying: isPlaying, action: onPlayPause)
             .frame(maxWidth: .infinity)
-            .accessibilityLabel(isPlaying ? "Pause" : "Play")
 
             Button(action: onNext) {
                 Image(systemName: "forward.fill")
@@ -97,30 +106,11 @@ struct PlaybackControlsRow: View {
 
 // MARK: - SecondaryActionsRow
 struct SecondaryActionsRow: View {
-    @Binding var showLyrics: Bool
     @Binding var showQueue: Bool
     @Binding var isRepeatOn: Bool
-    let onRepeat: () -> Void
-    /// Greyed out until lyrics are confirmed for the current song
-    var lyricsAvailable: Bool = true
 
     var body: some View {
         HStack(spacing: 0) {
-
-            Button {
-                showLyrics.toggle()
-            } label: {
-                Image(systemName: "quote.bubble")
-                    .font(.title3)
-                    .foregroundStyle(showLyrics ? .white : .white.opacity(lyricsAvailable ? 0.7 : 0.3))
-                    .padding(10)
-                    .background(showLyrics ? Circle().fill(.white.opacity(0.15)) : Circle().fill(.clear))
-            }
-            .frame(maxWidth: .infinity)
-            .disabled(!lyricsAvailable)
-            .opacity(lyricsAvailable ? 1 : 0.4)
-            .accessibilityLabel(lyricsAvailable ? "Lyrics" : "Lyrics unavailable")
-
             Button {
                 // airplay, handled by overlay
             } label: {
@@ -149,7 +139,6 @@ struct SecondaryActionsRow: View {
                 if !showQueue {
                     Button {
                         isRepeatOn.toggle()
-                        onRepeat()
                     } label: {
                         Image(systemName: isRepeatOn ? "repeat.1" : "repeat")
                             .font(.system(size: 9, weight: .bold))

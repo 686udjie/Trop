@@ -11,7 +11,6 @@ struct QueueView<ProgressSlider: View>: View {
     private let np = NowPlaying.shared
     private let player = PlayerController.shared
 
-    @Binding var showLyrics: Bool
     @Binding var showQueue: Bool
     @Binding var isShuffleOn: Bool
     @Binding var isRepeatOn: Bool
@@ -22,7 +21,6 @@ struct QueueView<ProgressSlider: View>: View {
 
     @ObservedObject private var likeStore = LikeStore.shared
     @State private var showSongMenu = false
-    @State private var lyricsState = LyricsState.shared
 
     private var isLiked: Bool {
         guard let song = np.queueSongs.indices.contains(np.queueIndex) ? np.queueSongs[np.queueIndex] : nil else { return false }
@@ -31,6 +29,20 @@ struct QueueView<ProgressSlider: View>: View {
 
     var body: some View {
         queueContent
+            .simultaneousGesture(backSwipeGesture)
+    }
+
+    private var backSwipeGesture: some Gesture {
+        DragGesture(minimumDistance: 16)
+            .onEnded { value in
+                let isHorizontal = abs(value.translation.width) > abs(value.translation.height)
+                guard value.startLocation.x <= 28,
+                      isHorizontal,
+                      value.translation.width > 80 else { return }
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    showQueue = false
+                }
+            }
     }
 
     // MARK: - Queue Content
@@ -86,11 +98,8 @@ struct QueueView<ProgressSlider: View>: View {
                 .animation(.spring(response: 0.3, dampingFraction: 0.7), value: np.isPlaying)
 
                 SecondaryActionsRow(
-                    showLyrics: $showLyrics,
                     showQueue: $showQueue,
-                    isRepeatOn: $isRepeatOn,
-                    onRepeat: {},
-                    lyricsAvailable: lyricsState.isAvailable(for: np.videoId)
+                    isRepeatOn: $isRepeatOn
                 )
             }
             .padding(.bottom, 16)
