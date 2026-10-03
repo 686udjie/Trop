@@ -92,7 +92,12 @@ struct YouTubeListItemView: View {
 
     var body: some View {
         if let song = songItem {
-            SongRowView(song: song, artSize: 48, onTap: onTap, onNavigate: onNavigate)
+            SongRowView(
+                song: song,
+                artSize: 48,
+                onTap: onTap,
+                onNavigate: onNavigate
+            )
         } else {
             HStack(spacing: 12) {
                 AsyncImageView(url: item.thumbnailUrl)

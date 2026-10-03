@@ -104,6 +104,37 @@ struct PlaybackControlsRow: View {
     }
 }
 
+struct PlayerTransportAirPlayFooter: View {
+    let isPlaying: Bool
+    let hasPrevious: Bool
+    let hasNext: Bool
+    let onPrevious: () -> Void
+    let onPlayPause: () -> Void
+    let onNext: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            PlaybackControlsRow(
+                isPlaying: isPlaying,
+                hasPrevious: hasPrevious,
+                hasNext: hasNext,
+                onPrevious: onPrevious,
+                onPlayPause: onPlayPause,
+                onNext: onNext
+            )
+            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isPlaying)
+
+            HStack {
+                Spacer()
+                PlayerAirPlayControl()
+                Spacer()
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.bottom, 16)
+    }
+}
+
 // MARK: - SecondaryActionsRow
 struct SecondaryActionsRow: View {
     @Binding var showQueue: Bool
@@ -111,17 +142,8 @@ struct SecondaryActionsRow: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            Button {
-                // airplay, handled by overlay
-            } label: {
-                Image(systemName: "airplayaudio")
-                    .font(.title3)
-                    .foregroundStyle(.white.opacity(0.7))
-                    .padding(10)
-            }
-            .frame(maxWidth: .infinity)
-            .overlay(AirPlayButton())
-            .accessibilityLabel("AirPlay")
+            PlayerAirPlayControl()
+                .frame(maxWidth: .infinity)
 
             // Queue + Repeat stacked like Apple Music
             ZStack(alignment: .topTrailing) {
@@ -152,6 +174,19 @@ struct SecondaryActionsRow: View {
             .frame(maxWidth: .infinity)
         }
         .padding(.vertical, 16)
+    }
+}
+
+struct PlayerAirPlayControl: View {
+    var body: some View {
+        Button {} label: {
+            Image(systemName: "airplayaudio")
+                .font(.title3)
+                .foregroundStyle(.white.opacity(0.7))
+                .padding(10)
+        }
+        .overlay(AirPlayButton())
+        .accessibilityLabel("AirPlay")
     }
 }
 

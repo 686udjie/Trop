@@ -25,15 +25,13 @@ struct MoreButton: View {
     }
 }
 
-/// Unified song row: artwork + title + artists • duration + like/download/more.
+/// Unified song row: artwork + title + artists • duration + overflow menu.
 /// Replaces AlbumSongRow, PlaylistSongRow, PodcastEpisodeRow, DownloadedSongRow
 /// and the song branch of YouTubeListItemView.
 struct SongRowView: View {
     let song: SongItem
     var artSize: CGFloat = DesignTokens.thumbSmall
     var artRadius: CGFloat = DesignTokens.thumbRadius
-    var showsLike: Bool = true
-    var showsDownload: Bool = true
     var onTap: () -> Void
     var onNavigate: ((DetailRoute) -> Void)?
 
@@ -62,12 +60,6 @@ struct SongRowView: View {
             Spacer()
 
             HStack(spacing: 2) {
-                if showsLike {
-                    SongLikeButton(song: song)
-                }
-                if showsDownload {
-                    SongDownloadButton(song: song)
-                }
                 MoreButton {
                     showSongMenu = true
                 }
@@ -88,5 +80,26 @@ struct SongRowView: View {
         .onReceive(NotificationCenter.default.publisher(for: .durationDidUpdate)) { notification in
             durations.handleUpdate(notification, videoId: song.videoId)
         }
+    }
+}
+
+/// Full-cell progress background shown while a song is downloading.
+struct DownloadCellProgressView: View {
+    let song: SongItem
+    @ObservedObject private var downloadManager = DownloadManager.shared
+
+    var body: some View {
+        let state = downloadManager.state(for: song.videoId)
+        return GeometryReader { geo in
+            if case .downloading(let fraction) = state {
+                Color.accentColor.opacity(0.25)
+                    .frame(
+                        width: geo.size.width * CGFloat(min(max(fraction, 0), 1)),
+                        height: geo.size.height
+                    )
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .animation(.easeInOut(duration: 0.3), value: state)
     }
 }

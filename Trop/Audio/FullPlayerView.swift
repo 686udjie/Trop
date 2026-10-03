@@ -13,7 +13,6 @@ struct FullPlayerView: View {
     @Environment(SettingsStore.self) private var settings
     private let player = PlayerController.shared
     @Bindable private var np = NowPlaying.shared
-
     @State private var editingProgress: Float = 0
     @State private var isEditingSlider = false
     @State private var collapseOffset: CGFloat = 0
@@ -46,199 +45,197 @@ struct FullPlayerView: View {
 
     var body: some View {
         GeometryReader { geometry in
-        ZStack {
-            if settings.playerBackgroundStyle == .solid {
-                Color.black
-                    .ignoresSafeArea()
-            } else {
-                LinearGradient(
-                    colors: [
-                        np.dominantColors.first ?? Color(red: 0.15, green: 0.15, blue: 0.2),
-                        np.dominantColors.last ?? Color(red: 0.05, green: 0.05, blue: 0.08)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .ignoresSafeArea()
-                .animation(.easeInOut(duration: 0.8), value: np.dominantColors)
-
-                Circle()
-                    .fill(np.dominantColors.first ?? .blue)
-                    .frame(width: 400, height: 400)
-                    .blur(radius: 120)
-                    .opacity(0.45)
-                    .offset(y: -150)
-                    .ignoresSafeArea()
-
-                if showQueue {
-                    Color.black.opacity(0.62)
+            ZStack {
+                if np.isVideoMode && np.hasVideo {
+                    Color.black
                         .ignoresSafeArea()
-                        .transition(.opacity)
+                } else if settings.playerBackgroundStyle == .solid {
+                    Color.black
+                        .ignoresSafeArea()
+                } else {
+                    LinearGradient(
+                        colors: [
+                            np.dominantColors.first ?? Color(red: 0.15, green: 0.15, blue: 0.2),
+                            np.dominantColors.last ?? Color(red: 0.05, green: 0.05, blue: 0.08)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .ignoresSafeArea()
+                    .animation(.easeInOut(duration: 0.8), value: np.dominantColors)
+
+                    Circle()
+                        .fill(np.dominantColors.first ?? .blue)
+                        .frame(width: 400, height: 400)
+                        .blur(radius: 120)
+                        .opacity(0.45)
+                        .offset(y: -150)
+                        .ignoresSafeArea()
                 }
-            }
 
-            if !showLyrics && !showQueue {
-                artwork
-                    .frame(maxWidth: .infinity)
-                    .frame(height: (geometry.size.height + geometry.safeAreaInsets.top) * 0.58)
-                    .compositingGroup()
-                    .clipped()
-                    .mask {
-                        LinearGradient(
-                            stops: [
-                                .init(color: .white, location: 0),
-                                .init(color: .white, location: 0.62),
-                                .init(color: .clear, location: 1)
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    }
-                    .offset(y: -geometry.safeAreaInsets.top)
-                    .frame(maxHeight: .infinity, alignment: .top)
-            }
-
-            VStack(spacing: 0) {
-                Capsule()
-                    .fill(.white.opacity(0.3))
-                    .frame(width: 36, height: 5)
-                    .padding(.top, 16)
-                    .padding(.bottom, 16)
-                    .contentShape(Rectangle().size(width: 60, height: 30))
-                    .onTapGesture {
-                        guard showLyrics else { return }
-                        withAnimation(.easeInOut(duration: 0.3)) {
-                            showLyrics = false
+                if !showLyrics && !showQueue && !np.isVideoMode {
+                    artwork
+                        .frame(maxWidth: .infinity)
+                        .frame(height: (geometry.size.height + geometry.safeAreaInsets.top) * 0.58)
+                        .compositingGroup()
+                        .clipped()
+                        .mask {
+                            LinearGradient(
+                                stops: [
+                                    .init(color: .white, location: 0),
+                                    .init(color: .white, location: 0.62),
+                                    .init(color: .clear, location: 1)
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
                         }
-                    }
-                    .accessibilityLabel(showLyrics ? "Close lyrics" : "Collapse player")
+                        .offset(y: -geometry.safeAreaInsets.top)
+                        .frame(maxHeight: .infinity, alignment: .top)
+                }
+
+                VStack(spacing: 0) {
+                    Capsule()
+                        .fill(.white.opacity(0.3))
+                        .frame(width: 36, height: 5)
+                        .padding(.top, 16)
+                        .padding(.bottom, 16)
+                        .contentShape(Rectangle().size(width: 60, height: 30))
+                        .onTapGesture {
+                            guard showLyrics else { return }
+                            withAnimation(.easeInOut(duration: 0.3)) {
+                                showLyrics = false
+                            }
+                        }
+                        .accessibilityLabel(showLyrics ? "Close lyrics" : "Collapse player")
 
                     if showLyrics {
-                    LyricsView(
-                        showLyrics: $showLyrics,
-                        pendingRoute: $pendingRoute,
-                        progressSlider: { progressSlider }
-                    )
+                        LyricsView(
+                            showLyrics: $showLyrics,
+                            pendingRoute: $pendingRoute,
+                            progressSlider: { progressSlider }
+                        )
+                    } else if np.isVideoMode && np.hasVideo {
+                        musicVideoContent
                     } else if showQueue {
-                    QueueView(
-                        showQueue: $showQueue,
-                        isShuffleOn: $np.isShuffleOn,
-                        isRepeatOn: $np.isRepeatOn,
-                        editingProgress: $editingProgress,
-                        isEditingSlider: $isEditingSlider,
-                        pendingRoute: $pendingRoute,
-                        progressSlider: { progressSlider }
-                    )
+                        QueueView(
+                            showQueue: $showQueue,
+                            isShuffleOn: $np.isShuffleOn,
+                            isRepeatOn: $np.isRepeatOn,
+                            editingProgress: $editingProgress,
+                            isEditingSlider: $isEditingSlider,
+                            pendingRoute: $pendingRoute,
+                            progressSlider: { progressSlider }
+                        )
                     } else {
-                    Color.clear.frame(height: 8)
+                        Color.clear.frame(height: 8)
 
-                    Color.clear
-                        .aspectRatio(1, contentMode: .fit)
-                        .padding(.horizontal, 32)
-                        .allowsHitTesting(false)
+                        Color.clear
+                            .aspectRatio(1, contentMode: .fit)
+                            .padding(.horizontal, 32)
+                            .allowsHitTesting(false)
 
                         Color.clear.frame(height: np.isVideoMode ? 12 : 16)
 
-                    titleAndActionsRow
-                        .padding(.top, 20)
-                        .padding(.horizontal, 32)
-                        .padding(.bottom, 16)
-                        .offset(y: 20)
-
-                    Spacer(minLength: geometry.size.height * 0.04)
-
-                    Group {
-                        if let activeLyricText {
-                            Button {
-                                withAnimation(.easeInOut(duration: 0.3)) {
-                                    showLyrics = true
-                                }
-                            } label: {
-                                HStack(spacing: 8) {
-                                    Text(activeLyricText)
-                                        .font(.system(size: 14, weight: .medium))
-                                        .lineLimit(1)
-                                        .truncationMode(.tail)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-
-                                    Image(systemName: "chevron.right")
-                                        .font(.system(size: 10, weight: .semibold))
-                                        .foregroundStyle(.white.opacity(0.55))
-                                }
-                                .foregroundStyle(.white.opacity(0.82))
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
+                        titleAndActionsRow
+                            .padding(.top, 20)
                             .padding(.horizontal, 32)
-                            .padding(.bottom, 8)
-                            .accessibilityLabel("Current lyric: \(activeLyricText). Open lyrics")
-                        } else {
-                            Color.clear
+                            .padding(.bottom, 16)
+                            .offset(y: 20)
+
+                        Spacer(minLength: geometry.size.height * 0.04)
+
+                        Group {
+                            if let activeLyricText {
+                                Button {
+                                    withAnimation(.easeInOut(duration: 0.3)) {
+                                        showLyrics = true
+                                    }
+                                } label: {
+                                    HStack(spacing: 8) {
+                                        Text(activeLyricText)
+                                            .font(.system(size: 14, weight: .medium))
+                                            .lineLimit(1)
+                                            .truncationMode(.tail)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                                        Image(systemName: "chevron.right")
+                                            .font(.system(size: 10, weight: .semibold))
+                                            .foregroundStyle(.white.opacity(0.55))
+                                    }
+                                    .foregroundStyle(.white.opacity(0.82))
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .padding(.horizontal, 32)
+                                .padding(.bottom, 8)
+                                .accessibilityLabel("Current lyric: \(activeLyricText). Open lyrics")
+                            } else {
+                                Color.clear
+                            }
                         }
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 33, alignment: .bottom)
+
+                        progressSlider
+                            .padding(.top, 4)
+                            .padding(.bottom, 16)
+
+                        Color.clear.frame(height: 8)
+
+                        PlaybackControlsRow(
+                            isPlaying: np.isPlaying,
+                            hasPrevious: np.hasPrevious,
+                            hasNext: np.hasNext,
+                            onPrevious: { np.playPrevious() },
+                            onPlayPause: { player.togglePlayPause() },
+                            onNext: { np.playNext() }
+                        )
+                        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: np.isPlaying)
+                        .padding(.bottom, 8)
+
+                        Color.clear.frame(height: 12)
+
+                        SecondaryActionsRow(
+                            showQueue: $showQueue,
+                            isRepeatOn: $np.isRepeatOn
+                        )
+
+                        Color.clear.frame(height: 8)
                     }
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 33, alignment: .bottom)
-
-                    progressSlider
-                        .padding(.top, 4)
-                        .padding(.bottom, 16)
-
-                    Color.clear.frame(height: 8)
-
-                    PlaybackControlsRow(
-                        isPlaying: np.isPlaying,
-                        hasPrevious: np.hasPrevious,
-                        hasNext: np.hasNext,
-                        onPrevious: { np.playPrevious() },
-                        onPlayPause: { player.togglePlayPause() },
-                        onNext: { np.playNext() }
-                    )
-                    .animation(.spring(response: 0.3, dampingFraction: 0.7), value: np.isPlaying)
-                    .padding(.bottom, 8)
-
-                    Color.clear.frame(height: 12)
-
-                    SecondaryActionsRow(
-                        showQueue: $showQueue,
-                        isRepeatOn: $np.isRepeatOn
-                    )
-
-                    Color.clear.frame(height: 8)
-                    }
+                }
             }
-        }
-        .offset(y: collapseOffset)
-        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: collapseOffset)
-        .animation(.easeInOut(duration: 0.35), value: showQueue)
-        .simultaneousGesture(collapseDrag)
-        .onChange(of: np.videoId) { _, _ in
-            np.isVideoMode = false
-            // Lyrics are per-song: close the view on track change; the button
-            // re-enables once preload confirms lyrics for the new song.
-            showLyrics = false
-            preloadLyrics()
-        }
-        .onChange(of: np.queueSongs.count) { _, _ in
-            np.preloadNeighborArtwork()
-            preloadLyrics()
-        }
-        .onChange(of: np.queueIndex) { _, _ in
-            np.preloadNeighborArtwork()
-        }
-        .onChange(of: showQueue) { _, newValue in
-            if newValue { np.preloadNeighborArtwork() }
-        }
-        .task { np.preloadNeighborArtwork() }
-        .task(id: np.videoId) { await loadCurrentLyrics() }
-        .sheet(isPresented: $showSongMenu) {
-            if let song = np.queueSongs.indices.contains(np.queueIndex) ? np.queueSongs[np.queueIndex] : nil {
-                PlayerMenuSheet(song: song, onCollapseRequest: { onCollapse() })
+            .offset(y: collapseOffset)
+            .animation(.spring(response: 0.35, dampingFraction: 0.85), value: collapseOffset)
+            .animation(.easeInOut(duration: 0.35), value: showQueue)
+            .simultaneousGesture(collapseDrag)
+            .onChange(of: np.videoId) { _, _ in
+                np.isVideoMode = false
+                showLyrics = false
+                showQueue = false
+                preloadLyrics()
             }
-        }
-        .background(
-            Color.clear
-                .detailRouteSheet(item: $pendingRoute)
-        )
+            .onChange(of: np.queueSongs.count) { _, _ in
+                np.preloadNeighborArtwork()
+                preloadLyrics()
+            }
+            .onChange(of: np.queueIndex) { _, _ in
+                np.preloadNeighborArtwork()
+            }
+            .onChange(of: showQueue) { _, newValue in
+                if newValue { np.preloadNeighborArtwork() }
+            }
+            .task { np.preloadNeighborArtwork() }
+            .task(id: np.videoId) { await loadCurrentLyrics() }
+            .sheet(isPresented: $showSongMenu) {
+                if let song = np.queueSongs.indices.contains(np.queueIndex) ? np.queueSongs[np.queueIndex] : nil {
+                    PlayerMenuSheet(song: song, onCollapseRequest: { onCollapse() })
+                }
+            }
+            .background(
+                Color.clear
+                    .detailRouteSheet(item: $pendingRoute)
+            )
         }
     }
 
@@ -333,6 +330,51 @@ struct FullPlayerView: View {
         }
     }
 
+    private var musicVideoContent: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        np.isVideoMode = false
+                        showQueue = false
+                    }
+                } label: {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundStyle(.white)
+                        .frame(width: 44, height: 44)
+                        .background(.black.opacity(0.48), in: Circle())
+                }
+                .accessibilityLabel("Return to artwork player")
+
+                Spacer()
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 8)
+
+            musicVideoStage
+
+            QueueView(
+                showQueue: $showQueue,
+                isShuffleOn: $np.isShuffleOn,
+                isRepeatOn: $np.isRepeatOn,
+                editingProgress: $editingProgress,
+                isEditingSlider: $isEditingSlider,
+                pendingRoute: $pendingRoute,
+                progressSlider: { progressSlider },
+                isVideoMode: true
+            )
+            .frame(maxHeight: .infinity)
+        }
+    }
+
+    private var musicVideoStage: some View {
+        artwork
+            .aspectRatio(16 / 9, contentMode: .fit)
+            .frame(maxWidth: .infinity)
+            .clipped()
+    }
+
     @ViewBuilder
     private var artwork: some View {
         Group {
@@ -358,13 +400,11 @@ struct FullPlayerView: View {
                 }
                 .aspectRatio(16 / 9, contentMode: .fit)
                 .animation(.easeOut(duration: 0.2), value: np.isVideoReady)
-                .onTapGesture {
-                    np.isVideoMode = false
-                }
             } else {
                 artworkImage
                 .onTapGesture {
                     guard np.hasVideo else { return }
+                    showQueue = true
                     player.setVideoMode()
                 }
             }

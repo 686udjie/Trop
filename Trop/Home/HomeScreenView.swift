@@ -238,7 +238,11 @@ struct HomeScreenView: View {
                     ForEach(visibleItems.indices, id: \.self) { i in
                         let item = visibleItems[i]
                         if case .song(let s) = item {
-                            YouTubeListItemView(item: item, onTap: { handleSongTap(s, in: combinedQueue) }, onNavigate: { pendingRoute = $0 })
+                            YouTubeListItemView(
+                                item: item,
+                                onTap: { handleSongTap(s, in: combinedQueue) },
+                                onNavigate: { pendingRoute = $0 }
+                            )
                                 .frame(width: 280)
                         } else {
                             YouTubeListItemView(item: item, onTap: { handleItemTap(item) }, onNavigate: { pendingRoute = $0 })

@@ -18,14 +18,9 @@ struct QueueView<ProgressSlider: View>: View {
     @Binding var isEditingSlider: Bool
     let pendingRoute: Binding<DetailRoute?>
     @ViewBuilder var progressSlider: () -> ProgressSlider
+    var isVideoMode: Bool = false
 
-    @ObservedObject private var likeStore = LikeStore.shared
     @State private var showSongMenu = false
-
-    private var isLiked: Bool {
-        guard let song = np.queueSongs.indices.contains(np.queueIndex) ? np.queueSongs[np.queueIndex] : nil else { return false }
-        return likeStore.isLiked(videoId: song.videoId)
-    }
 
     var body: some View {
         queueContent
@@ -40,7 +35,12 @@ struct QueueView<ProgressSlider: View>: View {
                       isHorizontal,
                       value.translation.width > 80 else { return }
                 withAnimation(.easeInOut(duration: 0.3)) {
-                    showQueue = false
+                    if isVideoMode {
+                        np.isVideoMode = false
+                        showQueue = false
+                    } else {
+                        showQueue = false
+                    }
                 }
             }
     }
@@ -49,10 +49,11 @@ struct QueueView<ProgressSlider: View>: View {
 
     private var queueContent: some View {
         VStack(spacing: 0) {
-            queueHeader
-                .padding(.horizontal, 20)
-
-            playbackPillsRow
+            if !isVideoMode {
+                queueHeader
+                    .padding(.horizontal, 20)
+                playbackPillsRow
+            }
 
             queueListHeaderRow
 
@@ -82,12 +83,9 @@ struct QueueView<ProgressSlider: View>: View {
                 }
             }
 
-            // Bottom control section is now naturally pinned to the bottom
-            VStack(spacing: 16) {
-                progressSlider()
-                    .padding(.top, 16) // Match the artist→slider gap (16) used in the big player
-
-                PlaybackControlsRow(
+            if isVideoMode {
+                playbackPillsRow
+                PlayerTransportAirPlayFooter(
                     isPlaying: np.isPlaying,
                     hasPrevious: np.hasPrevious,
                     hasNext: np.hasNext,
@@ -95,14 +93,28 @@ struct QueueView<ProgressSlider: View>: View {
                     onPlayPause: { player.togglePlayPause() },
                     onNext: { np.playNext() }
                 )
-                .animation(.spring(response: 0.3, dampingFraction: 0.7), value: np.isPlaying)
+            } else {
+                VStack(spacing: 16) {
+                    progressSlider()
+                        .padding(.top, 16)
 
-                SecondaryActionsRow(
-                    showQueue: $showQueue,
-                    isRepeatOn: $isRepeatOn
-                )
+                    PlaybackControlsRow(
+                        isPlaying: np.isPlaying,
+                        hasPrevious: np.hasPrevious,
+                        hasNext: np.hasNext,
+                        onPrevious: { np.playPrevious() },
+                        onPlayPause: { player.togglePlayPause() },
+                        onNext: { np.playNext() }
+                    )
+                    .animation(.spring(response: 0.3, dampingFraction: 0.7), value: np.isPlaying)
+
+                    SecondaryActionsRow(
+                        showQueue: $showQueue,
+                        isRepeatOn: $isRepeatOn
+                    )
+                }
+                .padding(.bottom, 16)
             }
-            .padding(.bottom, 16)
         }
     }
 
@@ -127,16 +139,6 @@ struct QueueView<ProgressSlider: View>: View {
             PlayerTitleBlock(title: np.title, artist: np.displayArtist)
 
             Spacer()
-
-            PlayerLikeButton(
-                isLiked: isLiked,
-                activeColor: .white,
-                inactiveColor: .white.opacity(0.6),
-                fontSize: 18
-            ) {
-                guard let song = np.queueSongs.indices.contains(np.queueIndex) ? np.queueSongs[np.queueIndex] : nil else { return }
-                Task { await likeStore.toggle(song: song) }
-            }
 
             if let song = np.queueSongs.indices.contains(np.queueIndex) ? np.queueSongs[np.queueIndex] : nil {
                 PlayerOptionsButton(color: .white.opacity(0.6)) {
@@ -198,7 +200,7 @@ struct QueueView<ProgressSlider: View>: View {
         HStack {
             Text("Queue")
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.white.opacity(0.7))
+                .foregroundStyle(.white)
                 .textCase(.uppercase)
 
             Spacer()

@@ -13,6 +13,8 @@ struct SongMenuSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.settingsStore) private var settings
+    @Environment(\.downloadManager) private var downloadManager
+    @ObservedObject private var likeStore = LikeStore.shared
 
     enum Destination: Hashable {
         case details
@@ -25,11 +27,24 @@ struct SongMenuSheet: View {
     @State private var showRadioOptions = false
     @State private var isResolvingArtist = false
 
+    private var isLiked: Bool {
+        likeStore.isLiked(videoId: song.videoId)
+    }
     var body: some View {
         SheetChrome {
             Group {
                 headerCard
                 actionGrid
+                MenuCard {
+                    MenuRow(
+                        icon: isLiked ? "heart.slash" : "heart",
+                        title: isLiked ? "Unlike" : "Like"
+                    ) {
+                        Task { await likeStore.toggle(song: song) }
+                    }
+                    Divider()
+                    downloadRow
+                }
                 MenuCard {
                     MenuRow(
                         icon: "text.insert",
@@ -171,6 +186,25 @@ struct SongMenuSheet: View {
     private var separator: some View {
         Color(.separator)
             .frame(width: 0.5, height: 28)
+    }
+
+    private var downloadRow: some View {
+        let state = downloadManager.state(for: song.videoId)
+        return Group {
+            switch state {
+            case .completed:
+                MenuRow(icon: "checkmark.circle.fill", title: "Remove Download", destructive: true) {
+                    Task { await downloadManager.delete(videoId: song.videoId) }
+                }
+            case .downloading:
+                MenuRow(icon: "arrow.down.circle", title: "Downloading…") {}
+                    .disabled(true)
+            case .notStarted, .failed:
+                MenuRow(icon: "arrow.down.circle", title: "Download") {
+                    Task { await downloadManager.download(song: song) }
+                }
+            }
+        }
     }
 
     private func actionButton(icon: String, label: String, action: @escaping () -> Void) -> some View {
