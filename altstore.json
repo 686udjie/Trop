@@ -26,11 +26,11 @@
       "versions": [
         {
           "version": "0.0.1",
-          "buildVersion": "102",
-          "date": "2026-10-02T16:31:58Z",
-          "localizedDescription": "feat(library): fix download filenames, liked-sync unlike sweep, orphan repair hardening and pagination guards",
+          "buildVersion": "106",
+          "date": "2026-10-03T14:19:01Z",
+          "localizedDescription": "chore(deps): pin SwiftyTube to v0.0.1 release",
           "downloadURL": "https://github.com/686udjie/Trop/releases/download/nightly/Trop.ipa",
-          "size": 47240397,
+          "size": 47303514,
           "minOSVersion": "26.0"
         }
       ]
