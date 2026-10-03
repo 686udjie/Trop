@@ -484,8 +484,8 @@
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/686udjie/SwiftyTube.git";
 			requirement = {
-				kind = branch;
-				branch = main;
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.0.1;
 			};
 		};
 		14B578D72FF1AB43006B3990 /* XCRemoteSwiftPackageReference "MPVKit" */ = {
