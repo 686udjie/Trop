@@ -5,6 +5,7 @@
 //  Created by 686udjie on 28/06/2026.
 //
 
+import Combine
 import SwiftUI
 
 struct ContentView: View {
@@ -66,13 +67,17 @@ struct ContentView: View {
             AppRouter.shared.selectedTabIndex = newValue
         }
         .onReceive(AppRouter.shared.$activeRoute) { route in
-            // A detail page was opened from the Big Player: collapse it so the
-            // pushed page is visible underneath. (The menu also collapses the
-            // player directly; this is a safety net.)
+            // A detail page was opened from an overlay: collapse the player so
+            // the pushed page is visible underneath.
             if route != nil {
                 withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
                     isExpanded = false
                 }
+            }
+        }
+        .onReceive(AppRouter.shared.$playerExpandToken.dropFirst()) { _ in
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                isExpanded = true
             }
         }
     }

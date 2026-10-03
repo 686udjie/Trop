@@ -196,7 +196,12 @@ struct HomeScreenView: View {
     @ViewBuilder
     private func quickPicksSection(_ section: HomeSection) -> some View {
         let pinnedSongs = speedDialEntries.map { $0.toSongItem() }
-        let quickSongs = section.items.compactMap { if case .song(let s) = $0 { return s } else { return nil } }
+        let pinnedIds = Set(speedDialEntries.map(\.videoId))
+        let visibleItems = section.items.filter { item in
+            if case .song(let s) = item { return !pinnedIds.contains(s.videoId) }
+            return true
+        }
+        let quickSongs = visibleItems.compactMap { if case .song(let s) = $0 { return s } else { return nil } }
         let combinedQueue = pinnedSongs + quickSongs
 
         if combinedQueue.isEmpty {
@@ -230,8 +235,8 @@ struct HomeScreenView: View {
                         }
                     }
 
-                    ForEach(section.items.indices, id: \.self) { i in
-                        let item = section.items[i]
+                    ForEach(visibleItems.indices, id: \.self) { i in
+                        let item = visibleItems[i]
                         if case .song(let s) = item {
                             YouTubeListItemView(item: item, onTap: { handleSongTap(s, in: combinedQueue) }, onNavigate: { pendingRoute = $0 })
                                 .frame(width: 280)

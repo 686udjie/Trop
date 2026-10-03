@@ -38,3 +38,21 @@ struct RadioOptions {
 
     static let `default` = RadioOptions()
 }
+
+extension RadioOptions {
+    static var saved: RadioOptions {
+        let settings = SettingsStore.shared
+        return RadioOptions(
+            style: settings.lastRadioStyle,
+            limit: settings.lastRadioLimit,
+            allowExplicit: settings.lastRadioAllowExplicit
+        )
+    }
+
+    func save() {
+        let settings = SettingsStore.shared
+        settings.lastRadioStyle = style
+        settings.lastRadioLimit = limit
+        settings.lastRadioAllowExplicit = allowExplicit
+    }
+}

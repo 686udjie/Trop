@@ -228,6 +228,18 @@ final class SettingsStore {
         didSet { Self.defaults.set(persistQueue, forKey: Keys.persistQueue) }
     }
 
+    var lastRadioStyle: RadioStyle {
+        didSet { Self.defaults.set(lastRadioStyle.rawValue, forKey: Keys.lastRadioStyle) }
+    }
+
+    var lastRadioLimit: Int {
+        didSet { Self.defaults.set(lastRadioLimit, forKey: Keys.lastRadioLimit) }
+    }
+
+    var lastRadioAllowExplicit: Bool {
+        didSet { Self.defaults.set(lastRadioAllowExplicit, forKey: Keys.lastRadioAllowExplicit) }
+    }
+
     var playerVolume: Double {
         didSet { Self.defaults.set(playerVolume, forKey: Keys.playerVolume) }
     }
@@ -333,6 +345,9 @@ final class SettingsStore {
         static let gaplessPlayback = "settings.gaplessPlayback"
         static let autoplaySimilar = "settings.autoplaySimilar"
         static let persistQueue = "settings.persistQueue"
+        static let lastRadioStyle = "settings.lastRadioStyle"
+        static let lastRadioLimit = "settings.lastRadioLimit"
+        static let lastRadioAllowExplicit = "settings.lastRadioAllowExplicit"
         static let playerVolume = "settings.playerVolume"
         static let artworkSwipeNavigation = "settings.artworkSwipeNavigation"
         static let hideExplicit = "settings.hideExplicit"
@@ -395,6 +410,9 @@ final class SettingsStore {
         gaplessPlayback = Self.load(Keys.gaplessPlayback, default: true)
         autoplaySimilar = Self.load(Keys.autoplaySimilar, default: true)
         persistQueue = Self.load(Keys.persistQueue, default: false)
+        lastRadioStyle = Self.loadEnum(Keys.lastRadioStyle, default: .similar)
+        lastRadioLimit = Self.load(Keys.lastRadioLimit, default: 25)
+        lastRadioAllowExplicit = Self.load(Keys.lastRadioAllowExplicit, default: true)
         playerVolume = Self.load(Keys.playerVolume, default: 1)
         artworkSwipeNavigation = Self.load(Keys.artworkSwipeNavigation, default: true)
         hideExplicit = Self.load(Keys.hideExplicit, default: false)

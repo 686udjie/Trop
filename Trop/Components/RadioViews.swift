@@ -14,7 +14,6 @@ struct RadioOptionsSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var options = RadioOptions.default
     @State private var isStarting = false
-
     var body: some View {
         NavigationStack {
             Form {
@@ -73,10 +72,12 @@ struct RadioOptionsSheet: View {
             }
         }
         .appSheetChrome()
+        .onAppear { options = .saved }
     }
 
     private func start() {
         isStarting = true
+        options.save()
         PlaybackQueue.startRadio(for: song, options: options)
         dismiss()
     }
@@ -86,6 +87,7 @@ struct RadioOptionsSheet: View {
 struct SimilarSongsView: View {
     let song: SongItem
     var onNavigate: ((DetailRoute) -> Void)?
+    var onPlaySong: ((SongItem, [SongItem]) -> Void)?
 
     @State private var songs: [SongItem] = []
     @State private var isLoading = true
@@ -112,7 +114,11 @@ struct SimilarSongsView: View {
                         SongRowView(
                             song: similar,
                             onTap: {
-                                PlaybackQueue.play(similar, in: songs, log: Log.search, context: "SimilarTo tap")
+                                if let onPlaySong {
+                                    onPlaySong(similar, songs)
+                                } else {
+                                    PlaybackQueue.play(similar, in: songs, log: Log.search, context: "SimilarTo tap")
+                                }
                             },
                             onNavigate: onNavigate
                         )

@@ -24,6 +24,12 @@ final class AppRouter: ObservableObject {
     /// Last route opened from an overlay; ContentView listens to collapse the player.
     @Published private(set) var activeRoute: DetailRoute?
 
+    @Published private(set) var playerExpandToken = 0
+
+    func expandPlayer() {
+        playerExpandToken += 1
+    }
+
     func open(_ route: DetailRoute) {
         switch selectedTabIndex {
         case 1: libraryPath.append(route)

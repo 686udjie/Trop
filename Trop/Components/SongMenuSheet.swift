@@ -92,7 +92,13 @@ struct SongMenuSheet: View {
                 case .details:
                     SongDetailsView(song: song)
                 case .similar:
-                    SimilarSongsView(song: song, onNavigate: onNavigate)
+                    SimilarSongsView(
+                        song: song,
+                        onNavigate: onNavigate,
+                        onPlaySong: { similar, songs in
+                            playSimilarAndExpand(similar, in: songs)
+                        }
+                    )
                 }
             }
         }
@@ -216,6 +222,12 @@ struct SongMenuSheet: View {
     private func navigate(_ route: DetailRoute) {
         dismiss()
         onNavigate?(route)
+    }
+
+    private func playSimilarAndExpand(_ similar: SongItem, in songs: [SongItem]) {
+        dismiss()
+        PlaybackQueue.play(similar, in: songs, log: Log.search, context: "SimilarTo tap")
+        AppRouter.shared.expandPlayer()
     }
 
     private func handleViewArtist() {

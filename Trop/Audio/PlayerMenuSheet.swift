@@ -77,7 +77,15 @@ struct PlayerMenuSheet: View {
                 case .details:
                     SongDetailsView(song: song)
                 case .similar:
-                    SimilarSongsView(song: song, onNavigate: { navigate($0) })
+                    SimilarSongsView(
+                        song: song,
+                        onNavigate: { navigate($0) },
+                        onPlaySong: { similar, songs in
+                            dismiss()
+                            PlaybackQueue.play(similar, in: songs, log: Log.search, context: "SimilarTo tap")
+                            AppRouter.shared.expandPlayer()
+                        }
+                    )
                 }
             }
         }
