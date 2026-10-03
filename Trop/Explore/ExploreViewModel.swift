@@ -45,7 +45,7 @@ final class ExploreViewModel {
         error = nil
         Log.explore.debug("Explore fetch start browseId=\(HomePageParser.exploreBrowseId)")
         do {
-            let json = try await InnerTube.shared.browse(browseId: HomePageParser.exploreBrowseId)
+            let json = try await InnerTubeClient.tropShared.browse(browseId: HomePageParser.exploreBrowseId)
             Log.explore.debug("Explore fetch ok topKeys=\((json.keys.sorted()))")
             sections = HomePageParser.parseExploreSections(from: json)
             let moodCount = sections.reduce(0) { $0 + $1.moods.count }
@@ -68,7 +68,7 @@ final class ExploreViewModel {
     static func loadMoodDetail(_ mood: MoodItem) async -> [ExploreSection] {
         Log.explore.debug("Explore mood '\(mood.title)' fetch params=\(mood.params ?? "none")")
         do {
-            let json = try await InnerTube.shared.browse(
+            let json = try await InnerTubeClient.tropShared.browse(
                 browseId: HomePageParser.moodsCategoryBrowseId,
                 params: mood.params
             )

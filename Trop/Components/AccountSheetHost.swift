@@ -27,7 +27,7 @@ final class AccountSheetState {
     func fetchAccountInfo() async {
         guard loginModel.isLoggedIn else { return }
         do {
-            let info = try await InnerTube.shared.accountInfo()
+            let info = try await InnerTubeClient.tropShared.accountInfo()
             accountName = info.name
             accountImageUrl = info.thumbnailUrl
         } catch {

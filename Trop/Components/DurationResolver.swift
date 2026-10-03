@@ -8,10 +8,8 @@
 import Foundation
 import Observation
 
-/// Resolves unknown track durations via `InnerTube` + `DurationCache`,
-/// shared by every song row and grid cell. Consolidates the copy-pasted
-/// `@State resolvedDuration` + `resolveDuration()` + `.durationDidUpdate`
-/// receiver previously in each row.
+/// Resolves unknown track durations via the shared `InnerTubeClient`,
+/// shared by every song row and grid cell.
 @Observable
 final class DurationResolver {
     var resolved = 0
@@ -22,16 +20,8 @@ final class DurationResolver {
 
     func resolve(videoId: String, knownDuration: Int) async {
         guard knownDuration <= 0 else { return }
-        if let cached = DurationCache.get(videoId), cached > 0 {
-            resolved = cached
-            return
-        }
-        guard !DurationCache.isPending(videoId) else { return }
-        DurationCache.markPending(videoId)
-        do {
-            resolved = try await InnerTube.shared.fetchDuration(videoId: videoId)
-        } catch {
-            DurationCache.clearPending(videoId)
+        if let duration = await InnerTubeClient.tropShared.resolveDuration(videoId: videoId) {
+            resolved = duration
         }
     }
 

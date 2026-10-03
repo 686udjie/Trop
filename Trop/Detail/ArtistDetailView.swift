@@ -18,7 +18,7 @@ final class ArtistDetailViewModel {
     var isLoading = true
     var error: Error?
 
-    private let innerTube = InnerTube.shared
+    private let innerTube = InnerTubeClient.tropShared
 
     init(browseId: String) {
         self.browseId = browseId

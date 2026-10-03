@@ -44,7 +44,7 @@ final class HistoryView {
         isRemoteLoading = true
         remoteError = nil
         do {
-            let json = try await InnerTube.shared.browse(browseId: "FEmusic_history")
+            let json = try await InnerTubeClient.tropShared.browse(browseId: "FEmusic_history")
             let sections = Self.parseRemoteHistory(from: json)
             remoteSections = sections
         } catch {

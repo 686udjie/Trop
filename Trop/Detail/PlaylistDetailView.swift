@@ -18,7 +18,7 @@ final class PlaylistDetailViewModel {
     var isLoading = true
     var error: Error?
 
-    private let innerTube = InnerTube.shared
+    private let innerTube = InnerTubeClient.tropShared
     let autoRoute: AutoPlaylistRoute?
     var autoSongSort: LibrarySongSort = .recentlyAdded
     var autoTopPeriod: TopPeriod = .allTime
@@ -171,16 +171,9 @@ final class PlaylistDetailViewModel {
                     for videoId in emptyDurationIds {
                         guard !DurationCache.isPending(videoId) else { continue }
                         if let cached = DurationCache.get(videoId), cached > 0 { continue }
-                        DurationCache.markPending(videoId)
                         group.addTask {
-                            do {
-                                let d = try await InnerTube.shared.fetchDuration(videoId: videoId)
-                                DurationCache.set(videoId, d)
-                                return (videoId, d)
-                            } catch {
-                                DurationCache.clearPending(videoId)
-                                return (videoId, 0)
-                            }
+                            let duration = await InnerTubeClient.tropShared.resolveDuration(videoId: videoId) ?? 0
+                            return (videoId, duration)
                         }
                     }
                 }

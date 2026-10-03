@@ -81,15 +81,8 @@ enum LyricsAlignment: String, CaseIterable, Identifiable, SettingsOption {
     }
 }
 
-enum AudioQuality: String, CaseIterable, Identifiable, SettingsOption {
-    case auto
-    case high
-    case medium
-    case low
-
-    var id: String { rawValue }
-
-    var displayName: String {
+extension AudioQuality: SettingsOption {
+    public var displayName: String {
         switch self {
         case .auto: return "Auto"
         case .high: return "High"
@@ -99,14 +92,8 @@ enum AudioQuality: String, CaseIterable, Identifiable, SettingsOption {
     }
 }
 
-enum DownloadQuality: String, CaseIterable, Identifiable, SettingsOption {
-    case auto
-    case high
-    case standard
-
-    var id: String { rawValue }
-
-    var displayName: String {
+extension DownloadQuality: SettingsOption {
+    public var displayName: String {
         switch self {
         case .auto: return "Auto"
         case .high: return "High (128–192 kbps)"
@@ -264,7 +251,10 @@ final class SettingsStore {
     }
 
     var contentCountry: String {
-        didSet { Self.defaults.set(contentCountry, forKey: Keys.contentCountry) }
+        didSet {
+            Self.defaults.set(contentCountry, forKey: Keys.contentCountry)
+            Task { await InnerTubeClient.tropShared.syncTropLocale() }
+        }
     }
 
     // MARK: - Lyrics providers

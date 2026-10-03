@@ -539,20 +539,13 @@ struct SongDetailsView: View {
 
     private func loadMetadata() async {
         if song.duration <= 0 {
-            if let cached = DurationCache.get(song.videoId), cached > 0 {
-                resolvedDuration = cached
-            } else if !DurationCache.isPending(song.videoId) {
-                DurationCache.markPending(song.videoId)
-                do {
-                    resolvedDuration = try await InnerTube.shared.fetchDuration(videoId: song.videoId)
-                } catch {
-                    DurationCache.clearPending(song.videoId)
-                }
+            if let duration = await InnerTubeClient.tropShared.resolveDuration(videoId: song.videoId) {
+                resolvedDuration = duration
             }
         }
         stream = await StreamCache.shared.get(videoId: song.videoId)
         formatEntity = try? await DatabaseService.shared.fetchOne(FormatEntity.self, key: song.videoId)
-        if let response = try? await InnerTube.shared.playerResponse(videoId: song.videoId),
+        if let response: PlayerResponse = try? await InnerTubeClient.tropShared.playerResponse(videoId: song.videoId),
            let raw = response.videoDetails?.viewCount,
            let count = Int(raw) {
             viewCountText = count.formattedViews()

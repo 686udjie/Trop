@@ -18,7 +18,7 @@ final class PodcastDetailViewModel {
     var error: Error?
     var isSubscribed = false
 
-    private let innerTube = InnerTube.shared
+    private let innerTube = InnerTubeClient.tropShared
 
     init(browseId: String) {
         self.browseId = browseId

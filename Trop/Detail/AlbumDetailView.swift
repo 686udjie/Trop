@@ -18,7 +18,7 @@ final class AlbumDetailViewModel {
     var error: Error?
     var isSaved = false
 
-    private let innerTube = InnerTube.shared
+    private let innerTube = InnerTubeClient.tropShared
 
     init(browseId: String) {
         self.browseId = browseId

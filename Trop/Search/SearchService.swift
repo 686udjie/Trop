@@ -10,7 +10,7 @@ import GRDB
 
 actor SearchService {
     nonisolated static let shared = SearchService()
-    private let innerTube = InnerTube.shared
+    private let innerTube = InnerTubeClient.tropShared
     private let db = DatabaseService.shared
     private var searchTask: Task<[String: Any], Error>?
 

@@ -10,24 +10,8 @@ import GRDB
 
 actor MutationService {
     nonisolated static let shared = MutationService()
-    private let innerTube = InnerTube.shared
+    private let innerTube = InnerTubeClient.tropShared
     private let db = DatabaseService.shared
-
-    /// Attempts a remote mutation, running `rollback` (best-effort) and
-    /// rethrowing the original error on failure. Collapses the
-    /// apply → remote → restore + rethrow skeleton shared by every
-    /// optimistic mutation below.
-    private func attemptingRemote(
-        _ remote: () async throws -> Void,
-        rollback: () async -> Void
-    ) async throws {
-        do {
-            try await remote()
-        } catch {
-            await rollback()
-            throw error
-        }
-    }
 
     private func emptySong(id: String, liked: Bool, addToken: String = "") -> SongEntity {
         SongEnrichment.skeleton(id: id, liked: liked, addToken: addToken)
@@ -119,7 +103,7 @@ actor MutationService {
         entity.modifyDate = Date()
         try await db.save(entity)
         let applied = entity
-        try await attemptingRemote(
+        try await OptimisticMutation.attemptingRemote(
             { _ = try await innerTube.like(videoId: videoId) },
             rollback: {
                 var restored = applied
@@ -141,7 +125,7 @@ actor MutationService {
         entity.modifyDate = Date()
         try? await db.save(entity)
         let applied = entity
-        try await attemptingRemote(
+        try await OptimisticMutation.attemptingRemote(
             { _ = try await innerTube.unlike(videoId: videoId) },
             rollback: {
                 var restored = applied
@@ -164,7 +148,7 @@ actor MutationService {
         try? await db.save(entity)
         let applied = entity
         guard !addToken.isEmpty else { return }
-        try await attemptingRemote(
+        try await OptimisticMutation.attemptingRemote(
             { _ = try await innerTube.feedback(tokens: [addToken]) },
             rollback: {
                 var restored = applied
@@ -184,7 +168,7 @@ actor MutationService {
         }
         guard !removeToken.isEmpty else { return }
         let applied = entity
-        try await attemptingRemote(
+        try await OptimisticMutation.attemptingRemote(
             { _ = try await innerTube.feedback(tokens: [removeToken]) },
             rollback: {
                 if var restored = applied {
@@ -204,14 +188,9 @@ actor MutationService {
         map = try await db.insert(map, onConflict: .ignore)
         guard !isLocal else { return }
 
-        var actions: [[String: Any]] = [
-            ["action": "ACTION_ADD_VIDEO", "addedVideoId": songId]
-        ]
-        if let setVideoId {
-            actions[0]["setVideoId"] = setVideoId
-        }
+        let actions = PlaylistEditAction.dictionaries([.addVideo(videoId: songId, setVideoId: setVideoId)])
         let inserted = map
-        try await attemptingRemote(
+        try await OptimisticMutation.attemptingRemote(
             { _ = try await innerTube.editPlaylist(playlistId: playlistId, actions: actions) },
             rollback: { _ = try? await db.delete(inserted) }
         )
@@ -222,9 +201,7 @@ actor MutationService {
         let isLocal = entity?.browseId == nil
 
         if !isLocal {
-            let actions: [[String: Any]] = [
-                ["action": "ACTION_REMOVE_VIDEO", "setVideoId": setVideoId]
-            ]
+            let actions = PlaylistEditAction.dictionaries([.removeVideo(setVideoId: setVideoId)])
             do {
                 _ = try await innerTube.editPlaylist(playlistId: playlistId, actions: actions)
             } catch {
@@ -239,7 +216,7 @@ actor MutationService {
 
     func createPlaylist(title: String, description: String? = nil) async throws -> String {
         let json = try await innerTube.createPlaylist(title: title, description: description)
-        guard let playlistId = extractPlaylistId(from: json) else {
+        guard let playlistId = PlaylistEditAction.extractPlaylistId(from: json) else {
             throw MutationError.playlistCreationFailed
         }
         var entity = PlaylistEntity(
@@ -281,9 +258,7 @@ actor MutationService {
         let isLocal = entity.browseId == nil
 
         if !isLocal {
-            let actions: [[String: Any]] = [
-                ["action": "ACTION_SET_PLAYLIST_NAME", "name": newName]
-            ]
+            let actions = PlaylistEditAction.dictionaries([.renamePlaylist(name: newName)])
             _ = try await innerTube.editPlaylist(playlistId: playlistId, actions: actions)
         }
 
@@ -300,7 +275,7 @@ actor MutationService {
             try? await db.save(existing)
         }
         let applied = entity
-        try await attemptingRemote(
+        try await OptimisticMutation.attemptingRemote(
             { _ = try await innerTube.subscribe(channelId: channelId) },
             rollback: {
                 if var restored = applied {
@@ -320,7 +295,7 @@ actor MutationService {
             try? await db.save(existing)
         }
         let applied = entity
-        try await attemptingRemote(
+        try await OptimisticMutation.attemptingRemote(
             { _ = try await innerTube.unsubscribe(channelId: channelId) },
             rollback: {
                 if var restored = applied {
@@ -364,7 +339,7 @@ actor MutationService {
         }
         guard let token = feedbackToken, !token.isEmpty else { return }
         let dbCopy = db
-        try await attemptingRemote(
+        try await OptimisticMutation.attemptingRemote(
             { _ = try await innerTube.feedback(tokens: [token]) },
             rollback: { [dbCopy] in
                 if var restored = try? await dbCopy.fetchOne(AlbumEntity.self, key: browseId) {
@@ -384,7 +359,7 @@ actor MutationService {
         }
         guard let token = feedbackToken, !token.isEmpty else { return }
         let dbCopy = db
-        try await attemptingRemote(
+        try await OptimisticMutation.attemptingRemote(
             { _ = try await innerTube.feedback(tokens: [token]) },
             rollback: { [dbCopy] in
                 if hadBookmark, var restored = try? await dbCopy.fetchOne(AlbumEntity.self, key: browseId) {
@@ -427,7 +402,7 @@ actor MutationService {
             return
         }
         guard let token = feedbackToken, !token.isEmpty else { return }
-        try await attemptingRemote(
+        try await OptimisticMutation.attemptingRemote(
             { _ = try await innerTube.feedback(tokens: [token]) },
             rollback: {
                 if var restored = try? await db.fetchOne(PodcastEntity.self, key: browseId) {
@@ -451,7 +426,7 @@ actor MutationService {
             return
         }
         guard let token = feedbackToken, !token.isEmpty else { return }
-        try await attemptingRemote(
+        try await OptimisticMutation.attemptingRemote(
             { _ = try await innerTube.feedback(tokens: [token]) },
             rollback: {
                 if var restored = try? await db.fetchOne(PodcastEntity.self, key: browseId) {
@@ -460,13 +435,6 @@ actor MutationService {
                 }
             }
         )
-    }
-
-    private func extractPlaylistId(from json: [String: Any]) -> String? {
-        if let playlistId = json["playlistId"] as? String { return playlistId }
-        if let response = json["response"] as? [String: Any],
-           let playlistId = response["playlistId"] as? String { return playlistId }
-        return nil
     }
 }
 

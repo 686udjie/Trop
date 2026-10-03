@@ -10,7 +10,7 @@ import Foundation
 // Thin stateless helper that calls /account/account_menu and decides if the session is alive
 actor SessionVerificationService {
     static let shared = SessionVerificationService()
-    private let innerTube = InnerTube.shared
+    private let innerTube = InnerTubeClient.tropShared
 
     // Calling this with no loaded session returns false rather than throwing
     func isSessionAlive() async -> Bool {

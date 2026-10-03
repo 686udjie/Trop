@@ -1,5 +1,5 @@
 {
-  "originHash" : "fb8a50c85807474ab7e6a16b7284ba32f7b85dc2dbbce1802ef3936d712c542d",
+  "originHash" : "0ce07dc01276a26151a79683f67229db741fb5ec8bba83bd40313248587f1489",
   "pins" : [
     {
       "identity" : "grdb.swift",
@@ -35,6 +35,15 @@
       "state" : {
         "revision" : "83e19143355b02e9261edb2323b3e1e93287ebb9",
         "version" : "12.9.0"
+      }
+    },
+    {
+      "identity" : "swiftytube",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/686udjie/SwiftyTube.git",
+      "state" : {
+        "branch" : "main",
+        "revision" : "0b9352ab1ea60e8af4637af6ed55598cd4f7cd14"
       }
     }
   ],

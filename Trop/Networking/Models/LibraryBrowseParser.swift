@@ -111,7 +111,7 @@ enum LibraryBrowseParser {
         if let sections = BrowseLens.browseSections(json) {
             for section in sections {
                 let unwrapped = unwrapSection(section)
-                if let token = BrowseLens.continuationToken(in: unwrapped) { return token }
+                if let token = InnerTubeDecode.continuationToken(in: unwrapped) { return token }
             }
         }
 
@@ -123,7 +123,7 @@ enum LibraryBrowseParser {
            let sections = sectionList["contents"] as? [[String: Any]] {
             for section in sections {
                 let unwrapped = unwrapSection(section)
-                if let token = BrowseLens.continuationToken(in: unwrapped) { return token }
+                if let token = InnerTubeDecode.continuationToken(in: unwrapped) { return token }
             }
         }
 
@@ -131,18 +131,18 @@ enum LibraryBrowseParser {
         if let contentsArray = json["contents"] as? [[String: Any]] {
             for section in contentsArray {
                 let unwrapped = unwrapSection(section)
-                if let token = BrowseLens.continuationToken(in: unwrapped) { return token }
+                if let token = InnerTubeDecode.continuationToken(in: unwrapped) { return token }
             }
         }
 
         // Try continuationContents paths
         if let continuationContents = json["continuationContents"] as? [String: Any] {
             if let shelfCont = continuationContents["musicShelfContinuation"] as? [String: Any],
-               let token = BrowseLens.continuationToken(in: shelfCont) { return token }
+               let token = InnerTubeDecode.continuationToken(in: shelfCont) { return token }
             if let gridCont = continuationContents["gridContinuation"] as? [String: Any],
-               let token = BrowseLens.continuationToken(in: gridCont) { return token }
+               let token = InnerTubeDecode.continuationToken(in: gridCont) { return token }
             if let playlistCont = continuationContents["musicPlaylistShelfContinuation"] as? [String: Any],
-               let token = BrowseLens.continuationToken(in: playlistCont) { return token }
+               let token = InnerTubeDecode.continuationToken(in: playlistCont) { return token }
         }
 
         return nil

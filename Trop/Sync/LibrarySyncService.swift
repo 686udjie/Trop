@@ -10,7 +10,7 @@ import GRDB
 
 actor LibrarySyncService {
     nonisolated static let shared = LibrarySyncService()
-    private let innerTube = InnerTube.shared
+    private let innerTube = InnerTubeClient.tropShared
     private let db = DatabaseService.shared
 
     func syncAll() async -> LibrarySyncResult {

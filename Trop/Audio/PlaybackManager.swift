@@ -95,99 +95,39 @@ actor PlaybackManager {
     /// Runs the client fallback chain for playback. Only called once per
     /// videoId by `resolveAndPlay`, which owns the in-flight dedup entry.
     private func resolveAndPlayFromNetwork(videoId: String) async throws -> PlaybackResult {
-        // Pre-generate PoToken in background while direct-URL clients are tried
-        let poTokenTask = Task { try? await generatePoToken(videoId: videoId) }
-        defer { poTokenTask.cancel() }
+        var request = StreamResolveRequest.playback(videoId: videoId)
+        request.options.audioQuality = SettingsStore.shared.audioQuality
+        let result = try await StreamFallback.resolveFirstValid(
+            request,
+            using: InnerTubeClient.tropShared,
+            providers: .tropLive
+        )
+        await playNetworkResult(result, videoId: videoId)
+        return result
+    }
 
-        var lastError: Error?
-
-        for fb in ClientFallbackChain.preferred {
-            var playerPoToken: String?
-            var streamPoToken: String?
-
-            if fb.client.useWebPoTokens {
-                if let tokens = await poTokenTask.value {
-                    playerPoToken = tokens.playerRequestPoToken
-                    streamPoToken = tokens.streamingDataPoToken
-                }
+    private func playNetworkResult(_ result: PlaybackResult, videoId: String) async {
+        await PlayerController.shared.play(
+            url: result.streamUrl,
+            title: result.title,
+            artist: result.author,
+            videoId: videoId,
+            duration: result.duration.flatMap { $0 > 0 ? TimeInterval($0) : nil },
+            artists: await queueArtists(for: videoId),
+            loudnessDb: result.loudnessDb
+        )
+        if let musicVideoType = result.musicVideoType {
+            await MainActor.run {
+                NowPlaying.shared.updateVideoAvailability(
+                    musicVideoType: musicVideoType,
+                    hasVideoContent: result.hasVideoContent
+                )
             }
-
-            do {
-                let result = try await StreamResolver.resolve(
-                    videoId: videoId,
-                    client: fb.client,
-                    poToken: playerPoToken,
-                    streamingDataPoToken: streamPoToken
-                )
-
-                if fb.skipValidation {
-                    await StreamCache.shared.set(videoId: videoId, result: result)
-                    await PlayerController.shared.play(
-                        url: result.streamUrl,
-                        title: result.title,
-                        artist: result.author,
-                        videoId: videoId,
-                        duration: result.duration.flatMap { $0 > 0 ? TimeInterval($0) : nil },
-                        artists: await queueArtists(for: videoId),
-                        loudnessDb: result.loudnessDb
-                    )
-                    if let musicVideoType = result.musicVideoType {
-                        await MainActor.run {
-                            NowPlaying.shared.updateVideoAvailability(
-                                musicVideoType: musicVideoType,
-                                hasVideoContent: result.hasVideoContent
-                            )
-                        }
-                    } else {
-                        await MainActor.run {
-                            NowPlaying.shared.updateVideoAvailability(hasVideoContent: result.hasVideoContent)
-                        }
-                    }
-                    return result
-                }
-
-                guard await StreamResolver.validateStream(url: result.streamUrl) else {
-                    Log.playbackManager.debug("\(result.clientName) Range validation failed, trying next")
-                    lastError = StreamError.validationFailed(result.clientName)
-                    continue
-                }
-
-                await StreamCache.shared.set(videoId: videoId, result: result)
-                await PlayerController.shared.play(
-                    url: result.streamUrl,
-                    title: result.title,
-                    artist: result.author,
-                    videoId: videoId,
-                    duration: result.duration.flatMap { $0 > 0 ? TimeInterval($0) : nil },
-                    artists: await queueArtists(for: videoId),
-                    loudnessDb: result.loudnessDb
-                )
-                if let musicVideoType = result.musicVideoType {
-                    await MainActor.run {
-                        NowPlaying.shared.updateVideoAvailability(
-                            musicVideoType: musicVideoType,
-                            hasVideoContent: result.hasVideoContent
-                        )
-                    }
-                } else {
-                    await MainActor.run {
-                        NowPlaying.shared.updateVideoAvailability(hasVideoContent: result.hasVideoContent)
-                    }
-                }
-                return result
-
-            } catch {
-                lastError = error
-                Log.playbackManager.error("\(fb.client.clientName) failed: \(error.localizedDescription)")
+        } else {
+            await MainActor.run {
+                NowPlaying.shared.updateVideoAvailability(hasVideoContent: result.hasVideoContent)
             }
         }
-
-        if let expired = await StreamCache.shared.getExpired(videoId: videoId),
-           expired.expiresInSeconds != Int.max {
-            Log.playbackManager.notice("All clients failed for \(videoId), falling back to expired cache")
-            return expired
-        }
-        throw lastError ?? StreamError.allClientsFailed
     }
 
     private func clearInflight(key: String) {
@@ -205,46 +145,22 @@ actor PlaybackManager {
     /// (audio+video) stream; when the video offers none, falls back to an EDL
     /// that combines a DASH video-only stream with a separate audio stream.
     func resolveVideoStream(videoId: String) async throws -> String {
-        for fb in ClientFallbackChain.preferred {
-            do {
-                let signatureTimestamp: Int?
-                if fb.client.useSignatureTimestamp {
-                    signatureTimestamp = try? await PlayerJsFetcher.shared.getSignatureTimestamp()
-                } else {
-                    signatureTimestamp = nil
-                }
-
-                let response = try await InnerTube.shared.playerResponse(
-                    videoId: videoId,
-                    client: fb.client,
-                    signatureTimestamp: signatureTimestamp,
-                    poToken: nil
-                )
-
-                guard let streamingData = response.streamingData else {
-                    continue
-                }
-
-                let allFormats = (streamingData.formats ?? []) + (streamingData.adaptiveFormats ?? [])
-
-                if let muxed = FormatSelector.bestVideoFormat(from: allFormats),
-                   let url = muxed.url {
-                    return url
-                }
-
-                if let video = FormatSelector.bestVideoOnlyFormat(from: allFormats),
-                   let videoURL = video.url,
-                   let audio = FormatSelector.bestAudioFormat(from: allFormats, preference: SettingsStore.shared.audioQuality),
-                   let audioURL = try? await Self.resolveStreamURL(audio) {
-                    let duration = response.videoDetails?.lengthSeconds.flatMap(Int.init)
-                    return Self.combineVideoAndAudio(videoURL: videoURL, audioURL: audioURL, duration: duration)
-                }
-            } catch {
-                Log.playbackManager.error("Video resolution failed for \(fb.client.clientName): \(error)")
-            }
+        var request = StreamResolveRequest(videoId: videoId)
+        request.options.audioQuality = SettingsStore.shared.audioQuality
+        switch try await StreamFallback.resolveVideo(
+            request,
+            using: InnerTubeClient.tropShared,
+            providers: .tropLive
+        ) {
+        case .muxed(let url):
+            return url
+        case .split(let videoURL, let audioURL, let duration):
+            return StreamFallback.combineVideoAndAudio(
+                videoURL: videoURL,
+                audioURL: audioURL,
+                duration: duration
+            )
         }
-
-        throw StreamError.noSuitableFormat
     }
 
     /// Returns the muxed/video stream URL for video mode, preferring the cached one.
@@ -257,85 +173,21 @@ actor PlaybackManager {
     }
 
     func resolveVideoOnlyURL(videoId: String) async throws -> String {
-        for fb in ClientFallbackChain.preferred {
-            do {
-                let signatureTimestamp: Int?
-                if fb.client.useSignatureTimestamp {
-                    signatureTimestamp = try? await PlayerJsFetcher.shared.getSignatureTimestamp()
-                } else {
-                    signatureTimestamp = nil
-                }
-
-                let response = try await InnerTube.shared.playerResponse(
-                    videoId: videoId,
-                    client: fb.client,
-                    signatureTimestamp: signatureTimestamp,
-                    poToken: nil
-                )
-
-                guard let streamingData = response.streamingData else {
-                    continue
-                }
-
-                let allFormats = (streamingData.formats ?? []) + (streamingData.adaptiveFormats ?? [])
-
-                if let muxed = FormatSelector.bestVideoFormat(from: allFormats),
-                   let url = muxed.url {
-                    return url
-                }
-
-                if let video = FormatSelector.bestVideoOnlyFormat(from: allFormats) {
-                    return try await Self.resolveStreamURL(video)
-                }
-            } catch {
-                Log.playbackManager.error("Video-only resolution failed for \(fb.client.clientName): \(error)")
-            }
+        let request = StreamResolveRequest(videoId: videoId)
+        switch try await StreamFallback.resolveVideo(
+            request,
+            using: InnerTubeClient.tropShared,
+            providers: .tropLive
+        ) {
+        case .muxed(let url):
+            return url
+        case .split(let videoURL, _, _):
+            return videoURL
         }
-
-        throw StreamError.noSuitableFormat
     }
 
-    /// Resolves a format's stream URL, going through the cipher if needed.
-    private static func resolveStreamURL(_ format: Format) async throws -> String {
-        if let url = format.url, !url.isEmpty { return url }
-        if let cipherText = format.signatureCipher ?? format.cipher {
-            let playerJs = try await PlayerJsFetcher.shared.getPlayerJs()
-            return try await CipherExecutor.shared.resolveCipherURL(
-                cipherText: cipherText,
-                playerJs: playerJs,
-                playerHash: nil
-            )
-        }
-        throw StreamError.noStreamUrl
-    }
-
-    /// Builds an EDL that sources the video and audio tracks from two separate
-    /// DASH streams, mirroring how mpv's ytdl hook plays split YouTube streams.
-    /// URLs are embedded with mpv's `%<len>%<url>` escape so any characters
-    /// (semicolons, commas, etc.) survive EDL parsing verbatim. `duration`
-    /// (when known) pins each part's timeline length so mpv does not end
-    /// playback early when a stream's duration cannot be probed.
-    private static func combineVideoAndAudio(videoURL: String, audioURL: String, duration: Int?) -> String {
-        let lengthParam = duration.map { ",length=\($0)" } ?? ""
-        let video = "%\(videoURL.utf8.count)%\(videoURL)\(lengthParam)"
-        let audio = "%\(audioURL.utf8.count)%\(audioURL)\(lengthParam)"
-        return "edl://!new_stream;!no_clip;!no_chapters;\(video);!new_stream;!no_clip;!no_chapters;\(audio)"
-    }
-
-    /// Generate PoToken for the given video. Returns playerRequestPoToken and streamingDataPoToken.
-    private func generatePoToken(videoId: String) async throws -> PoTokenResult {
-        let sessionId = await getSessionId()
-        return try await PoTokenGenerator.shared.generate(
-            videoId: videoId,
-            sessionId: sessionId
-        )
-    }
-
-    private static var sessionId: String = UUID().uuidString
-
-    private func getSessionId() async -> String? {
-        Self.sessionId
-    }
+    /// Stable per-launch session id for PoToken minting.
+    static let sessionId: String = UUID().uuidString
     /// Resolve a video without playing. Useful for previews / testing.
     func resolve(videoId: String, preferredFormat: Format? = nil, forDownload: Bool = false) async throws -> PlaybackResult {
         if !forDownload, let cached = await StreamCache.shared.get(videoId: videoId) {
@@ -356,77 +208,14 @@ actor PlaybackManager {
     }
 
     private func resolveFromNetwork(videoId: String, preferredFormat: Format?, forDownload: Bool) async throws -> PlaybackResult {
-        var poTokenTask: Task<PoTokenResult?, Never>?
-        defer { poTokenTask?.cancel() }
-
-        var lastError: Error?
-        var nonAACFallback: PlaybackResult?
-        let clients = forDownload ? ClientFallbackChain.forDownload : ClientFallbackChain.preferred
-
-        for fb in clients {
-            var playerPoToken: String?
-            var streamPoToken: String?
-
-            if fb.client.useWebPoTokens {
-                if poTokenTask == nil {
-                    poTokenTask = Task { try? await generatePoToken(videoId: videoId) }
-                }
-                playerPoToken = await poTokenTask?.value?.playerRequestPoToken
-                streamPoToken = await poTokenTask?.value?.streamingDataPoToken
-            }
-
-            do {
-                let result = try await StreamResolver.resolve(
-                    videoId: videoId,
-                    client: fb.client,
-                    poToken: playerPoToken,
-                    streamingDataPoToken: streamPoToken,
-                    preferredFormat: preferredFormat,
-                    forDownload: forDownload
-                )
-
-                if !fb.skipValidation {
-                    guard await StreamResolver.validateStream(url: result.streamUrl) else {
-                        lastError = StreamError.validationFailed(result.clientName)
-                        Log.playbackManager.debug("\(result.clientName) Range validation failed, trying next")
-                        continue
-                    }
-                }
-
-                // Downloads remux/transcode with AVFoundation; prefer AAC so we
-                // can skip Opus→AAC (unreliable in Simulator / some devices).
-                if forDownload {
-                    let mime = result.mimeType.lowercased()
-                    let isAAC = mime.contains("mp4a") || mime.contains("aac")
-                    if !isAAC {
-                        Log.playbackManager.debug(
-                            "\(result.clientName) returned non-AAC (\(result.mimeType)); looking for AAC client"
-                        )
-                        if nonAACFallback == nil {
-                            nonAACFallback = result
-                        }
-                        continue
-                    }
-                } else {
-                    await StreamCache.shared.set(videoId: videoId, result: result)
-                }
-                return result
-
-            } catch {
-                lastError = error
-                Log.playbackManager.error("\(fb.client.clientName) failed: \(error.localizedDescription)")
-            }
-        }
-
-        if forDownload, let fallback = nonAACFallback {
-            Log.playbackManager.debug("No AAC stream found — falling back to \(fallback.mimeType)")
-            return fallback
-        }
-
-        if !forDownload, let expired = await StreamCache.shared.getExpired(videoId: videoId) {
-            Log.playbackManager.notice("All clients failed for \(videoId), falling back to expired cache")
-            return expired
-        }
-        throw lastError ?? StreamError.allClientsFailed
+        var request = forDownload ? StreamResolveRequest.download(videoId: videoId) : .playback(videoId: videoId)
+        request.options.preferredFormat = preferredFormat
+        request.options.audioQuality = SettingsStore.shared.audioQuality
+        request.options.downloadQuality = SettingsStore.shared.downloadQuality
+        return try await StreamFallback.resolveFirstValid(
+            request,
+            using: InnerTubeClient.tropShared,
+            providers: .tropLive
+        )
     }
 }

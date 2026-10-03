@@ -9,16 +9,10 @@ import Foundation
 
 // Errors specific to session import and login verification
 enum AuthError: LocalizedError {
-    case invalidCookie
-    case sapisidNotFound
     case verificationFailed(Error?)
 
     var errorDescription: String? {
         switch self {
-        case .invalidCookie:
-            return "Cookie string is empty or invalid"
-        case .sapisidNotFound:
-            return "Both SAPISID and __Secure-3PSAPISID missing from cookies"
         case .verificationFailed(let error):
             return "Failed to verify login: \(error?.localizedDescription ?? "unknown")"
         }
@@ -29,20 +23,18 @@ enum AuthError: LocalizedError {
 actor AuthService {
     static let shared = AuthService()
 
-    private let innerTube = InnerTube.shared
+    private let innerTube = InnerTubeClient.tropShared
     private let cookieStore = CookieStore()
 
-// Imports a raw cookie string (e.g. from browser export), extracts SAPISID + visitorData + dataSyncId, and persists
+// Imports a raw cookie string (e.g. from browser export) and persists it
   func importSession(from cookieString: String, dataSyncId: String? = nil) async throws {
-    guard !cookieString.isEmpty else {
-      throw AuthError.invalidCookie
-    }
-
-    let cookies = parseCookieString(cookieString)
-    let sapisid = extractSAPISID(from: cookies)
-    let visitorData = extractVisitorData(from: cookies)
-
-    await cookieStore.save(cookies: cookies, sapisid: sapisid, visitorData: visitorData, dataSyncId: dataSyncId)
+    let auth = try SessionImporter.importSession(from: cookieString, dataSyncId: dataSyncId)
+    await cookieStore.save(
+        cookies: auth.cookies,
+        sapisid: auth.sapisid,
+        visitorData: auth.visitorData,
+        dataSyncId: auth.dataSyncId
+    )
 
     await innerTube.loadState(from: cookieStore)
   }
@@ -73,22 +65,4 @@ actor AuthService {
     await cookieStore.clear()
     await innerTube.loadState(from: cookieStore)
   }
-
-    // Prefer __Secure-3PSAPISID cookie over legacy SAPISID
-    private func extractSAPISID(from cookies: [String: String]) -> String? {
-        if let sapisid = cookies["__Secure-3PSAPISID"] {
-            return sapisid
-        }
-        return cookies["SAPISID"]
-    }
-
-    // YouTube sets this as a plain cookie; reuse it as the visitorData header
-    private func extractVisitorData(from cookies: [String: String]) -> String? {
-        cookies["visitor_data"]
-    }
-
-    // Splits a raw `Set-Cookie`-style string into name→value pairs
-    private func parseCookieString(_ cookieString: String) -> [String: String] {
-        CookieParser.parse(cookieString)
-    }
 }

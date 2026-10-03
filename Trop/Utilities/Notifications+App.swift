@@ -8,7 +8,7 @@
 import Foundation
 
 extension Notification.Name {
-    static let durationDidUpdate = Notification.Name("durationDidUpdate")
+    // durationDidUpdate comes from SwiftyTube's DurationCache.
     static let personalizationDataUpdated = Notification.Name("personalizationDataUpdated")
     static let nowPlayingDidChange = Notification.Name("nowPlayingDidChange")
     static let lastFMLikeChanged = Notification.Name("lastFMLikeChanged")

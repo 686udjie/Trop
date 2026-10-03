@@ -9,7 +9,7 @@ import Foundation
 
 actor RegisterPlaybackService {
     nonisolated static let shared = RegisterPlaybackService()
-    private let innerTube = InnerTube.shared
+    private let innerTube = InnerTubeClient.tropShared
 
     private init() {}
 

@@ -67,15 +67,6 @@ enum BrowseLens {
             .flatMap { ($0["contents"] as? [[String: Any]])?.first }
     }
 
-    /// Continuation token from a shelf's `continuations` array.
-    static func continuationToken(in shelf: [String: Any]) -> String? {
-        guard let continuations = shelf["continuations"] as? [[String: Any]],
-              let first = continuations.first,
-              let next = first["nextContinuationData"] as? [String: Any],
-              let token = next["continuation"] as? String else { return nil }
-        return token
-    }
-
     /// Account-name runs from an `account/account_menu` response, used to
     /// probe session validity.
     static func accountNameRuns(_ json: [String: Any]) -> [[String: Any]]? {

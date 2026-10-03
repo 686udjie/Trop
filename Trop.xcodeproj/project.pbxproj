@@ -27,6 +27,7 @@
 		14B578DC2FF20002006B3990 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = 14B578DB2FF20001006B3990 /* GRDB */; };
 		14B578DF2FF20DCD006B3990 /* Nuke in Frameworks */ = {isa = PBXBuildFile; productRef = 14B578DE2FF20DCC006B3990 /* Nuke */; };
 		14B578E52FF20DCF006B3990 /* Marquee in Frameworks */ = {isa = PBXBuildFile; productRef = 14B578E42FF20DCF006B3990 /* Marquee */; };
+		14B578F32FF21002006B3990 /* SwiftyTube in Frameworks */ = {isa = PBXBuildFile; productRef = 14B578F22FF21001006B3990 /* SwiftyTube */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -100,6 +101,7 @@
 				14B578DC2FF20002006B3990 /* GRDB in Frameworks */,
 				14B578DF2FF20DCD006B3990 /* Nuke in Frameworks */,
 				14B578E52FF20DCF006B3990 /* Marquee in Frameworks */,
+				14B578F32FF21002006B3990 /* SwiftyTube in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -165,6 +167,7 @@
 				14B578DB2FF20001006B3990 /* GRDB */,
 				14B578DE2FF20DCC006B3990 /* Nuke */,
 				14B578E42FF20DCF006B3990 /* Marquee */,
+				14B578F22FF21001006B3990 /* SwiftyTube */,
 			);
 			productName = Trop;
 			productReference = 14B5762F2FF190EF006B3990 /* Trop.app */;
@@ -199,6 +202,7 @@
 				14B578DA2FF20000006B3990 /* XCRemoteSwiftPackageReference "GRDB.swift" */,
 				14B578DD2FF20DCC006B3990 /* XCRemoteSwiftPackageReference "Nuke" */,
 				14B578E32FF20DCF006B3990 /* XCRemoteSwiftPackageReference "Marquee" */,
+				14B578F12FF21000006B3990 /* XCRemoteSwiftPackageReference "SwiftyTube" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 14B576302FF190EF006B3990 /* Products */;
@@ -476,6 +480,14 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		14B578F12FF21000006B3990 /* XCRemoteSwiftPackageReference "SwiftyTube" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/686udjie/SwiftyTube.git";
+			requirement = {
+				kind = branch;
+				branch = main;
+			};
+		};
 		14B578D72FF1AB43006B3990 /* XCRemoteSwiftPackageReference "MPVKit" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/mpvkit/MPVKit.git";
@@ -530,6 +542,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 14B578E32FF20DCF006B3990 /* XCRemoteSwiftPackageReference "Marquee" */;
 			productName = Marquee;
+		};
+		14B578F22FF21001006B3990 /* SwiftyTube */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 14B578F12FF21000006B3990 /* XCRemoteSwiftPackageReference "SwiftyTube" */;
+			productName = SwiftyTube;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

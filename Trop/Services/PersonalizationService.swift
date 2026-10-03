@@ -10,7 +10,7 @@ import Foundation
 actor PersonalizationService {
     nonisolated static let shared = PersonalizationService()
     private let db = DatabaseService.shared
-    private let innerTube = InnerTube.shared
+    private let innerTube = InnerTubeClient.tropShared
 
     private var enrichmentTasks: [Task<Void, Never>] = []
 

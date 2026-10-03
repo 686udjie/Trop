@@ -10,7 +10,7 @@ import GRDB
 
 actor PlaylistDetailService {
     nonisolated static let shared = PlaylistDetailService()
-    private let innerTube = InnerTube.shared
+    private let innerTube = InnerTubeClient.tropShared
     private let db = DatabaseService.shared
 
     func fetchPlaylist(playlistId: String, maxPages: Int = 100) async throws -> Int {
@@ -153,11 +153,11 @@ actor PlaylistDetailService {
         if let firstSection = BrowseLens.firstBrowseSection(json),
            let shelf = (firstSection["musicPlaylistShelfRenderer"] as? [String: Any])
             ?? (firstSection["musicShelfRenderer"] as? [String: Any]),
-           let token = BrowseLens.continuationToken(in: shelf) {
+           let token = InnerTubeDecode.continuationToken(in: shelf) {
             return token
         }
         for shelf in twoColumnShelves(from: json) {
-            if let token = BrowseLens.continuationToken(in: shelf) {
+            if let token = InnerTubeDecode.continuationToken(in: shelf) {
                 return token
             }
         }
@@ -173,7 +173,7 @@ actor PlaylistDetailService {
         if let continuationContents = json["continuationContents"] as? [String: Any],
            let shelf = (continuationContents["musicPlaylistShelfContinuation"] as? [String: Any])
             ?? (continuationContents["musicShelfContinuation"] as? [String: Any]),
-           let token = BrowseLens.continuationToken(in: shelf) {
+           let token = InnerTubeDecode.continuationToken(in: shelf) {
             return token
         }
         return nil

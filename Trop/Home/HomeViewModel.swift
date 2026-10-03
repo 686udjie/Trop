@@ -120,7 +120,7 @@ final class HomeViewModel {
         let loggedIn = await cookieStore.isLoggedIn()
         guard loggedIn else { return }
         isLoggedIn = true
-        await InnerTube.shared.loadState(from: cookieStore)
+        await InnerTubeClient.tropShared.loadState(from: cookieStore)
         await fetchAccountInfo()
     }
 
@@ -129,7 +129,7 @@ final class HomeViewModel {
         isLoginSheetPresented = false
         Task {
             await cookieStore.save(cookies: cookies, sapisid: sapisid, visitorData: visitorData)
-            await InnerTube.shared.loadState(from: cookieStore)
+            await InnerTubeClient.tropShared.loadState(from: cookieStore)
             if isLoggedIn {
                 await fetchAccountInfo()
                 await loadPhase2Sections()
@@ -155,7 +155,7 @@ final class HomeViewModel {
 
     private func fetchAccountInfo() async {
         do {
-            let info = try await InnerTube.shared.accountInfo()
+            let info = try await InnerTubeClient.tropShared.accountInfo()
             accountName = info.name
             accountImageUrl = info.thumbnailUrl
         } catch {
@@ -211,7 +211,7 @@ final class HomeViewModel {
             attempts += 1
             isLoadingMore = true
             do {
-                let json = try await InnerTube.shared.browse(continuation: continuation)
+                let json = try await InnerTubeClient.tropShared.browse(continuation: continuation)
                 guard let (newSections, next) = HomePageParser.parseContinuationSections(from: json) else {
                     isLoadingMore = false
                     break
@@ -236,7 +236,7 @@ final class HomeViewModel {
 
     private func fetchHomePage(generation: Int) async {
         do {
-            let json = try await InnerTube.shared.browse(browseId: "FEmusic_home")
+            let json = try await InnerTubeClient.tropShared.browse(browseId: "FEmusic_home")
             guard let page = HomePageParser.parseHomePage(from: json) else {
                 if generation == loadGeneration {
                     error = InnerTubeError.decodingFailed
@@ -305,7 +305,7 @@ final class HomeViewModel {
         let generation = loadGeneration
         chipTask = Task {
             do {
-                let json = try await InnerTube.shared.browse(
+                let json = try await InnerTubeClient.tropShared.browse(
                     browseId: "FEmusic_home",
                     params: chip?.params
                 )
@@ -333,7 +333,7 @@ final class HomeViewModel {
         Task {
             defer { isLoadingMore = false }
             do {
-                let json = try await InnerTube.shared.browse(continuation: continuation)
+                let json = try await InnerTubeClient.tropShared.browse(continuation: continuation)
                 if let (newSections, newContinuation) = HomePageParser.parseContinuationSections(from: json) {
                     homePage?.sections.append(contentsOf: newSections)
                     homePage?.continuation = newContinuation

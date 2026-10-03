@@ -11,7 +11,7 @@ import GRDB
 actor PlaybackStateService {
     nonisolated static let shared = PlaybackStateService()
     private let db = DatabaseService.shared
-    private let innerTube = InnerTube.shared
+    private let innerTube = InnerTubeClient.tropShared
 
     private let historyDurationThreshold: TimeInterval = 30
     private var currentVideoId: String?

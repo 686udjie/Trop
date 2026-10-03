@@ -10,7 +10,7 @@ import Foundation
 actor IncrementalSyncService {
     nonisolated static let shared = IncrementalSyncService()
     private let librarySync = LibrarySyncService.shared
-    private let innerTube = InnerTube.shared
+    private let innerTube = InnerTubeClient.tropShared
     private let defaults = UserDefaults.standard
 
     private let lastSyncKey = "lastSyncTimestamp"
