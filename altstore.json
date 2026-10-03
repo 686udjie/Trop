@@ -26,11 +26,11 @@
       "versions": [
         {
           "version": "0.0.1",
-          "buildVersion": "106",
-          "date": "2026-10-03T14:19:01Z",
-          "localizedDescription": "chore(deps): pin SwiftyTube to v0.0.1 release",
+          "buildVersion": "108",
+          "date": "2026-10-03T20:39:02Z",
+          "localizedDescription": "feat(player): enhance video mode handling and refactor song row components",
           "downloadURL": "https://github.com/686udjie/Trop/releases/download/nightly/Trop.ipa",
-          "size": 47303514,
+          "size": 47313252,
           "minOSVersion": "26.0"
         }
       ]
