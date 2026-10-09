@@ -34,20 +34,23 @@ struct PlaylistEntity: Codable, Hashable, FetchableRecord, PersistableRecord {
 
 extension PlaylistEntity {
     /// Merges fetched playlist metadata over the stored row, preserving the
-    /// user's name/editability/bookmark. Used when materializing a playlist's
-    /// contents (sync + detail); the liked-playlists sync keeps its own
-    /// policy (name/thumbnail always refresh, bookmark defaults to now).
+    /// user's name/editability/bookmark/thumbnail. Used when materializing a
+    /// playlist's contents (sync + detail); the liked-playlists sync keeps
+    /// its own policy (name/thumbnail always refresh, bookmark defaults
+    /// to now).
     static func merging(
         existing: PlaylistEntity?,
         id: String,
         browseId: String?,
         name: String,
-        remoteSongCount: Int
+        remoteSongCount: Int,
+        thumbnailUrl: String? = nil
     ) -> PlaylistEntity {
         PlaylistEntity(
             id: id,
             browseId: browseId,
             name: existing?.name ?? name,
+            thumbnailUrl: existing?.thumbnailUrl ?? thumbnailUrl,
             isEditable: existing?.isEditable ?? false,
             bookmarkedAt: existing?.bookmarkedAt,
             remoteSongCount: remoteSongCount

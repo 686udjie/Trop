@@ -167,12 +167,6 @@ struct HomeScreenView: View {
         )
     }
 
-    private func refreshTask() async {
-        while viewModel.isRefreshing {
-            try? await Task.sleep(for: .milliseconds(100))
-        }
-    }
-
     @ViewBuilder
     private func sectionView(for section: HomeSection) -> some View {
         switch section {

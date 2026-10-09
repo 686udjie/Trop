@@ -66,7 +66,8 @@ final class PlaylistDetailViewModel {
                     id: pid,
                     browseId: browseId,
                     name: title,
-                    remoteSongCount: songs.count
+                    remoteSongCount: songs.count,
+                    thumbnailUrl: parsed.thumbnailUrl
                 )
                 try entity.save(db)
 

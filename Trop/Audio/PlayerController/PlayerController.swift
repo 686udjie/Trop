@@ -672,7 +672,7 @@ extension PlayerController {
             let syncAt = currentTime
             videoFlipAwaitingRestart = true
             let seekResult = withMpv { mpv in
-                ["seek", String(syncAt), "absolute+exact"].withUnsafeCArg { mpv_command(mpv, $0) }
+                ["seek", String(syncAt), "absolute"].withUnsafeCArg { mpv_command(mpv, $0) }
             } ?? -1
             guard seekResult == 0 else {
                 videoFlipAwaitingRestart = false

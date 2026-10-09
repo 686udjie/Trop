@@ -48,4 +48,25 @@ enum ArtworkURLs {
             options: .regularExpression
         )
     }
+
+    static func highRes(_ url: String?, size: Int = 1024) -> String? {
+        guard var url = url, !url.isEmpty else { return nil }
+        url = url.replacingOccurrences(of: "(?<=[sh]\\d+)-c", with: "", options: .regularExpression)
+        guard url.contains("googleusercontent.com") || url.contains("ggpht.com") else { return url }
+        if url.range(of: #"w\d+-h\d+"#, options: .regularExpression) != nil {
+            url = url.replacingOccurrences(
+                of: #"w\d+-h\d+"#,
+                with: "w\(size)-h\(size)",
+                options: .regularExpression
+            )
+        } else if let base = url.split(separator: "=").first {
+            url = String(base) + "=w\(size)-h\(size)"
+        }
+        return url
+    }
+
+    static func maxResVariant(_ url: String?) -> String? {
+        guard let url, url.contains("i.ytimg.com"), url.hasSuffix("/hqdefault.jpg") else { return nil }
+        return url.replacingOccurrences(of: "/hqdefault.jpg", with: "/maxresdefault.jpg")
+    }
 }

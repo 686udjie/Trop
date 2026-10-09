@@ -12,37 +12,37 @@ import SwiftUI
 struct ShimmerFill: View {
     var radius: CGFloat = 8
 
-    @State private var offset: CGFloat = -1
-
     var body: some View {
-        Color(.systemGray5)
-            .overlay(
-                GeometryReader { geo in
-                    let w = max(geo.size.width, 1)
-                    let h = max(geo.size.height, 1)
-                    LinearGradient(
-                        stops: [
-                            .init(color: .clear, location: 0),
-                            .init(color: .white.opacity(0.5), location: 0.5),
-                            .init(color: .clear, location: 1)
-                        ],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                    .frame(width: w * 1.5, height: h)
-                    .offset(x: offset * w)
-                }
-            )
-            .clipShape(RoundedRectangle(cornerRadius: radius))
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
-            .onAppear {
-                guard offset == -1 else { return }
-                withAnimation(.linear(duration: 1.5).repeatForever(autoreverses: false)) {
-                    offset = 1
-                }
-            }
+        TimelineView(.animation(minimumInterval: 1 / 30)) { timeline in
+            let sweep = (shimmerPhase(at: timeline.date) * 2 - 1)
+            Color(.systemGray5)
+                .overlay(
+                    GeometryReader { geo in
+                        let w = max(geo.size.width, 1)
+                        let h = max(geo.size.height, 1)
+                        LinearGradient(
+                            stops: [
+                                .init(color: .clear, location: 0),
+                                .init(color: .white.opacity(0.5), location: 0.5),
+                                .init(color: .clear, location: 1)
+                            ],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                        .frame(width: w * 1.5, height: h)
+                        .offset(x: sweep * w)
+                    }
+                )
+                .clipShape(RoundedRectangle(cornerRadius: radius))
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
+}
+
+private func shimmerPhase(at date: Date) -> CGFloat {
+    let period: TimeInterval = 1.6
+    return CGFloat(date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: period) / period)
 }
 
 // MARK: - Placeholder primitive

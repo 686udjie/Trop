@@ -10,6 +10,7 @@ import SwiftUI
 struct QueueView<ProgressSlider: View>: View {
     private let np = NowPlaying.shared
     private let player = PlayerController.shared
+    @ObservedObject private var likeStore = LikeStore.shared
 
     @Binding var showQueue: Bool
     @Binding var isShuffleOn: Bool
@@ -141,6 +142,9 @@ struct QueueView<ProgressSlider: View>: View {
             Spacer()
 
             if let song = np.queueSongs.indices.contains(np.queueIndex) ? np.queueSongs[np.queueIndex] : nil {
+                PlayerLikeButton(isLiked: likeStore.isLiked(videoId: song.videoId)) {
+                    Task { await likeStore.toggle(song: song) }
+                }
                 PlayerOptionsButton(color: .white.opacity(0.6)) {
                     showSongMenu = true
                 }

@@ -250,8 +250,9 @@ private struct MoodDetailView: View {
 
 // MARK: - Explore tab skeleton
 
-/// Loading placeholder mirroring the Explore tab: album cards, the
-/// 2-row moods grid, then a 4-row song grid.
+/// Loading placeholder mirroring the Explore tab: album cards (title only),
+/// the 2-row moods grid, then a vertical Trending song list — the same
+/// shimmer animation as Home, composed for this layout.
 private struct ExploreSkeletonView: View {
     var body: some View {
         ScrollView {
@@ -261,7 +262,7 @@ private struct ExploreSkeletonView: View {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(alignment: .top, spacing: 12) {
                             ForEach(0..<5, id: \.self) { _ in
-                                ShimmerCard()
+                                ShimmerCard(showsSubtitle: false)
                             }
                         }
                         .padding(.horizontal, 16)
@@ -285,23 +286,12 @@ private struct ExploreSkeletonView: View {
                 }
                 VStack(alignment: .leading, spacing: 0) {
                     ShimmerSectionTitle(width: 120)
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        LazyHGrid(
-                            rows: [
-                                GridItem(.flexible(), spacing: 0),
-                                GridItem(.flexible(), spacing: 0),
-                                GridItem(.flexible(), spacing: 0),
-                                GridItem(.flexible(), spacing: 0)
-                            ],
-                            spacing: 12
-                        ) {
-                            ForEach(0..<12, id: \.self) { _ in
-                                ShimmerRow()
-                                    .frame(width: 320, alignment: .leading)
-                            }
+                    VStack(spacing: 0) {
+                        ForEach(0..<6, id: \.self) { _ in
+                            ShimmerRow()
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 6)
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 4)
                     }
                 }
             }

@@ -168,10 +168,7 @@ final class HomeViewModel {
     private func load() async {
         loadGeneration += 1
         let generation = loadGeneration
-        let shouldShowShimmer = !isRefreshing
-        if shouldShowShimmer {
-            isLoading = true
-        }
+        isLoading = true
         error = nil
 
         async let localTask: Void = storeLocalSections()
@@ -195,9 +192,7 @@ final class HomeViewModel {
 
         guard generation == loadGeneration else { return }
         mergeSections()
-        if shouldShowShimmer {
-            isLoading = false
-        }
+        isLoading = false
     }
 
     private func ensureQuickPicksAvailable(generation: Int) async {

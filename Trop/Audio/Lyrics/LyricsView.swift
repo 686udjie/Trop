@@ -382,8 +382,6 @@ struct LyricsView<ProgressSlider: View>: View {
 
             PlayerLikeButton(
                 isLiked: isLiked,
-                activeColor: .white,
-                inactiveColor: .white.opacity(0.6),
                 fontSize: 18
             ) {
                 guard let song = np.queueSongs.indices.contains(np.queueIndex) ? np.queueSongs[np.queueIndex] : nil else { return }

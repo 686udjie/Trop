@@ -101,6 +101,8 @@ private func normalizeThumbnailURL(_ urlString: String) -> String {
                     with: "w\(newW)-h\(newH)"
                 )
             }
+        } else if let base = url.split(separator: "=").first {
+            url = String(base) + "=w600-h600"
         }
     }
 

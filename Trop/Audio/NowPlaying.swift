@@ -245,7 +245,8 @@ final class NowPlaying {
         }
     }
 
-    func update(title: String, artist: String?, videoId: String, album: String? = nil, artists: [YTArtist] = []) {        self.isPlaying = true
+    func update(title: String, artist: String?, videoId: String, album: String? = nil, artists: [YTArtist] = [], thumbnailUrl: String? = nil) {
+        self.isPlaying = true
         self.title = title
         self.artists = artists
         self.artist = cleanArtist(artist ?? "")
@@ -257,7 +258,7 @@ final class NowPlaying {
         self.isVideoMode = false
         self.isVideoReady = false
         startTimer()
-        loadThumbnail(videoId: videoId)
+        loadThumbnail(videoId: videoId, thumbnailUrl: thumbnailUrl)
         preloadNextTrack()
     }
 
@@ -268,7 +269,8 @@ final class NowPlaying {
             artist: song.artists.map(\.name).joined(separator: ", "),
             videoId: song.videoId,
             album: song.album,
-            artists: song.artists
+            artists: song.artists,
+            thumbnailUrl: song.thumbnailUrl
         )
     }
 
@@ -292,7 +294,7 @@ final class NowPlaying {
     func preloadNeighborArtwork() {
         var urls = upcomingSongs(prefixLimit: 3)
             .compactMap(\.thumbnailUrl)
-            .compactMap { URL(string: $0) }
+            .compactMap { URL(string: ArtworkURLs.highRes($0) ?? $0) }
         let neighborIds = queueSongs.indices.compactMap { index -> String? in
             guard index == queueIndex - 1 || (index > queueIndex && index <= queueIndex + 3) else { return nil }
             return queueSongs[index].videoId
@@ -402,7 +404,7 @@ final class NowPlaying {
 
     private var lastLoadedVideoId: String?
 
-    private func loadThumbnail(videoId: String) {
+    private func loadThumbnail(videoId: String, thumbnailUrl: String? = nil) {
         guard videoId != lastLoadedVideoId else { return }
         lastLoadedVideoId = videoId
 
@@ -412,7 +414,7 @@ final class NowPlaying {
                 loadArtworkFromLocalFile(localURL, videoId: videoId)
                 return
             }
-            loadThumbnailFromCDN(videoId: videoId)
+            loadThumbnailFromCDN(videoId: videoId, thumbnailUrl: thumbnailUrl)
         }
     }
 
@@ -447,44 +449,59 @@ final class NowPlaying {
         }
     }
 
-    private func loadThumbnailFromCDN(videoId: String) {
-        let urlString = Self.artworkURL(for: videoId)
-        guard let url = URL(string: urlString) else {
+    private func loadThumbnailFromCDN(videoId: String, thumbnailUrl: String? = nil) {
+        var candidates: [String] = []
+        if let upgraded = ArtworkURLs.highRes(thumbnailUrl) {
+            if let maxRes = ArtworkURLs.maxResVariant(upgraded) {
+                candidates.append(maxRes)
+            }
+            candidates.append(upgraded)
+        }
+        let fallback = Self.artworkURL(for: videoId)
+        if !candidates.contains(fallback) {
+            candidates.append(fallback)
+        }
+        let urls = candidates.compactMap(URL.init(string:))
+        guard !urls.isEmpty else {
             thumbnailUIImage = nil
             thumbnailImage = Image(systemName: "music.note")
             thumbnailVersion &+= 1
             updateDominantColors(from: nil)
             return
         }
-
-        if let cached = ArtworkLoader.cachedImage(for: url) {
-            let cropped = cached.centerCroppedSquare()
-            thumbnailUIImage = cropped
-            thumbnailImage = Image(uiImage: cropped)
-            thumbnailVersion &+= 1
-            updateDominantColors(from: cropped)
-            PlayerController.shared.updateNowPlayingArtwork()
-            return
+        for url in urls {
+            if let cached = ArtworkLoader.cachedImage(for: url) {
+                let cropped = cached.centerCroppedSquare()
+                thumbnailUIImage = cropped
+                thumbnailImage = Image(uiImage: cropped)
+                thumbnailVersion &+= 1
+                updateDominantColors(from: cropped)
+                PlayerController.shared.updateNowPlayingArtwork()
+                return
+            }
         }
 
         thumbnailImage = nil
         Task {
-            do {
-                let platformImage = try await ArtworkLoader.image(for: url)
+            for url in urls {
+                guard lastLoadedVideoId == videoId else { return }
+                guard let platformImage = try? await ArtworkLoader.image(for: url) else { continue }
                 let cropped = platformImage.centerCroppedSquare()
                 await MainActor.run {
+                    guard self.lastLoadedVideoId == videoId else { return }
                     thumbnailUIImage = cropped
                     thumbnailImage = Image(uiImage: cropped)
                     thumbnailVersion &+= 1
                     updateDominantColors(from: cropped)
                     PlayerController.shared.updateNowPlayingArtwork()
                 }
-            } catch {
-                await MainActor.run {
-                    thumbnailImage = Image(systemName: "music.note")
-                    thumbnailVersion &+= 1
-                    updateDominantColors(from: nil)
-                }
+                return
+            }
+            await MainActor.run {
+                guard self.lastLoadedVideoId == videoId else { return }
+                thumbnailImage = Image(systemName: "music.note")
+                thumbnailVersion &+= 1
+                updateDominantColors(from: nil)
             }
         }
     }
