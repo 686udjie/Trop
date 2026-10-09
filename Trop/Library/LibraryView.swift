@@ -107,7 +107,7 @@ struct LibraryView: View {
                 accountState.restoreSession()
                 await accountState.fetchAccountInfo()
                 Task {
-                    await IncrementalSyncService.shared.forceFullSync()
+                    await SyncBridge.forceFullSync()
                     await loadContent()
                 }
             }
@@ -119,7 +119,7 @@ struct LibraryView: View {
                 await ImagePreloader.shared.preload(urls)
             }
             .refreshable {
-                await IncrementalSyncService.shared.forceFullSync()
+                await SyncBridge.forceFullSync()
                 await loadContent()
             }
             .destructiveConfirm(
@@ -436,7 +436,7 @@ struct LibraryView: View {
 
     private func deletePlaylist(_ playlist: PlaylistEntity) async {
         do {
-            try await MutationService.shared.deletePlaylist(playlistId: playlist.id)
+            try await SyncBridge.mutations.deletePlaylist(playlistId: playlist.id)
             await loadContent()
         } catch {
             Log.libraryView.error("Failed to delete playlist: \(error)")
@@ -585,7 +585,7 @@ struct CreatePlaylistDialog: View {
     private func createPlaylist() async throws {
         let title = name.trimmingCharacters(in: .whitespaces)
         if syncWithYouTube {
-            _ = try await MutationService.shared.createPlaylist(title: title)
+            _ = try await SyncBridge.mutations.createPlaylist(title: title)
         } else {
             let id = UUID().uuidString
             let entity = PlaylistEntity(

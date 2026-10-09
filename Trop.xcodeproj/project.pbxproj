@@ -517,7 +517,7 @@
 			repositoryURL = "https://github.com/686udjie/SwiftyTube.git";
 			requirement = {
 				kind = upToNextMajorVersion;
-				minimumVersion = 0.0.1;
+				minimumVersion = 0.0.2;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */

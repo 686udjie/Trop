@@ -42,12 +42,12 @@ class LikeStore: ObservableObject {
 
         do {
             if target {
-                try await MutationService.shared.likeSong(videoId: videoId)
+                try await SyncBridge.mutations.likeSong(videoId: videoId)
                 if SettingsStore.shared.autoDownloadOnLike {
                     await DownloadManager.shared.download(song: song)
                 }
             } else {
-                try await MutationService.shared.unlikeSong(videoId: videoId)
+                try await SyncBridge.mutations.unlikeSong(videoId: videoId)
             }
             let artist = song.artists.map(\.name).joined(separator: ", ")
             let track = song.title

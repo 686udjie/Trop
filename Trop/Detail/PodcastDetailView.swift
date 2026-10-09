@@ -68,9 +68,9 @@ final class PodcastDetailViewModel {
         isSubscribed = !currentlySubscribed
         do {
             if currentlySubscribed {
-                try await MutationService.shared.unsubscribePodcast(browseId: browseId)
+                try await SyncBridge.mutations.unsubscribePodcast(browseId: browseId)
             } else {
-                try await MutationService.shared.subscribePodcast(
+                try await SyncBridge.mutations.subscribePodcast(
                     browseId: browseId,
                     name: podcast.title,
                     thumbnailUrl: podcast.thumbnailUrl

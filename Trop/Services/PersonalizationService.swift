@@ -67,8 +67,7 @@ actor PersonalizationService {
         for entity in songs where entity.title.isEmpty {
             guard let metadata = try? await fetchSongMetadata(videoId: entity.id),
                   !metadata.title.isEmpty else { continue }
-            var enriched = SongEnrichment.merging(entity, with: metadata)
-            enriched.modifyDate = Date()
+            let enriched = SongEntity(sync: SyncSong.merging(entity.toSync(), with: metadata))
             try? await db.save(enriched)
         }
     }
@@ -95,8 +94,7 @@ actor PersonalizationService {
         for entity in toEnrich {
             guard let metadata = try? await fetchSongMetadata(videoId: entity.id),
                   !metadata.title.isEmpty else { continue }
-            var enriched = SongEnrichment.merging(entity, with: metadata)
-            enriched.modifyDate = Date()
+            let enriched = SongEntity(sync: SyncSong.merging(entity.toSync(), with: metadata))
             try? await db.save(enriched)
             didEnrich = true
         }

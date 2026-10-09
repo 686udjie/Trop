@@ -411,7 +411,7 @@ struct AddSongToPlaylistSheet: View {
         guard !addedTo.contains(playlist.id) else { return }
         Task {
             do {
-                try await MutationService.shared.addToPlaylist(playlistId: playlist.id, songId: song.videoId)
+                try await SyncBridge.mutations.addToPlaylist(playlistId: playlist.id, songId: song.videoId)
                 addedTo.insert(playlist.id)
             } catch {
                 addedTo.remove(playlist.id)
@@ -425,8 +425,8 @@ struct AddSongToPlaylistSheet: View {
         isCreating = true
         defer { isCreating = false }
         do {
-            let playlistId = try await MutationService.shared.createPlaylist(title: title)
-            try await MutationService.shared.addToPlaylist(playlistId: playlistId, songId: song.videoId)
+            let playlistId = try await SyncBridge.mutations.createPlaylist(title: title)
+            try await SyncBridge.mutations.addToPlaylist(playlistId: playlistId, songId: song.videoId)
             await loadPlaylists()
             addedTo.insert(playlistId)
         } catch {

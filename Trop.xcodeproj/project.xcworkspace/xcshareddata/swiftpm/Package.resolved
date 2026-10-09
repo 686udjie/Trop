@@ -42,8 +42,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/686udjie/SwiftyTube.git",
       "state" : {
-        "revision" : "703504f6a99888318d304094abaa297cf0e55e4a",
-        "version" : "0.0.1"
+        "revision" : "aab226b49427ed54a94aba3ac82cb4a1771430ed",
+        "version" : "0.0.2"
       }
     }
   ],

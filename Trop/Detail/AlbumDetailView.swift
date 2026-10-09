@@ -56,9 +56,9 @@ final class AlbumDetailViewModel {
         isSaved = !currentlySaved
         do {
             if currentlySaved {
-                try await MutationService.shared.unsaveAlbum(browseId: browseId)
+                try await SyncBridge.mutations.unsaveAlbum(browseId: browseId)
             } else {
-                try await MutationService.shared.saveAlbum(
+                try await SyncBridge.mutations.saveAlbum(
                     browseId: browseId,
                     title: album.title,
                     thumbnailUrl: album.thumbnailUrl,

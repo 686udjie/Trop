@@ -81,7 +81,7 @@ struct HomeScreenView: View {
                 await reloadSpeedDial()
                 // Trigger library sync in background
                 Task {
-                    await IncrementalSyncService.shared.checkAndSyncIfStale()
+                    await SyncBridge.checkAndSyncIfStale()
                 }
             }
             .task(id: viewModel.homeSections.count) {
@@ -130,7 +130,7 @@ struct HomeScreenView: View {
         .refreshable {
             await viewModel.refresh()
             await reloadSpeedDial()
-            await IncrementalSyncService.shared.checkAndSyncIfStale()
+            await SyncBridge.checkAndSyncIfStale()
         }
         .onChange(of: settings.hideExplicit) { _, _ in
             viewModel.syncSettings()

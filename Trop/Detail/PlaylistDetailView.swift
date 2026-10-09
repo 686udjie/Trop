@@ -18,7 +18,6 @@ final class PlaylistDetailViewModel {
     var isLoading = true
     var error: Error?
 
-    private let innerTube = InnerTubeClient.tropShared
     let autoRoute: AutoPlaylistRoute?
     var autoSongSort: LibrarySongSort = .recentlyAdded
     var autoTopPeriod: TopPeriod = .allTime
@@ -33,7 +32,7 @@ final class PlaylistDetailViewModel {
         self.autoRoute = autoPlaylistRoute
     }
 
-    /// Fetches playlist browse page from InnerTube and parses the response.
+    /// Fetches every playlist page from InnerTube and parses the response.
     /// Prependes "VL" to the playlistId if not already present (required by the browse endpoint).
     func load() async {
         if let route = autoRoute {
@@ -53,13 +52,8 @@ final class PlaylistDetailViewModel {
 
         do {
             let browseId = playlistId.hasPrefix("VL") ? playlistId : "VL\(playlistId)"
-            let json = try await innerTube.browse(browseId: browseId)
-            let parsed = Self.parsePlaylistDetail(from: json, playlistId: playlistId)
-            let hasAvatar = parsed.authorAvatarUrl != nil
-            Log.playlistDetail.debug(
-                "title=\(parsed.title) author=\(parsed.authorName ?? "nil") avatar=\(hasAvatar) " +
-                    "cnt=\(parsed.songCount) dur=\(parsed.duration) songs=\(parsed.songs.count)"
-            )
+            let (firstPage, rows) = try await SyncBridge.playlistDetail.fetchPlaylistRows(playlistId: playlistId)
+            let parsed = Self.parsePlaylistDetail(firstPage: firstPage, rows: rows, playlistId: playlistId)
 
             // Persist songs to the song table so they become searchable in the library
             let pid = playlistId
@@ -155,7 +149,7 @@ final class PlaylistDetailViewModel {
                 entities = try await DatabaseService.shared.fetchAllLikedSongs(sort: autoSongSort)
             case .topSongs(let limit):
                 title = "My Top \(limit)"
-                await MutationService.shared.repairOrphanSongs()
+                await SyncBridge.mutations.repairOrphanSongs()
                 if autoTopPeriod == .allTime {
                     entities = try await DatabaseService.shared.fetchTopSongs(limit: limit)
                 } else {
@@ -211,9 +205,10 @@ final class PlaylistDetailViewModel {
 extension PlaylistDetailViewModel {
     /// Parses InnerTube browse JSON into a PlaylistDetailInfo.
     /// Extracts header metadata (title, author, song count, duration, thumbnail, description)
-    /// from musicDetailHeaderRenderer and songs from musicPlaylistShelfRenderer or musicShelfRenderer.
+    /// from musicDetailHeaderRenderer on the first page, and songs from the
+    /// track rows collected across every continuation page.
     /// Branch count is inherent to tolerant InnerTube JSON parsing.
-    static func parsePlaylistDetail(from json: [String: Any], playlistId: String) -> PlaylistDetailInfo {
+    static func parsePlaylistDetail(firstPage json: [String: Any], rows: [[String: Any]], playlistId: String) -> PlaylistDetailInfo {
         var title = "Unknown Playlist"
         var authorName: String?
         var authorBrowseId: String?
@@ -274,7 +269,6 @@ extension PlaylistDetailViewModel {
                     .flatMap { $0["innertubeCommand"] as? [String: Any] }
                     .flatMap { $0["browseEndpoint"] as? [String: Any] }
                     .flatMap { $0["browseId"] as? String }
-                Log.parser.debug("facepile authorName=\(authorName ?? "nil") authorBrowseId=\(authorBrowseId ?? "nil")")
                 if let avatars = stack["avatars"] as? [[String: Any]],
                    let firstAvatar = avatars.first,
                    let vm = firstAvatar["avatarViewModel"] as? [String: Any],
@@ -283,7 +277,6 @@ extension PlaylistDetailViewModel {
                    let firstSource = sources.first,
                    let url = firstSource["url"] as? String {
                     authorAvatarUrl = url
-                    Log.parser.debug("facepile avatar URL: \(url)")
                 } else {
                     Log.parser.debug("facepile found but failed to extract avatar URL")
                     Log.parser.debug("facepile stack keys: \(stack.keys)")
@@ -322,24 +315,20 @@ extension PlaylistDetailViewModel {
                        trimmed.contains("video") || trimmed.contains("Video") {
                         if let count = trimmed.components(separatedBy: CharacterSet.decimalDigits.inverted).compactMap(Int.init).first {
                             songCount = count
-                            Log.parser.debug("parsed songCount=\(songCount)")
                         }
                     } else if trimmed.contains(":") {
                         duration = DurationFormat.parseClock(trimmed) ?? 0
-                        Log.parser.debug("parsed duration=\(duration) from '\(trimmed)'")
                     } else {
                         let lower = trimmed.lowercased()
                         if lower.hasSuffix("min") || lower.hasSuffix("mins") || lower.hasSuffix("minute") || lower.hasSuffix("minutes") {
                             let nums = trimmed.components(separatedBy: CharacterSet.decimalDigits.inverted).compactMap(Int.init)
                             if let minutes = nums.first {
                                 duration = minutes * 60
-                                Log.parser.debug("parsed duration=\(duration) from '\(trimmed)' (text minutes)")
                             }
                         } else if lower.hasSuffix("hour") || lower.hasSuffix("hours") || lower.hasSuffix("hr") || lower.hasSuffix("hrs") {
                             let nums = trimmed.components(separatedBy: CharacterSet.decimalDigits.inverted).compactMap(Int.init)
                             if let hours = nums.first {
                                 duration = hours * 3600
-                                Log.parser.debug("parsed duration=\(duration) from '\(trimmed)' (text hours)")
                             }
                         }
                     }
@@ -348,40 +337,12 @@ extension PlaylistDetailViewModel {
         }
 
         // --- Songs ---
-        // Two-column layout: songs live in secondaryContents, not in the tabs.
-        func parseSongsFromShelf(_ shelfDict: [String: Any]) -> [SongItem] {
-            var result: [SongItem] = []
-            let items: [[String: Any]]? =
-                (shelfDict["musicPlaylistShelfRenderer"] as? [String: Any])?["contents"] as? [[String: Any]]
-                ?? (shelfDict["musicShelfRenderer"] as? [String: Any])?["contents"] as? [[String: Any]]
-            for itemDict in items ?? [] {
-                if let renderer = itemDict["musicResponsiveListItemRenderer"] as? [String: Any],
-                   let song = SongItem.from(renderer) {
-                    result.append(song)
-                }
-            }
-            return result
-        }
-
-        if let twoCol = (json["contents"] as? [String: Any])?["twoColumnBrowseResultsRenderer"] as? [String: Any] {
-            // Songs are in secondaryContents
-            if let secondary = twoCol["secondaryContents"] as? [String: Any],
-               let sectionList = secondary["sectionListRenderer"] as? [String: Any],
-               let secondarySection = sectionList["contents"] as? [[String: Any]] {
-                for section in secondarySection {
-                    // Unwrap itemSectionRenderer wrapper
-                    let unwrapped = (section["itemSectionRenderer"] as? [String: Any])
-                        .flatMap { ($0["contents"] as? [[String: Any]])?.first }
-                        ?? section
-                    songs += parseSongsFromShelf(unwrapped)
-                }
-            }
-        } else if let sections = BrowseLens.browseSections(json) {
-            for section in sections {
-                let unwrapped = (section["itemSectionRenderer"] as? [String: Any])
-                    .flatMap { ($0["contents"] as? [[String: Any]])?.first }
-                    ?? section
-                songs += parseSongsFromShelf(unwrapped)
+        // Rows were collected across every continuation page by the caller;
+        // continuation markers are already stripped.
+        for itemDict in rows {
+            if let renderer = itemDict["musicResponsiveListItemRenderer"] as? [String: Any],
+               let song = SongItem.from(renderer) {
+                songs.append(song)
             }
         }
 
@@ -389,7 +350,6 @@ extension PlaylistDetailViewModel {
         if songCount == 0 { songCount = songs.count }
         let songDuration = songs.reduce(0) { $0 + $1.duration }
         if songDuration > 0 {
-            Log.parser.debug("computed duration from songs: \(songDuration) (header had: \(duration))")
             duration = songDuration
         }
 
@@ -669,7 +629,7 @@ struct PlaylistDetailView: View {
             arguments: [playlistId, song.videoId]
         )) ?? []
         guard let setVideoId = maps.first?.setVideoId else { return }
-        try? await MutationService.shared.removeFromPlaylist(playlistId: playlistId, songId: song.videoId, setVideoId: setVideoId)
+        try? await SyncBridge.mutations.removeFromPlaylist(playlistId: playlistId, songId: song.videoId, setVideoId: setVideoId)
         await viewModel.load()
     }
 
@@ -800,7 +760,7 @@ struct AddSongToPlaylistView: View {
     private func addSong(_ song: SongEntity) async {
         addingIds.insert(song.id)
         do {
-            try await MutationService.shared.addToPlaylist(playlistId: playlistId, songId: song.id)
+            try await SyncBridge.mutations.addToPlaylist(playlistId: playlistId, songId: song.id)
             await onDone()
             dismiss()
         } catch {

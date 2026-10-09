@@ -90,7 +90,7 @@ struct PlaylistMoreSheet: View {
         let name = editedName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty, name != playlist.title else { return }
         Task {
-            try? await MutationService.shared.renamePlaylist(
+            try? await SyncBridge.mutations.renamePlaylist(
                 playlistId: playlist.playlistId,
                 newName: name
             )

@@ -777,9 +777,9 @@ struct ArtistDetailView: View {
             try await DatabaseService.shared.insertOrReplace(entity)
 
             if artist.isSubscribed {
-                try await MutationService.shared.unsubscribeArtist(channelId: channelId, artistId: artist.browseId)
+                try await SyncBridge.mutations.unsubscribeArtist(channelId: channelId, artistId: artist.browseId)
             } else {
-                try await MutationService.shared.subscribeArtist(channelId: channelId, artistId: artist.browseId)
+                try await SyncBridge.mutations.subscribeArtist(channelId: channelId, artistId: artist.browseId)
             }
 
             await MainActor.run {
