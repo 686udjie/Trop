@@ -112,10 +112,6 @@ final class HomeViewModel {
         isRefreshing = false
     }
 
-    func refreshInBackground() {
-        Task { await refresh() }
-    }
-
     func restoreSession() async {
         let loggedIn = await cookieStore.isLoggedIn()
         guard loggedIn else { return }

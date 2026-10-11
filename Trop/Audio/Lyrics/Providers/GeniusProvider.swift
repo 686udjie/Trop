@@ -155,19 +155,6 @@ struct GeniusProvider: LyricsProvider {
             .replacingOccurrences(of: #"<[^>]+>"#, with: "", options: .regularExpression)
             .decodingHTMLEntities()
     }
-
-    private func replaceNumericEntities(in string: String, pattern: String, radix: Int) -> String {
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return string }
-        let matches = regex.matches(in: string, range: NSRange(location: 0, length: (string as NSString).length))
-        var result = string
-        for match in matches.reversed() {
-            guard let codeRange = Range(match.range(at: 1), in: string),
-                  let code = UInt32(string[codeRange], radix: radix),
-                  let scalar = UnicodeScalar(code) else { continue }
-            result = (result as NSString).replacingCharacters(in: match.range, with: String(scalar))
-        }
-        return result
-    }
 }
 
 // MARK: - Search response models
@@ -189,11 +176,5 @@ private struct GeniusSearchResponse: Decodable {
 
     struct Result: Decodable {
         let url: String
-        let fullTitle: String
-
-        enum CodingKeys: String, CodingKey {
-            case url
-            case fullTitle = "full_title"
-        }
     }
 }

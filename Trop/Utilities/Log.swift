@@ -6,7 +6,6 @@
 //
 
 import OSLog
-import UIKit
 
 /// Appends log lines to Documents/log.txt (exposed as Trop/log.txt in the
 /// Files app) so issues that only show up on-device can be diagnosed without
@@ -130,16 +129,9 @@ enum Log {
 
     static let player = AppLogger(logger: Logger(subsystem: subsystem, category: "Player"), category: "player", redact: false)
     static let mpv = AppLogger(logger: Logger(subsystem: subsystem, category: "mpv"), category: "mpv", writesToDisk: false, redact: false)
-    static let playbackManager = AppLogger(logger: Logger(subsystem: subsystem, category: "PlaybackManager"), category: "playbackManager")
     static let nowPlaying = AppLogger(logger: Logger(subsystem: subsystem, category: "NowPlaying"), category: "nowPlaying")
-    static let streamResolver = AppLogger(logger: Logger(subsystem: subsystem, category: "StreamResolver"), category: "streamResolver")
-    static let formatSelector = AppLogger(logger: Logger(subsystem: subsystem, category: "FormatSelector"), category: "formatSelector")
-    static let streamCache = AppLogger(logger: Logger(subsystem: subsystem, category: "StreamCache"), category: "streamCache")
     static let login = AppLogger(logger: Logger(subsystem: subsystem, category: "Login"), category: "login")
     static let loginViewModel = AppLogger(logger: Logger(subsystem: subsystem, category: "LoginViewModel"), category: "loginViewModel")
-    static let cipherWebView = AppLogger(logger: Logger(subsystem: subsystem, category: "CipherWebView"), category: "cipherWebView")
-    static let cipher = AppLogger(logger: Logger(subsystem: subsystem, category: "Cipher"), category: "cipher")
-    static let cipherConfig = AppLogger(logger: Logger(subsystem: subsystem, category: "CipherConfig"), category: "cipherConfig")
     static let db = AppLogger(logger: Logger(subsystem: subsystem, category: "DB"), category: "db")
     static let playlistDetail = AppLogger(logger: Logger(subsystem: subsystem, category: "PlaylistDetail"), category: "playlistDetail")
     static let parser = AppLogger(logger: Logger(subsystem: subsystem, category: "Parser"), category: "parser")
@@ -156,11 +148,9 @@ enum Log {
     static let innerTube = AppLogger(logger: Logger(subsystem: subsystem, category: "InnerTube"), category: "innerTube")
     static let playbackState = AppLogger(logger: Logger(subsystem: subsystem, category: "PlaybackState"), category: "playbackState")
     static let registerPlayback = AppLogger(logger: Logger(subsystem: subsystem, category: "RegisterPlayback"), category: "registerPlayback")
-    static let poToken = AppLogger(logger: Logger(subsystem: subsystem, category: "PoToken"), category: "poToken")
     static let search = AppLogger(logger: Logger(subsystem: subsystem, category: "Search"), category: "search")
     static let searchView = AppLogger(logger: Logger(subsystem: subsystem, category: "SearchView"), category: "searchView")
     static let downloadManager = AppLogger(logger: Logger(subsystem: subsystem, category: "DownloadManager"), category: "downloadManager")
-    static let downloadsView = AppLogger(logger: Logger(subsystem: subsystem, category: "DownloadsView"), category: "downloadsView")
     static let sync = AppLogger(logger: Logger(subsystem: subsystem, category: "Sync"), category: "sync")
     static let addSong = AppLogger(logger: Logger(subsystem: subsystem, category: "AddSong"), category: "addSong")
     static let settings = AppLogger(logger: Logger(subsystem: subsystem, category: "Settings"), category: "settings")

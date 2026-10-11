@@ -87,16 +87,4 @@ actor ImagePreloader {
             await self?.prefetchNextBatch()
         }
     }
-
-    func cancel() {
-        prefetcher.stopPrefetching()
-        pending = []
-        pendingSet = []
-        isActive = false
-    }
-
-    func resetSeen() {
-        seen = []
-        seenOrder = []
-    }
 }

@@ -20,16 +20,10 @@ struct LyricLine: Identifiable, Equatable, Sendable {
 final class LyricsState {
     static let shared = LyricsState()
 
-    /// Songs with confirmed lyrics. Populated by preload/fetch; the player
-    /// button enables per-song via `isAvailable(for:)`.
+    /// Songs with confirmed lyrics. Populated by preload/fetch.
     var availableVideoIds: Set<String> = []
     var providerName: String?
     var refreshToken: Int = 0
-
-    func isAvailable(for videoId: String?) -> Bool {
-        guard let videoId else { return false }
-        return availableVideoIds.contains(videoId)
-    }
 
     private init() {}
 }

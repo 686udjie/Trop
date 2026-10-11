@@ -39,8 +39,4 @@ enum EqualizerPresets {
         EqualizerPreset(id: "vocal", name: "Vocal", gains: [-2, -1, 0, 1, 3, 4, 3, 1, 0, -2]),
         EqualizerPreset(id: "loudness", name: "Loudness", gains: [4, 3, 2, 1, 0, 1, 2, 3, 4, 5])
     ]
-
-    static func preset(named id: String) -> EqualizerPreset? {
-        all.first { $0.id == id }
-    }
 }

@@ -20,7 +20,6 @@ enum PresenceStatus: String {
     case online
     case idle
     case dnd
-    case invisible
 
     var wire: String { rawValue }
 }

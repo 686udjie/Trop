@@ -34,10 +34,6 @@ func presentShareSheet(items: [Any], afterDismiss dismiss: (() -> Void)? = nil) 
 }
 
 extension URL {
-    static func songShareURL(videoId: String) -> URL? {
-        URL(string: "https://music.youtube.com/watch?v=\(videoId)")
-    }
-
     static func playlistShareURL(id: String) -> URL? {
         URL(string: "https://music.youtube.com/playlist?list=\(id)")
     }

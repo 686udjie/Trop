@@ -46,7 +46,6 @@ final class DiscordAuth: NSObject {
 
     private var currentSession: ASWebAuthenticationSession?
     private var authProvider: PresentationContextProvider?
-    private var pendingContinuation: CheckedContinuation<URL, Error>?
 
     // MARK: - PKCE
 

@@ -67,8 +67,4 @@ enum DiscordExternalAssets {
             return nil
         }
     }
-
-    static func clearCache() {
-        queue.sync { cache.removeAll() }
-    }
 }

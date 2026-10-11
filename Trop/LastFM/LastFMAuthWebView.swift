@@ -184,42 +184,6 @@ struct LastFMAuthWebView: View {
             return
         }
     }
-
-    private func completeLogin() async {
-        guard let tok = token else {
-            errorText = "Missing token"
-            return
-        }
-        await MainActor.run { isExchanging = true }
-        do {
-            let auth = try await LastFMService.shared.getSession(token: tok)
-            LastFMTokenStore.shared.store(sessionKey: auth.session.key, username: auth.session.name)
-            LastFMService.shared.sessionKey = auth.session.key
-            await MainActor.run {
-                isExchanging = false
-                pollingTask?.cancel()
-                pollingTask = nil
-                onComplete(true)
-                dismiss()
-            }
-        } catch let e as LastFMError {
-            await MainActor.run {
-                isExchanging = false
-                switch e {
-                case .unauthorizedToken:
-                    // Keep polling — user hasn't approved yet
-                    break
-                default:
-                    errorText = e.localizedDescription
-                }
-            }
-        } catch {
-            await MainActor.run {
-                isExchanging = false
-                errorText = error.localizedDescription
-            }
-        }
-    }
 }
 
 private struct WebViewContainer: UIViewRepresentable {

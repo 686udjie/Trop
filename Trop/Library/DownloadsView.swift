@@ -163,7 +163,7 @@ struct DownloadsView: View {
             artists: artists
         )
         await MainActor.run {
-            NowPlaying.shared.updateVideoAvailability(hasVideoContent: false)
+            NowPlaying.shared.updateVideoAvailability()
         }
     }
 }

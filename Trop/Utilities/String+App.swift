@@ -15,14 +15,6 @@ extension String {
     /// True when empty or all whitespace.
     var isBlank: Bool { trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
-    /// Escapes a string for embedding in a JS string literal.
-    func jsEscaped() -> String {
-        replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "\"", with: "\\\"")
-            .replacingOccurrences(of: "\n", with: "\\n")
-            .replacingOccurrences(of: "\r", with: "\\r")
-    }
-
     /// Decodes common HTML entities (named + numeric/hex) into characters.
     func decodingHTMLEntities() -> String {
         var result = self

@@ -43,48 +43,4 @@ actor SearchService {
         let results = try await LocalSearchResults(songs: songs, artists: artists, albums: albums, playlists: playlists)
         return results
     }
-
-    func buildRadio(videoId: String, playlistId: String? = nil) async throws -> [[String: Any]] {
-        let json = try await innerTube.next(videoId: videoId, playlistId: playlistId)
-        return extractRadioItems(from: json)
-    }
-
-    // Cache search results in local DB
-    func cacheSearchResults(_ songs: [ParsedSong]) async throws {
-        try await db.write { db in
-            for song in songs {
-                let existing = try SongEntity.fetchOne(db, key: song.videoId)
-                let entity = SongEntity.merging(
-                    existing: existing,
-                    id: song.videoId,
-                    title: song.title,
-                    artistName: song.artists.first,
-                    albumName: song.album,
-                    duration: song.duration,
-                    thumbnailUrl: song.thumbnailUrl,
-                    liked: song.isLiked,
-                    libraryAddToken: song.libraryAddToken ?? "",
-                    libraryRemoveToken: song.libraryRemoveToken ?? ""
-                )
-                try entity.save(db)
-            }
-        }
-    }
-
-    private func extractRadioItems(from json: [String: Any]) -> [[String: Any]] {
-        guard let firstSection = BrowseLens.firstBrowseSection(json),
-              let shelf = firstSection["musicShelfRenderer"] as? [String: Any],
-              let items = shelf["contents"] as? [[String: Any]] else {
-            // Try watching endpoint structure
-            if let watching = json["contents"] as? [String: Any],
-               let twoColumn = watching["twoColumnWatchNextResults"] as? [String: Any],
-               let secondary = twoColumn["secondaryResults"] as? [String: Any],
-               let secondaryResults = secondary["secondaryResults"] as? [String: Any],
-               let results = secondaryResults["results"] as? [[String: Any]] {
-                return results
-            }
-            return []
-        }
-        return items
-    }
 }

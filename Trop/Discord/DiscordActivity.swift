@@ -26,6 +26,4 @@ struct DiscordActivity: Equatable {
 
     static let typePlaying = 0
     static let typeListening = 2
-    static let typeWatching = 3
-    static let typeCompeting = 5
 }

@@ -31,10 +31,11 @@ actor PlaybackManager {
                 artist: song?.artists.map(\.name).joined(separator: ", "),
                 videoId: videoId,
                 duration: song.map { TimeInterval($0.duration) },
-                artists: artists
+                artists: artists,
+                thumbnailUrl: song?.thumbnailUrl
             )
             await MainActor.run {
-                NowPlaying.shared.updateVideoAvailability(hasVideoContent: false)
+                NowPlaying.shared.updateVideoAvailability()
             }
             return PlaybackResult(
                 streamUrl: localPath.absoluteString,
@@ -56,27 +57,18 @@ actor PlaybackManager {
         }
 
         if let cached = await StreamCache.shared.get(videoId: videoId) {
+            let queueSong = await queueSong(for: videoId)
             await PlayerController.shared.play(
                 url: cached.streamUrl,
                 title: cached.title,
                 artist: cached.author,
                 videoId: videoId,
                 duration: cached.duration.flatMap { $0 > 0 ? TimeInterval($0) : nil },
-                artists: await queueArtists(for: videoId),
-                loudnessDb: cached.loudnessDb
+                artists: queueSong?.artists ?? [],
+                loudnessDb: cached.loudnessDb,
+                thumbnailUrl: queueSong?.thumbnailUrl
             )
-            if let musicVideoType = cached.musicVideoType {
-                await MainActor.run {
-                    NowPlaying.shared.updateVideoAvailability(
-                        musicVideoType: musicVideoType,
-                        hasVideoContent: cached.hasVideoContent
-                    )
-                }
-            } else {
-                await MainActor.run {
-                    NowPlaying.shared.updateVideoAvailability(hasVideoContent: cached.hasVideoContent)
-                }
-            }
+            await publishVideoAvailability(result: cached, videoId: videoId, rowType: queueSong?.musicVideoType)
             return cached
         }
 
@@ -107,37 +99,43 @@ actor PlaybackManager {
     }
 
     private func playNetworkResult(_ result: PlaybackResult, videoId: String) async {
+        let queueSong = await queueSong(for: videoId)
         await PlayerController.shared.play(
             url: result.streamUrl,
             title: result.title,
             artist: result.author,
             videoId: videoId,
             duration: result.duration.flatMap { $0 > 0 ? TimeInterval($0) : nil },
-            artists: await queueArtists(for: videoId),
-            loudnessDb: result.loudnessDb
+            artists: queueSong?.artists ?? [],
+            loudnessDb: result.loudnessDb,
+            thumbnailUrl: queueSong?.thumbnailUrl
         )
-        if let musicVideoType = result.musicVideoType {
-            await MainActor.run {
-                NowPlaying.shared.updateVideoAvailability(
-                    musicVideoType: musicVideoType,
-                    hasVideoContent: result.hasVideoContent
-                )
-            }
-        } else {
-            await MainActor.run {
-                NowPlaying.shared.updateVideoAvailability(hasVideoContent: result.hasVideoContent)
-            }
-        }
+        await publishVideoAvailability(result: result, videoId: videoId, rowType: queueSong?.musicVideoType)
     }
 
     private func clearInflight(key: String) {
         inflightResolutions.removeValue(forKey: key)
     }
 
-    /// Retrieves all artists for the current video to preserve metadata accuracy.
-    private func queueArtists(for videoId: String) async -> [YTArtist] {
+    /// Queue song for resolve-time metadata (artists, artwork, video type).
+    /// One MainActor hop instead of one per field, so the snapshot is
+    /// consistent even if the queue changes mid-resolve.
+    private func queueSong(for videoId: String) async -> SongItem? {
         await MainActor.run {
-            NowPlaying.shared.queueSongs.first { $0.videoId == videoId }?.artists ?? []
+            NowPlaying.shared.queueSongs.first { $0.videoId == videoId }
+        }
+    }
+
+    /// Publishes video availability for a resolve result. The row type wins
+    /// (resolve responses often omit it); unknown rows fall back to an
+    /// authoritative lookup inside the shared availability check.
+    private func publishVideoAvailability(result: PlaybackResult, videoId: String, rowType: String?) async {
+        let type = result.musicVideoType ?? rowType
+        let hasVideo = await VideoAvailability.shared.hasVideo(
+            videoId: videoId, rowType: rowType, result: result, using: InnerTubeClient.tropShared
+        )
+        await MainActor.run {
+            NowPlaying.shared.updateVideoAvailability(musicVideoType: type, hasVideo: hasVideo)
         }
     }
 

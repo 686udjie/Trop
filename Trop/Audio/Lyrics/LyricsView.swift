@@ -6,7 +6,6 @@
 //
 
 import SwiftUI
-import UIKit
 
 struct LyricsView<ProgressSlider: View>: View {
     private let np = NowPlaying.shared

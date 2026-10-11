@@ -32,41 +32,40 @@ enum ArtworkLoader {
     }
 }
 
-/// Artwork URL builders. Consolidates the copy-pasted `hqdefault.jpg`
-/// fallback literal and the `w/h` size rewrite.
+/// App-side artwork helpers. CDN size rewriting lives in SwiftyTube's
+/// `ArtworkURLs`; this is only what the app adds on top.
 enum ArtworkURLs {
     /// i.ytimg fallback artwork for a video id.
     static func fallback(for videoId: String) -> String {
-        "https://i.ytimg.com/vi/\(videoId)/hqdefault.jpg"
+        SwiftyTube.ArtworkURLs.fallback(for: videoId)
     }
 
     /// Rewrites a `w<N>-h<N>` thumbnail URL to the requested square size.
     static func sized(_ url: String?, width: Int, height: Int) -> String? {
-        url?.replacingOccurrences(
-            of: #"w\d+-h\d+"#,
-            with: "w\(width)-h\(height)",
-            options: .regularExpression
-        )
+        SwiftyTube.ArtworkURLs.sized(url, width: width, height: height)
     }
 
-    static func highRes(_ url: String?, size: Int = 1024) -> String? {
-        guard var url = url, !url.isEmpty else { return nil }
-        url = url.replacingOccurrences(of: "(?<=[sh]\\d+)-c", with: "", options: .regularExpression)
-        guard url.contains("googleusercontent.com") || url.contains("ggpht.com") else { return url }
-        if url.range(of: #"w\d+-h\d+"#, options: .regularExpression) != nil {
-            url = url.replacingOccurrences(
-                of: #"w\d+-h\d+"#,
-                with: "w\(size)-h\(size)",
-                options: .regularExpression
-            )
-        } else if let base = url.split(separator: "=").first {
-            url = String(base) + "=w\(size)-h\(size)"
-        }
-        return url
+    // MARK: - Size ladder
+
+    /// Smallest ladder rung covering `pixels` (never below the row rung).
+    static func rung(for pixels: CGFloat) -> Int {
+        SwiftyTube.ArtworkURLs.rung(for: pixels)
     }
 
+    // MARK: - CDN upgrade
+
+    /// Convenience: artwork at the player rung.
+    static func highRes(_ url: String?) -> String? {
+        SwiftyTube.ArtworkURLs.highRes(url)
+    }
+
+    /// 1280px variant of a ytimg thumbnail URL.
     static func maxResVariant(_ url: String?) -> String? {
-        guard let url, url.contains("i.ytimg.com"), url.hasSuffix("/hqdefault.jpg") else { return nil }
-        return url.replacingOccurrences(of: "/hqdefault.jpg", with: "/maxresdefault.jpg")
+        SwiftyTube.ArtworkURLs.maxResVariant(url)
+    }
+
+    /// 640px variant. Exists far more often than maxres, beats hqdefault.
+    static func sdVariant(_ url: String?) -> String? {
+        SwiftyTube.ArtworkURLs.sdVariant(url)
     }
 }

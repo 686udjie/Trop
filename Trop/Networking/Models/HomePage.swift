@@ -15,14 +15,10 @@ struct HomePage {
     struct Chip: Hashable {
         var title: String
         var params: String?
-        var deselectParams: String?
     }
 
     struct Section {
         var title: String
-        var label: String?
-        var thumbnailUrl: String?
-        var browseEndpoint: (browseId: String, params: String?)?
         var items: [YTItem]
 
         var isSongsOnly: Bool {

@@ -157,7 +157,8 @@ extension PlayerController {
         videoId: String? = nil,
         duration: TimeInterval? = nil,
         artists: [YTArtist] = [],
-        loudnessDb: Double? = nil
+        loudnessDb: Double? = nil,
+        thumbnailUrl: String? = nil
     ) async {
         currentLoudnessDb = loudnessDb
         guard let url = URL(string: url) else {
@@ -166,7 +167,7 @@ extension PlayerController {
         }
 
         if let videoId, let title, videoId != NowPlaying.shared.videoId {
-            NowPlaying.shared.update(title: title, artist: artist, videoId: videoId, artists: artists)
+            NowPlaying.shared.update(title: title, artist: artist, videoId: videoId, artists: artists, thumbnailUrl: thumbnailUrl)
         }
 
         let prevVideoId = currentVideoId
@@ -242,11 +243,6 @@ extension PlayerController {
 
     func togglePlayPause() {
         setPaused(playState.value == .playing)
-    }
-
-    func setPlayerVolume(_ volume: Double) {
-        SettingsStore.shared.playerVolume = volume.clamped01
-        applyPlayerVolume()
     }
 
     func applyPlayerVolume() {
@@ -557,6 +553,8 @@ extension PlayerController {
 
 extension PlayerController {
     func setVideoMode() {
+        // No real video (e.g. art-track): stay in the big player, do nothing.
+        guard NowPlaying.shared.hasVideo else { return }
         guard let videoId = NowPlaying.shared.videoId else { return }
         if muxedActive {
             NowPlaying.shared.isVideoMode = true

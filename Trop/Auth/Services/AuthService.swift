@@ -42,17 +42,10 @@ actor AuthService {
     // Probes `account/account_menu` to confirm the current session is still valid
     func verifyLogin() async throws -> Bool {
         do {
-            let json = try await innerTube.accountMenu()
-            guard let runs = BrowseLens.accountNameRuns(json) else { return false }
-            return runs.contains { $0["text"] is String }
+            return try await innerTube.verifySession()
         } catch {
             throw AuthError.verificationFailed(error)
         }
-    }
-
-    // Quick synchronous-ish check — reads from the local CookieStore wrapper
-    func isLoggedIn() async -> Bool {
-        await cookieStore.isLoggedIn()
     }
 
     // Re-hydrates InnerTube from whatever is currently saved in the CookieStore

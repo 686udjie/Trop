@@ -54,14 +54,6 @@ final class HistoryView {
         isRemoteLoading = false
     }
 
-    func switchSource(_ newSource: HistorySource) {
-        guard newSource != source else { return }
-        source = newSource
-        if newSource == .remote && remoteSections.isEmpty {
-            Task { await loadRemote() }
-        }
-    }
-
     // MARK: - Local group by date
 
     private static func groupByDate(_ entries: [DatabaseService.HistoryEntry]) -> [(String, [DatabaseService.HistoryEntry])] {

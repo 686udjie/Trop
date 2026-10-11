@@ -35,7 +35,6 @@ final class DiscordRpcManager: @unchecked Sendable {
     var currentUserValue: DiscordUser? { currentUserSubject.value }
 
     private let accessTokenSubject = CurrentValueSubject<String?, Never>(nil)
-    var accessTokenFlow: AnyPublisher<String?, Never> { accessTokenSubject.eraseToAnyPublisher() }
 
     private let settingsChangedSubject = CurrentValueSubject<Int, Never>(0)
     var settingsChanged: AnyPublisher<Int, Never> { settingsChangedSubject.eraseToAnyPublisher() }
@@ -152,8 +151,6 @@ final class DiscordRpcManager: @unchecked Sendable {
             self.authorizeInProgress = false
         }
     }
-
-    func cancelAuthorize() { auth.cancel() }
 
     func handleWebViewAuth(result: DiscordAuthResult) {
         accessToken = result.accessToken
@@ -403,8 +400,6 @@ final class DiscordRpcManager: @unchecked Sendable {
     // MARK: - Helpers
 
     func isReady() -> Bool { _ready }
-    func isAuthorized() -> Bool { _authorized }
-    func isInitialized() -> Bool { initialized }
     func getAccessToken() -> String? { accessToken }
     func isShowingSong(songId: String, isPlaying: Bool) -> Bool {
         if currentSongId != songId || currentIsPlaying != isPlaying { return false }
@@ -417,7 +412,6 @@ final class DiscordRpcManager: @unchecked Sendable {
         }
         return true
     }
-    func clearLastError() { lastErrorSubject.value = nil }
 
     private func activityTypeToEnum(_ code: Int) -> ActivityType {
         switch code {

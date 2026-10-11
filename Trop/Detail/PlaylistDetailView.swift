@@ -608,7 +608,7 @@ struct PlaylistDetailView: View {
                 .contextMenu {
                     if isEditable {
                         Button(role: .destructive) {
-                            Task { await removeSong(song, from: playlist) }
+                            Task { await removeSong(song) }
                         } label: {
                             Label("Remove from Playlist", systemImage: "minus.circle")
                         }
@@ -623,7 +623,7 @@ struct PlaylistDetailView: View {
         }
     }
 
-    private func removeSong(_ song: SongItem, from playlist: PlaylistDetailInfo) async {
+    private func removeSong(_ song: SongItem) async {
         let maps = (try? await DatabaseService.shared.fetchAll(
             PlaylistSongMap.self,
             sql: "SELECT * FROM playlist_song_map WHERE playlist_id = ? AND song_id = ? LIMIT 1",

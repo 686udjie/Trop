@@ -9,12 +9,9 @@ import Foundation
 
 enum DiscordDefaults {
     static let appId: String = "1543750462422122616"
-    static let appIdInt: Int64 = 1_543_750_462_422_122_616
 
     static let redirectUri = "tropdiscord://oauth2/callback"
     static let redirectScheme = "tropdiscord"
-    static let redirectHost = "oauth2"
-    static let redirectPathPrefix = "/callback"
 
     static let oauthAuthorize = "https://discord.com/oauth2/authorize"
     static let oauthToken = "https://discord.com/api/v10/oauth2/token"
@@ -43,12 +40,6 @@ enum DiscordDefaults {
     static let activityType = "2"
     static let activityName = ""
     static let userStatus = "online"
-    static let statusIdle = "idle"
-    static let statusDnd = "dnd"
-    static let activityTypeListening = "2"
-    static let activityTypePlaying = "0"
-    static let activityTypeWatching = "3"
-    static let activityTypeCompeting = "5"
     static let unknownArtist = "Unknown Artist"
     static let unknownAlbum = "Unknown Album"
 

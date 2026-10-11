@@ -207,14 +207,6 @@ extension DatabaseService {
                 arguments: [songId, year, month])
         }
     }
-
-    func insertEventIgnoringConflicts(_ event: Event) async throws -> Event {
-        try await dbPool.write { db in
-            let mutable = event
-            try mutable.insert(db, onConflict: .ignore)
-            return mutable
-        }
-    }
 }
 
 enum LibrarySongSort: String, CaseIterable, Sendable, Identifiable {

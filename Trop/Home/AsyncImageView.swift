@@ -38,11 +38,6 @@ struct AsyncImageView: View {
             loadedImage = nil
             return
         }
-        let normalized = normalizeThumbnailURL(urlString)
-        guard let url = URL(string: normalized) else {
-            loadedImage = nil
-            return
-        }
         let scale = displayScale
         // Prevent zero-size layout passes from causing degenerate image cache requests.
         let minPixels: CGFloat = 120 * scale
@@ -50,6 +45,14 @@ struct AsyncImageView: View {
             width: max(targetSize.width * scale, minPixels),
             height: max(targetSize.height * scale, minPixels)
         )
+        // Request the ladder rung covering this surface (BitChord-style),
+        // so rows, cards and headers each share one cache entry.
+        let rung = ArtworkURLs.rung(for: max(displaySize.width, displaySize.height))
+        let normalized = normalizeThumbnailURL(urlString, pixels: rung)
+        guard let url = URL(string: normalized) else {
+            loadedImage = nil
+            return
+        }
         let request: ImageRequest
         if contentMode == .fill {
             request = ImageRequest(
@@ -81,28 +84,26 @@ struct AsyncImageView: View {
     }
 }
 
-private func normalizeThumbnailURL(_ urlString: String) -> String {
+private func normalizeThumbnailURL(_ urlString: String, pixels: Int) -> String {
     var url = urlString
 
     url = url.replacingOccurrences(of: "(?<=[sh]\\d+)-c", with: "", options: .regularExpression)
 
     if url.contains("googleusercontent.com") || url.contains("ggpht.com") {
         if let match = try? NSRegularExpression(pattern: "w(\\d+)-h(\\d+)"),
-           let result = match.firstMatch(in: url, range: NSRange(url.startIndex..., in: url)) {
-            guard let wRange = Range(result.range(at: 1), in: url),
-                  let hRange = Range(result.range(at: 2), in: url) else { return url }
-            let w = Int(url[wRange]) ?? 0
-            let h = Int(url[hRange]) ?? 0
-            let newW = max(w, 600)
-            let newH = max(h, 600)
-            if newW != w || newH != h {
-                url = url.replacingOccurrences(
-                    of: "w\(w)-h\(h)",
-                    with: "w\(newW)-h\(newH)"
-                )
+           let result = match.firstMatch(in: url, range: NSRange(url.startIndex..., in: url)),
+           let wRange = Range(result.range(at: 1), in: url),
+           let hRange = Range(result.range(at: 2), in: url),
+           let w = Int(url[wRange]),
+           let h = Int(url[hRange]) {
+            let size = "w\(pixels)-h\(pixels)"
+            if size != "w\(w)-h\(h)" {
+                url = url.replacingOccurrences(of: "w\(w)-h\(h)", with: size)
             }
         } else if let base = url.split(separator: "=").first {
-            url = String(base) + "=w600-h600"
+            // Bare CDN URL with no size params: pin an explicit size instead
+            // of trusting the server default.
+            url = String(base) + "=w\(pixels)-h\(pixels)"
         }
     }
 

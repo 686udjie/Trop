@@ -12,84 +12,6 @@ struct YTArtist: Codable, Hashable {
     var id: String?
 }
 
-func parseDurationFromRenderer(_ renderer: [String: Any]) -> Int {
-    // 1. fixedColumns[0] — primary source for MusicResponsiveListItemRenderer
-    if let fixedColumns = renderer["fixedColumns"] as? [[String: Any]] {
-        for col in fixedColumns {
-            if let fixed = col["musicResponsiveListItemFixedColumnRenderer"] as? [String: Any],
-               let textDict = fixed["text"] as? [String: Any],
-               let runs = textDict["runs"] as? [[String: Any]],
-               let first = runs.first,
-               let text = first["text"] as? String,
-               let parsed = DurationFormat.parseClock(text) {
-                return parsed
-            }
-        }
-    }
-
-    // 2. lengthSeconds — raw seconds string from player response
-    if let lengthSeconds = renderer["lengthSeconds"] as? String, let seconds = Int(lengthSeconds) {
-        return seconds
-    }
-    if let lengthSeconds = renderer["lengthSeconds"] as? Int {
-        return lengthSeconds
-    }
-
-    // 3. lengthText — used by PlaylistPanelVideoRenderer (up next / queue)
-    if let lengthText = renderer["lengthText"] as? [String: Any],
-       let runs = lengthText["runs"] as? [[String: Any]],
-       let first = runs.first,
-       let text = first["text"] as? String,
-       let parsed = DurationFormat.parseClock(text) {
-        return parsed
-    }
-
-    // 4. Badges — thumbnail badges with duration
-    if let badges = renderer["badges"] as? [[String: Any]] {
-        for badgeDict in badges {
-            if let badge = badgeDict["musicInlineBadgeRenderer"] as? [String: Any],
-               let text = badge["text"] as? [String: Any],
-               let runs = text["runs"] as? [[String: Any]],
-               let first = runs.first,
-               let textStr = first["text"] as? String,
-               let parsed = DurationFormat.parseClock(textStr) {
-                return parsed
-            }
-        }
-    }
-
-    // 5. Subtitle runs — last segment after "•" separator may be duration
-    if let subtitle = renderer["subtitle"] as? [String: Any],
-       let runs = subtitle["runs"] as? [[String: Any]] {
-        let allText = runs.compactMap { $0["text"] as? String }
-        let segments = allText.split { $0 == " • " || $0.trimmingCharacters(in: .whitespaces) == "•" }
-        if let lastSegment = segments.last,
-           let lastText = lastSegment.last(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }),
-           let parsed = DurationFormat.parseClock(lastText.trimmingCharacters(in: .whitespaces)) {
-            return parsed
-        }
-    }
-
-    // 6. flexColumns[1] subtitle text (for MusicResponsiveListItemRenderer)
-    if let flexColumns = renderer["flexColumns"] as? [[String: Any]], flexColumns.count > 1 {
-        let col = flexColumns[1]
-        let flexRenderer = (col["musicResponsiveListItemFlexColumnRenderer"] as? [String: Any])
-            ?? (col["musicResponsiveListItemColumnRenderer"] as? [String: Any])
-        if let textDict = flexRenderer?["text"] as? [String: Any],
-           let runs = textDict["runs"] as? [[String: Any]] {
-            let allText = runs.compactMap { $0["text"] as? String }
-            let segments = allText.split { $0 == " • " || $0.trimmingCharacters(in: .whitespaces) == "•" }
-            if let lastSegment = segments.last,
-               let lastText = lastSegment.last(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }),
-               let parsed = DurationFormat.parseClock(lastText.trimmingCharacters(in: .whitespaces)) {
-                return parsed
-            }
-        }
-    }
-
-    return 0
-}
-
 /// Bare 4-digit release year segment.
 private func parseYear(_ text: String) -> Int? {
     let trimmed = text.trimmingCharacters(in: .whitespaces)
@@ -215,7 +137,7 @@ enum YTItem {
                     videoId: videoId,
                     title: title,
                     artists: podcastName.map { [YTArtist(name: SongItem.cleanArtistName($0))] } ?? [],
-                    duration: parseDurationFromRenderer(renderer),
+                    duration: DurationFormat.parseRendererDuration(renderer),
                     thumbnailUrl: thumbnailUrl,
                     publishDate: nil
                 )
@@ -357,6 +279,10 @@ struct SongItem: Codable, Hashable {
     var viewCount: Int64?
     var year: Int?
     var isVideo: Bool?
+    /// Watch-endpoint music type (`MUSIC_VIDEO_TYPE_ATV` for auto-generated
+    /// art-tracks), when the row carried one. Nil for stored rows parsed
+    /// before this existed — previously persisted queues keep decoding.
+    var musicVideoType: String?
 
     /// True for music-video results (subtitle starts with "Video").
     var isMusicVideo: Bool { isVideo == true }
@@ -365,7 +291,7 @@ struct SongItem: Codable, Hashable {
         guard let videoId = extractVideoId(renderer) else {
             return nil
         }
-        let duration = parseDurationFromRenderer(renderer)
+        let duration = DurationFormat.parseRendererDuration(renderer)
         let playlistId = extractPlaylistId(renderer)
 
         if let flexColumns = renderer["flexColumns"] as? [[String: Any]] {
@@ -499,7 +425,8 @@ struct SongItem: Codable, Hashable {
         return SongItem(
             videoId: videoId, title: title, artists: artists, album: album, albumId: albumId,
             duration: duration, thumbnailUrl: thumbnailUrl, isExplicit: false, playlistId: playlistId,
-            viewCount: stats.viewCount, year: stats.year, isVideo: stats.startsWithVideo ? true : nil
+            viewCount: stats.viewCount, year: stats.year, isVideo: stats.startsWithVideo ? true : nil,
+            musicVideoType: VideoAvailability.rowMusicVideoType(renderer)
         )
     }
 
@@ -547,7 +474,8 @@ struct SongItem: Codable, Hashable {
         return SongItem(
             videoId: videoId, title: title, artists: artists, album: album, albumId: albumId,
             duration: duration, thumbnailUrl: thumbnailUrl, isExplicit: false, playlistId: playlistId,
-            viewCount: stats.viewCount, year: stats.year, isVideo: stats.startsWithVideo ? true : nil
+            viewCount: stats.viewCount, year: stats.year, isVideo: stats.startsWithVideo ? true : nil,
+            musicVideoType: VideoAvailability.rowMusicVideoType(renderer)
         )
     }
 }
@@ -639,7 +567,7 @@ struct EpisodeItem {
         guard let videoId = extractVideoId(renderer) else { return nil }
         let title = InnerTubeJSON.runsText(renderer["title"] as? [String: Any]) ?? "Unknown"
         let thumbnailUrl = extractTwoRowThumbnail(renderer)
-        var duration = parseDurationFromRenderer(renderer)
+        var duration = DurationFormat.parseRendererDuration(renderer)
         if duration == 0,
            let progress = renderer["playbackProgress"] as? [String: Any],
            let progressRenderer = progress["musicPlaybackProgressRenderer"] as? [String: Any],
@@ -707,10 +635,6 @@ extension SongItem {
         return "\(artistNamesDisplay) • \(durationStr)"
     }
 
-    var firstArtistBrowseId: String? {
-        artists.first(where: { $0.id != nil })?.id
-    }
-
     var firstAlbumBrowseId: String? {
         albumId
     }
@@ -720,22 +644,9 @@ extension EpisodeItem {
     var webUrl: String {
         "https://music.youtube.com/watch?v=\(videoId)"
     }
-
-    var firstArtistBrowseId: String? {
-        artists.first(where: { $0.id != nil })?.id
-    }
 }
 
 extension YTItem {
-    var firstArtistBrowseId: String? {
-        switch self {
-        case .song(let s): return s.firstArtistBrowseId
-        case .episode(let e): return e.firstArtistBrowseId
-        case .album(let a): return a.artists.first(where: { $0.id != nil })?.id
-        default: return nil
-        }
-    }
-
     var firstAlbumBrowseId: String? {
         switch self {
         case .song(let s): return s.firstAlbumBrowseId

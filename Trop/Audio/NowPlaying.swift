@@ -10,7 +10,6 @@ import Foundation
 import Observation
 import Nuke
 import SwiftUI
-import MediaPlayer
 
 @Observable
 @MainActor
@@ -274,15 +273,14 @@ final class NowPlaying {
         )
     }
 
-    /// Updates video availability from `musicVideoType` and/or `hasVideoContent`.
-    func updateVideoAvailability(musicVideoType: String? = nil, hasVideoContent: Bool = false) {
+    /// Records video availability: the watchable-video verdict comes from
+    /// the shared availability check (row type preferred, authoritative
+    /// lookup as fallback); this only stores it alongside the type and
+    /// pre-warms when there is one to show.
+    func updateVideoAvailability(musicVideoType: String? = nil, hasVideo: Bool = false) {
         if let musicVideoType {
             self.musicVideoType = musicVideoType
         }
-        let typeHasVideo = musicVideoType != nil &&
-            musicVideoType != "MUSIC_VIDEO_TYPE_ATV" &&
-            musicVideoType != "MUSIC_VIDEO_TYPE_PODCAST_EPISODE"
-        let hasVideo = typeHasVideo || hasVideoContent
         self.hasVideo = hasVideo
         if hasVideo {
             PlayerController.shared.preloadVideoURL()
@@ -407,6 +405,13 @@ final class NowPlaying {
     private func loadThumbnail(videoId: String, thumbnailUrl: String? = nil) {
         guard videoId != lastLoadedVideoId else { return }
         lastLoadedVideoId = videoId
+        // Safety net: callers that resolve without song metadata pass nil.
+        // The queue usually still knows this track's artwork — use it rather
+        // than falling back to the low-res ytimg default.
+        var thumb = thumbnailUrl
+        if thumb == nil {
+            thumb = queueSongs.first { $0.videoId == videoId }?.thumbnailUrl
+        }
 
         Task {
             // For downloaded songs, try to extract embedded artwork from the local file first.
@@ -414,7 +419,7 @@ final class NowPlaying {
                 loadArtworkFromLocalFile(localURL, videoId: videoId)
                 return
             }
-            loadThumbnailFromCDN(videoId: videoId, thumbnailUrl: thumbnailUrl)
+            loadThumbnailFromCDN(videoId: videoId, thumbnailUrl: thumb)
         }
     }
 
@@ -436,12 +441,7 @@ final class NowPlaying {
             await MainActor.run {
                 guard lastLoadedVideoId == videoId else { return }
                 if let artworkImage {
-                    let cropped = artworkImage.centerCroppedSquare()
-                    thumbnailUIImage = cropped
-                    thumbnailImage = Image(uiImage: cropped)
-                    thumbnailVersion &+= 1
-                    updateDominantColors(from: cropped)
-                    PlayerController.shared.updateNowPlayingArtwork()
+                    publishArtwork(artworkImage)
                 } else {
                     loadThumbnailFromCDN(videoId: videoId)
                 }
@@ -449,11 +449,26 @@ final class NowPlaying {
         }
     }
 
+    /// Publishes a loaded image as the current artwork (cropped square).
+    private func publishArtwork(_ image: UIImage) {
+        let cropped = image.centerCroppedSquare()
+        thumbnailUIImage = cropped
+        thumbnailImage = Image(uiImage: cropped)
+        thumbnailVersion &+= 1
+        updateDominantColors(from: cropped)
+        PlayerController.shared.updateNowPlayingArtwork()
+    }
+
     private func loadThumbnailFromCDN(videoId: String, thumbnailUrl: String? = nil) {
+        // Best source first: the track's own artwork upgraded to full
+        // resolution, then ytimg step-downs, then the guaranteed hqdefault.
         var candidates: [String] = []
         if let upgraded = ArtworkURLs.highRes(thumbnailUrl) {
             if let maxRes = ArtworkURLs.maxResVariant(upgraded) {
                 candidates.append(maxRes)
+            }
+            if let standard = ArtworkURLs.sdVariant(upgraded) {
+                candidates.append(standard)
             }
             candidates.append(upgraded)
         }
@@ -469,39 +484,48 @@ final class NowPlaying {
             updateDominantColors(from: nil)
             return
         }
-        for url in urls {
+
+        // Phase 1: instant paint from the best cached candidate. A lesser
+        // cached variant must not shadow a better one — Phase 2 upgrades.
+        var paintedIndex: Int?
+        for (index, url) in urls.enumerated() {
             if let cached = ArtworkLoader.cachedImage(for: url) {
-                let cropped = cached.centerCroppedSquare()
-                thumbnailUIImage = cropped
-                thumbnailImage = Image(uiImage: cropped)
-                thumbnailVersion &+= 1
-                updateDominantColors(from: cropped)
-                PlayerController.shared.updateNowPlayingArtwork()
-                return
+                publishArtwork(cached)
+                paintedIndex = index
+                break
             }
         }
 
-        thumbnailImage = nil
+        // Phase 2: fetch candidates better than the painted one (or all of
+        // them when nothing was painted). First success wins and swaps in.
+        let fetchCount = paintedIndex ?? urls.count
+        if fetchCount == 0 {
+            return
+        }
+        if paintedIndex == nil {
+            thumbnailImage = nil
+        }
         Task {
-            for url in urls {
+            for url in urls.prefix(fetchCount) {
                 guard lastLoadedVideoId == videoId else { return }
-                guard let platformImage = try? await ArtworkLoader.image(for: url) else { continue }
-                let cropped = platformImage.centerCroppedSquare()
+                do {
+                    let platformImage = try await ArtworkLoader.image(for: url)
+                    await MainActor.run {
+                        guard self.lastLoadedVideoId == videoId else { return }
+                        self.publishArtwork(platformImage)
+                    }
+                    return
+                } catch {
+                    continue
+                }
+            }
+            if paintedIndex == nil {
                 await MainActor.run {
                     guard self.lastLoadedVideoId == videoId else { return }
-                    thumbnailUIImage = cropped
-                    thumbnailImage = Image(uiImage: cropped)
+                    thumbnailImage = Image(systemName: "music.note")
                     thumbnailVersion &+= 1
-                    updateDominantColors(from: cropped)
-                    PlayerController.shared.updateNowPlayingArtwork()
+                    updateDominantColors(from: nil)
                 }
-                return
-            }
-            await MainActor.run {
-                guard self.lastLoadedVideoId == videoId else { return }
-                thumbnailImage = Image(systemName: "music.note")
-                thumbnailVersion &+= 1
-                updateDominantColors(from: nil)
             }
         }
     }

@@ -37,8 +37,6 @@ final class DiscordTokenStore: @unchecked Sendable {
         }
     }
 
-    func retrieveSuspend() async -> String? { retrieve() }
-
     func getRefreshToken() -> String? {
         queue.sync {
             if let cached = cachedRefreshToken { return cached }

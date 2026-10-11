@@ -15,8 +15,8 @@ private let reconnectBaseDelayMs: Int64 = 1_000
 private let reconnectMaxDelayMs: Int64 = 64_000
 
 private enum GatewayOp: Int {
-    case dispatch = 0, heartbeat = 1, identify = 2, presenceUpdate = 3
-    case voiceState = 4, resume = 6, reconnect = 7, invalidSession = 9
+    case dispatch = 0, heartbeat = 1
+    case resume = 6, reconnect = 7, invalidSession = 9
     case hello = 10, heartbeatAck = 11
 }
 

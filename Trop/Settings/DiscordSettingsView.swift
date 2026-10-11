@@ -240,22 +240,6 @@ struct DiscordSettingsView: View {
 
     private var isLoggedIn: Bool { DiscordRpcManager.shared.getAccessToken() != nil }
 
-    private var statusLabel: String {
-        switch status {
-        case .connected: return "Connected"
-        case .authorizing: return "Authorizing…"
-        case .disconnected: return isLoggedIn ? "Disconnected" : "Not logged in"
-        }
-    }
-
-    private var statusColor: Color {
-        switch status {
-        case .connected: return .green
-        case .authorizing: return .orange
-        case .disconnected: return .gray
-        }
-    }
-
     private func avatarURL(for user: DiscordUser) -> URL? {
         guard let str = user.avatar else { return nil }
         return URL(string: str)
@@ -348,10 +332,6 @@ private struct RichPresencePreview: View {
         } else {
             return (l.artist, l.title, l.artist)
         }
-    }
-
-    private var activityTypeLabel: String {
-        switch activityType { case "0": return "Playing"; case "3": return "Watching"; case "5": return "Competing"; default: return "Listening" }
     }
 
     private func fmt(_ secs: Int) -> String {

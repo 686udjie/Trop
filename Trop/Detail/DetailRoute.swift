@@ -94,7 +94,6 @@ enum TopPeriod: String, CaseIterable, Hashable, Identifiable {
     case allTime = "All Time"
     case year = "Past Year"
     case month = "Past Month"
-    case week = "Past Week"
     case day = "Past 24 Hours"
 
     var id: String { rawValue }
@@ -106,7 +105,6 @@ enum TopPeriod: String, CaseIterable, Hashable, Identifiable {
         case .allTime: return Date.distantPast
         case .year: return Calendar.current.date(byAdding: .year, value: -1, to: now) ?? now
         case .month: return Calendar.current.date(byAdding: .month, value: -1, to: now) ?? now
-        case .week: return Calendar.current.date(byAdding: .day, value: -7, to: now) ?? now
         case .day: return Calendar.current.date(byAdding: .day, value: -1, to: now) ?? now
         }
     }

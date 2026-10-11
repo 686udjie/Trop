@@ -46,9 +46,7 @@ extension HomePageParser {
             let title = InnerTubeJSON.runsText(chipRenderer["text"] as? [String: Any]) ?? ""
             let nav = chipRenderer["navigationEndpoint"] as? [String: Any]
             let params = (nav?["browseEndpoint"] as? [String: Any])?["params"] as? String
-            let deselect = chipRenderer["onDeselectedCommand"] as? [String: Any]
-            let deselectParams = (deselect?["browseEndpoint"] as? [String: Any])?["params"] as? String
-            return HomePage.Chip(title: title, params: params, deselectParams: deselectParams)
+            return HomePage.Chip(title: title, params: params)
         }
     }
 }
@@ -73,18 +71,12 @@ extension HomePageParser {
             return nil
         }
 
-        let label = InnerTubeJSON.runsText(basicHeader["strapline"] as? [String: Any])
-        let thumbnailUrl = extractHeaderThumbnail(basicHeader)
-        let browseEndpoint = extractBrowseEndpoint(basicHeader)
         let items = parseItems(from: carousel["contents"] as? [[String: Any]] ?? [])
 
         guard !items.isEmpty else { return nil }
 
         return HomePage.Section(
             title: title,
-            label: label,
-            thumbnailUrl: thumbnailUrl,
-            browseEndpoint: browseEndpoint,
             items: items
         )
     }
@@ -335,14 +327,6 @@ extension HomePageParser {
               let browse = nav["browseEndpoint"] as? [String: Any],
               let browseId = browse["browseId"] as? String else { return nil }
         return (browseId, browse["params"] as? String)
-    }
-
-    static func extractHeaderThumbnail(_ header: [String: Any]) -> String? {
-        guard let thumbnail = header["thumbnail"] as? [String: Any],
-              let thumbnails = thumbnail["thumbnails"] as? [[String: Any]],
-              let last = thumbnails.last,
-              let url = last["url"] as? String else { return nil }
-        return url
     }
 
     static func extractContinuation(from sectionList: [String: Any]) -> String? {

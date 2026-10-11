@@ -180,9 +180,9 @@ actor PersonalizationService {
         for artist in topArtists {
             guard communityPlaylists.count < 5 else { break }
             guard let json = try? await innerTube.browse(browseId: artist.id) else { continue }
-            let playlists = extractCommunityPlaylists(from: json)
+            let playlists = LibraryBrowseParser.extractCommunityPlaylists(from: json)
             for playlist in playlists {
-                let pid = normalizePlaylistId(playlist.browseId)
+                let pid = LibraryBrowseParser.normalizePlaylistId(playlist.browseId)
                 guard !seenIds.contains(pid) else { continue }
                 seenIds.insert(pid)
                 communityPlaylists.append(.playlist(PlaylistItem(
@@ -338,8 +338,11 @@ actor PersonalizationService {
         let bylineRuns = InnerTubeJSON.rawRuns(renderer["longBylineText"] as? [String: Any] ?? renderer["shortBylineText"] as? [String: Any])
         let artists = parseArtists(from: bylineRuns)
         let thumbnail = InnerTubeJSON.nestedThumbnailURL(renderer)
-        let duration = parseDurationFromRenderer(renderer)
-        return SongItem(videoId: vid, title: title, artists: artists, duration: duration, thumbnailUrl: thumbnail, isExplicit: false)
+        let duration = DurationFormat.parseRendererDuration(renderer)
+        return SongItem(
+            videoId: vid, title: title, artists: artists, duration: duration,
+            thumbnailUrl: thumbnail, isExplicit: false, musicVideoType: VideoAvailability.rowMusicVideoType(renderer)
+        )
     }
 
     private func parseArtists(from bylineRuns: [[String: Any]]) -> [YTArtist] {
@@ -383,36 +386,6 @@ actor PersonalizationService {
             if displayName.isEmpty { return nil }
             return YTArtist(name: displayName, id: artistId)
         }
-    }
-
-    private func extractCommunityPlaylists(from json: [String: Any]) -> [ParsedPlaylist] {
-        guard let sections = BrowseLens.browseSections(json) else { return [] }
-
-        var playlists: [ParsedPlaylist] = []
-        for section in sections {
-            guard playlists.count < 10 else { break }
-            guard let shelf = section["musicShelfRenderer"] as? [String: Any],
-                  let contents = shelf["contents"] as? [[String: Any]] else { continue }
-            for entry in contents {
-                guard playlists.count < 10 else { break }
-                guard let renderer = entry["musicResponsiveListItemRenderer"] as? [String: Any] else { continue }
-                guard let nav = renderer["navigationEndpoint"] as? [String: Any],
-                      let browse = nav["browseEndpoint"] as? [String: Any],
-                      let bid = browse["browseId"] as? String else { continue }
-                let stripped = bid.hasPrefix("VL") ? String(bid.dropFirst(2)) : bid
-                guard !stripped.hasPrefix("RD"),
-                      !stripped.hasPrefix("OLAK"),
-                      !stripped.hasPrefix("MPREb_") else { continue }
-                if let playlist = LibraryBrowseParser.parsePlaylist(entry) {
-                    playlists.append(playlist)
-                }
-            }
-        }
-        return playlists
-    }
-
-    private func normalizePlaylistId(_ id: String) -> String {
-        id.hasPrefix("VL") ? String(id.dropFirst(2)) : id
     }
 
     private func parseRelatedItems(from json: [String: Any]) -> [YTItem]? {
