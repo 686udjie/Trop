@@ -15,6 +15,9 @@ struct IntegrationsSettingsView: View {
                 SettingsNavigationRow("Last.fm", icon: "music.note") {
                     LastFMSettingsView()
                 }
+                SettingsNavigationRow("Canvas", icon: "film") {
+                    CanvasSettingsView()
+                }
             } footer: {
                 Text("Connect external services to enhance your experience.")
             }

@@ -28,6 +28,11 @@ struct FullPlayerView: View {
     @State private var showSongMenu = false
     @State private var artworkEntryOffset: CGFloat = 0
     @State private var currentLyrics: [LyricLine] = []
+    @State private var canvasDominantColors: [Color]?
+
+    private var playerBackgroundColors: [Color] {
+        canvasDominantColors ?? np.dominantColors
+    }
 
     private var activeLyricText: String? {
         let synchronizedLines = currentLyrics.filter {
@@ -55,17 +60,17 @@ struct FullPlayerView: View {
                 } else {
                     LinearGradient(
                         colors: [
-                            np.dominantColors.first ?? Color(red: 0.15, green: 0.15, blue: 0.2),
-                            np.dominantColors.last ?? Color(red: 0.05, green: 0.05, blue: 0.08)
+                            playerBackgroundColors.first ?? Color(red: 0.15, green: 0.15, blue: 0.2),
+                            playerBackgroundColors.last ?? Color(red: 0.05, green: 0.05, blue: 0.08)
                         ],
                         startPoint: .top,
                         endPoint: .bottom
                     )
                     .ignoresSafeArea()
-                    .animation(.easeInOut(duration: 0.8), value: np.dominantColors)
+                    .animation(.easeInOut(duration: 0.8), value: playerBackgroundColors)
 
                     Circle()
-                        .fill(np.dominantColors.first ?? .blue)
+                        .fill(playerBackgroundColors.first ?? .blue)
                         .frame(width: 400, height: 400)
                         .blur(radius: 120)
                         .opacity(0.45)
@@ -401,7 +406,18 @@ struct FullPlayerView: View {
                 .aspectRatio(16 / 9, contentMode: .fit)
                 .animation(.easeOut(duration: 0.2), value: np.isVideoReady)
             } else {
-                artworkImage
+                ZStack {
+                    artworkImage
+                    CanvasVideoView(
+                        videoId: np.videoId,
+                        title: np.title,
+                        artist: np.artist,
+                        album: np.albumTitle.isEmpty ? nil : np.albumTitle,
+                        isPlaying: np.isPlaying,
+                        enabled: settings.canvasEnabled,
+                        onDominantColorsChange: { canvasDominantColors = $0 }
+                    )
+                }
                 .onTapGesture {
                     guard np.hasVideo else { return }
                     showQueue = true

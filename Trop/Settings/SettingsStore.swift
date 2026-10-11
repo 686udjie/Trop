@@ -325,6 +325,16 @@ final class SettingsStore {
         didSet { Self.defaults.set(syncSongs, forKey: Keys.syncSongs) }
     }
 
+    // MARK: - Spotify Canvas
+
+    var canvasEnabled: Bool {
+        didSet { Self.defaults.set(canvasEnabled, forKey: Keys.canvasEnabled) }
+    }
+
+    var canvasOverCellular: Bool {
+        didSet { Self.defaults.set(canvasOverCellular, forKey: Keys.canvasOverCellular) }
+    }
+
     // MARK: - Keys
 
     private enum Keys {
@@ -366,6 +376,8 @@ final class SettingsStore {
         static let syncAlbums = "settings.syncAlbums"
         static let syncPodcasts = "settings.syncPodcasts"
         static let syncSongs = "settings.syncSongs"
+        static let canvasEnabled = "settings.canvasEnabled"
+        static let canvasOverCellular = "settings.canvasOverCellular"
     }
 
     private static let defaults: UserDefaults = .standard
@@ -431,6 +443,8 @@ final class SettingsStore {
         syncAlbums = Self.load(Keys.syncAlbums, default: true)
         syncPodcasts = Self.load(Keys.syncPodcasts, default: true)
         syncSongs = Self.load(Keys.syncSongs, default: true)
+        canvasEnabled = Self.load(Keys.canvasEnabled, default: false)
+        canvasOverCellular = Self.load(Keys.canvasOverCellular, default: false)
     }
 }
 

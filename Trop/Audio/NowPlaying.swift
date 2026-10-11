@@ -259,6 +259,7 @@ final class NowPlaying {
         startTimer()
         loadThumbnail(videoId: videoId, thumbnailUrl: thumbnailUrl)
         preloadNextTrack()
+        CanvasPrefetch.request(videoId: videoId, title: title, artist: self.artist, album: album)
     }
 
     /// Convenience pushing a `SongItem`'s metadata into the player state.
