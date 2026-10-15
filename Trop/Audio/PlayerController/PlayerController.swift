@@ -213,7 +213,7 @@ extension PlayerController {
         }
         NowPlaying.shared.isPlaying = true
         NowPlaying.shared.currentTime = 0
-        if let duration, duration > 0 { NowPlaying.shared.duration = duration }
+        NowPlaying.shared.duration = max(0, duration ?? 0)
         setNowPlayingMetadata()
     }
 

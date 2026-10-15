@@ -291,13 +291,16 @@ struct SongMenuSheet: View {
             var browseId: String?
             do {
                 let json = try await SearchService.shared.search(query: name)
+                let wanted = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
                 browseId = SearchParser.parseSearchResults(from: json)
                     .flatMap(\.items)
-                    .compactMap { item -> String? in
-                        if case .artist(let artist) = item { return artist.browseId }
+                    .compactMap { item -> (String, String)? in
+                        if case .artist(let artist) = item { return (artist.name, artist.browseId) }
                         return nil
                     }
-                    .first
+                    .first {
+                        $0.0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == wanted
+                    }?.1
             } catch {
                 browseId = nil
             }

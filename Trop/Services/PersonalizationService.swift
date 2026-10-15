@@ -346,46 +346,7 @@ actor PersonalizationService {
     }
 
     private func parseArtists(from bylineRuns: [[String: Any]]) -> [YTArtist] {
-        let nonArtistLabels: Set<String> = ["song", "video", "track", "music", "podcast", "episode"]
-        let conjunctions: Set<String> = [",", "&", "and", "feat.", "ft.", "featuring"]
-        return bylineRuns.compactMap { run in
-            guard let text = run["text"] as? String else { return nil }
-            let trimmed = text.trimmingCharacters(in: .whitespaces)
-            let lower = trimmed.lowercased()
-            if trimmed.isEmpty || trimmed.range(of: "^[•·—–-]$", options: .regularExpression) != nil { return nil }
-            if nonArtistLabels.contains(lower) { return nil }
-            if conjunctions.contains(lower) { return nil }
-            let viewsPattern = "^\\d+(\\.\\d+)?[KMBT]?\\s*(views|downloads|listeners|subscribers)$"
-            if lower.range(of: viewsPattern, options: [.regularExpression, .caseInsensitive]) != nil { return nil }
-
-            var artistId: String?
-            if let nav = run["navigationEndpoint"] as? [String: Any],
-               let browse = nav["browseEndpoint"] as? [String: Any],
-               let bid = browse["browseId"] as? String {
-                let supported = nav["browseEndpointContextSupportedConfigs"] as? [String: Any]
-                let musicConfig = supported?["browseEndpointContextMusicConfig"] as? [String: Any]
-                let pageType = musicConfig?["pageType"] as? String
-                switch pageType {
-                case "MUSIC_PAGE_TYPE_ARTIST":
-                    // Genuine artist link
-                    artistId = bid
-                case "MUSIC_PAGE_TYPE_USER_CHANNEL":
-                    // Topic channels ("Artist - Topic") don't browse as artist
-                    // pages; leave nil so navigation resolves via search.
-                    artistId = nil
-                case nil:
-                    // No page type: MPREb_ here is an album link, not an artist
-                    if bid.hasPrefix("MPREb_") { return nil }
-                    artistId = nil
-                default:
-                    // Album / playlist / other non-artist link
-                    return nil
-                }
-            }
-            let displayName = cleanArtistDisplay(trimmed)
-            if displayName.isEmpty { return nil }
-            return YTArtist(name: displayName, id: artistId)
-        }
+        ArtistCredits.parse(runs: bylineRuns).map { YTArtist(name: $0.name, id: $0.browseId) }
     }
 
     private func parseRelatedItems(from json: [String: Any]) -> [YTItem]? {

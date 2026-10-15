@@ -38,9 +38,16 @@ final class HomeViewModel {
 
     private var cachedLocalSections: [HomeSection] = []
     private var cachedPhase2Sections: [HomeSection] = []
-    private var chipTask: Task<Void, Never>?
 
-    private var notificationObserver: NSObjectProtocol?
+    private nonisolated(unsafe) var chipTask: Task<Void, Never>?
+    private nonisolated(unsafe) var notificationObserver: NSObjectProtocol?
+
+    deinit {
+        if let observer = notificationObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        chipTask?.cancel()
+    }
 
     init() {
         hideExplicit = SettingsStore.shared.hideExplicit
@@ -303,6 +310,9 @@ final class HomeViewModel {
                 guard !Task.isCancelled, generation == loadGeneration else { return }
                 if let page = HomePageParser.parseHomePage(from: json) {
                     homePage?.sections = page.sections
+                    // The filtered feed carries its own continuation; reusing
+                    // the unfiltered one would page wrong sections in below.
+                    homePage?.continuation = page.continuation
                     mergeSections()
                 }
             } catch {

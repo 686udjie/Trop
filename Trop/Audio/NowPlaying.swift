@@ -175,8 +175,10 @@ final class NowPlaying {
         if let orig = originalQueue {
             let currentVideoId = queueSongs[queueIndex].videoId
             queueSongs = orig
-            // Keep current position if song not in original (added via radio etc.)
-            queueIndex = orig.firstIndex(where: { $0.videoId == currentVideoId }) ?? queueIndex
+            // The shuffled index is meaningless against the original array
+            // (radio appends, deletes and reorders change lengths).
+            let restored = orig.firstIndex(where: { $0.videoId == currentVideoId }) ?? queueIndex
+            queueIndex = min(restored, max(orig.count - 1, 0))
         }
         originalQueue = nil
         isShuffleOn = false
@@ -249,9 +251,9 @@ final class NowPlaying {
         self.title = title
         self.artists = artists
         self.artist = cleanArtist(artist ?? "")
-        if let album {
-            albumTitle = album
-        }
+        self.albumTitle = album ?? ""
+        self.currentTime = 0
+        self.duration = 0
         self.videoId = videoId
         self.hasVideo = false
         self.isVideoMode = false

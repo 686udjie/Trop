@@ -136,7 +136,7 @@ enum YTItem {
                 let episodeItem = EpisodeItem(
                     videoId: videoId,
                     title: title,
-                    artists: podcastName.map { [YTArtist(name: SongItem.cleanArtistName($0))] } ?? [],
+                    artists: podcastName.map { [YTArtist(name: ArtistCredits.cleanedName($0))] } ?? [],
                     duration: DurationFormat.parseRendererDuration(renderer),
                     thumbnailUrl: thumbnailUrl,
                     publishDate: nil
@@ -162,19 +162,16 @@ enum YTItem {
         case "MUSIC_PAGE_TYPE_ALBUM", "MUSIC_PAGE_TYPE_AUDIOBOOK":
             let runs = flexTextRuns(flexColumns, index: 1)
             let segments = splitRunsBySeparator(runs)
-            var artists: [YTArtist] = []
             var year: Int?
 
             for seg in segments {
-                if let firstWord = seg.first {
-                    if let y = Int(firstWord), y > 1900 && y < 2100 {
-                        year = y
-                    } else if firstWord != "Album" && firstWord != "EP" && firstWord != "Single" {
-                        for artistName in seg {
-                            artists.append(YTArtist(name: SongItem.cleanArtistName(artistName), id: nil))
-                        }
-                    }
+                if let firstWord = seg.first,
+                   let y = Int(firstWord), y > 1900 && y < 2100 {
+                    year = y
                 }
+            }
+            let artists = ArtistCredits.parse(runs: runs).map {
+                YTArtist(name: $0.name, id: $0.browseId)
             }
 
             let albumItem = AlbumItem(
@@ -300,72 +297,6 @@ struct SongItem: Codable, Hashable {
         return fromTwoRowItem(renderer: renderer, videoId: videoId, duration: duration, playlistId: playlistId)
     }
 
-    private static let nonArtistLabels: Set<String> = [
-        "song", "video", "track", "music", "podcast", "episode",
-        "album", "playlist", "released", "plays", "views",
-        "downloads", "listeners", "subscribers", "likes"
-    ]
-    private static let nonArtistPatterns: [String] = [
-        "^\\d+(\\.\\d+)?[KMBT]?\\s*(views|downloads|listeners|subscribers|plays|likes)?$",
-        "^\\d{4}$",                      // bare year
-        "^[\\d,\\.]+[KMBT]?$",           // numeric-only (e.g. "1.2M")
-        "^[\\d,\\.]+[KMBT]?\\s+likes?$"  // "500K likes", "1.2M like"
-    ]
-    private static let conjunctions: Set<String> = [",", "&", "and", "feat.", "ft.", "featuring"]
-
-    private static func isViewCountOrJunk(_ text: String) -> Bool {
-        let trimmed = text.trimmingCharacters(in: .whitespaces)
-        let lower = trimmed.lowercased()
-        if lower.isEmpty || lower == "•" || lower == "·" { return true }
-        if conjunctions.contains(lower) || nonArtistLabels.contains(lower) { return true }
-        for pattern in nonArtistPatterns where lower.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil {
-            return true
-        }
-        return false
-    }
-
-    private static func isArtistSegment(_ text: String) -> Bool {
-        !isViewCountOrJunk(text)
-    }
-
-    // Strips the YouTube "- Topic" auto-generated channel suffix and bare years from a name.
-    static func cleanArtistName(_ name: String) -> String {
-        var s = name
-        for suffix in [" - Topic", " - topic"] where s.hasSuffix(suffix) {
-            s = String(s.dropLast(suffix.count))
-        }
-        // Remove trailing bare year like " (2023)" or " [2023]"
-        if let r = try? NSRegularExpression(pattern: "\\s*[\\(\\[]\\d{4}[\\)\\]]\\s*$") {
-            s = r.stringByReplacingMatches(in: s, range: NSRange(s.startIndex..., in: s), withTemplate: "")
-        }
-        return s.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private static func isArtistRun(_ run: [String: Any]) -> Bool {
-        guard let text = run["text"] as? String else { return false }
-        let trimmed = text.trimmingCharacters(in: .whitespaces)
-        if isViewCountOrJunk(trimmed) { return false }
-        if let nav = run["navigationEndpoint"] as? [String: Any],
-           let browse = nav["browseEndpoint"] as? [String: Any],
-           let bid = browse["browseId"] as? String,
-           bid.hasPrefix("MPREb_") { return false }
-        return true
-    }
-
-    private static func artistIdMap(fromRuns runs: [[String: Any]]) -> [String: String] {
-        var map: [String: String] = [:]
-        for run in runs {
-            guard let text = run["text"] as? String else { continue }
-            let trimmed = text.trimmingCharacters(in: .whitespaces)
-            if let nav = run["navigationEndpoint"] as? [String: Any],
-               let browse = nav["browseEndpoint"] as? [String: Any],
-               let bid = browse["browseId"] as? String {
-                map[trimmed] = bid
-            }
-        }
-        return map
-    }
-
     private static func fromResponsiveListItem(
         renderer: [String: Any],
         flexColumns: [[String: Any]],
@@ -376,7 +307,6 @@ struct SongItem: Codable, Hashable {
         let title = flexText(flexColumns, index: 0) ?? "Unknown"
         let runs = flexTextRuns(flexColumns, index: 1)
         let segments = splitRunsBySeparator(runs)
-        let idMap = artistIdMap(fromRuns: runs)
         let artists: [YTArtist]
         var album: String?
         var albumId: String?
@@ -395,12 +325,15 @@ struct SongItem: Codable, Hashable {
         }
 
         if !segments.isEmpty {
-            let artistSegments = segments.drop { seg in
-                seg.allSatisfy { !isArtistSegment($0) }
+            let artistSegments = segments.drop { seg in seg.allSatisfy { !ArtistCredits.isArtistName($0) } }
+            let credits = ArtistCredits.parse(runs: runs)
+            func creditId(for rawText: String) -> String? {
+                let cleaned = ArtistCredits.cleanedName(rawText)
+                return credits.first { $0.name == cleaned }?.browseId
             }
             if artistSegments.isEmpty {
-                artists = segments[0].filter { isArtistSegment($0) }.map {
-                    YTArtist(name: cleanArtistName($0), id: idMap[$0])
+                artists = segments[0].filter { ArtistCredits.isArtistName($0) }.map {
+                    YTArtist(name: ArtistCredits.cleanedName($0), id: creditId(for: $0))
                 }
                 if album == nil && segments.count > 1 {
                     album = segments[1].first
@@ -408,8 +341,8 @@ struct SongItem: Codable, Hashable {
             } else {
                 var collected: [YTArtist] = []
                 for seg in artistSegments {
-                    collected.append(contentsOf: seg.filter { isArtistSegment($0) }.map {
-                        YTArtist(name: cleanArtistName($0), id: idMap[$0])
+                    collected.append(contentsOf: seg.filter { ArtistCredits.isArtistName($0) }.map {
+                        YTArtist(name: ArtistCredits.cleanedName($0), id: creditId(for: $0))
                     })
                 }
                 artists = collected
@@ -448,16 +381,9 @@ struct SongItem: Codable, Hashable {
                    bid.hasPrefix("MPREb_") {
                     album = trimmed
                     albumId = bid
-                } else if isArtistRun(run) {
-                    var artistId: String?
-                    if let nav = run["navigationEndpoint"] as? [String: Any],
-                       let browse = nav["browseEndpoint"] as? [String: Any],
-                       let bid = browse["browseId"] as? String {
-                        artistId = bid
-                    }
-                    artists.append(YTArtist(name: cleanArtistName(trimmed), id: artistId))
                 }
             }
+            artists = ArtistCredits.parse(runs: runs).map { YTArtist(name: $0.name, id: $0.browseId) }
         }
         let subTexts = (renderer["subtitle"] as? [String: Any])
             .flatMap { $0["runs"] as? [[String: Any]] }?
@@ -696,7 +622,7 @@ extension SongItem {
     init(entity: SongEntity) {
         self.videoId = entity.id
         self.title = entity.title.isEmpty ? "Unknown" : entity.title
-        self.artists = entity.artistName.map { [YTArtist(name: SongItem.cleanArtistName($0))] } ?? []
+        self.artists = entity.artistName.map { [YTArtist(name: ArtistCredits.cleanedName($0))] } ?? []
         self.album = entity.albumName
         self.albumId = nil
         self.duration = entity.duration
@@ -711,7 +637,7 @@ extension SongItem {
         self.title = entity.title
         self.artists = entity.artist
             .split(separator: ",")
-            .map { YTArtist(name: SongItem.cleanArtistName(String($0).trimmingCharacters(in: .whitespaces))) }
+            .map { YTArtist(name: ArtistCredits.cleanedName(String($0).trimmingCharacters(in: .whitespaces))) }
             .filter { !$0.name.isEmpty }
         self.album = nil
         self.albumId = nil

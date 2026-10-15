@@ -148,15 +148,15 @@ extension TropLibraryStore {
     }
 
     func unmarkStaleLikedSongs(excluding ids: Set<String>, graceCutoff: Date) async throws {
-        guard !ids.isEmpty else { return }
         try await db.write { db in
+            var sql = "SELECT id FROM song WHERE liked = 1"
+            if !ids.isEmpty {
+                sql += " AND id NOT IN (\(DatabaseService.placeholders(count: ids.count)))"
+            }
+            sql += " AND modify_date < ?"
             let staleIds = try String.fetchAll(
                 db,
-                sql: """
-                    SELECT id FROM song WHERE liked = 1
-                    AND id NOT IN (\(DatabaseService.placeholders(count: ids.count)))
-                    AND modify_date < ?
-                    """,
+                sql: sql,
                 arguments: StatementArguments(Array(ids) + [graceCutoff])
             )
             for chunk in DatabaseService.chunked(staleIds) {

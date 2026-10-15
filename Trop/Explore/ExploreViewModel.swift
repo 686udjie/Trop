@@ -32,7 +32,6 @@ final class ExploreViewModel {
 
     func load() {
         guard !hasLoaded else { return }
-        hasLoaded = true
         Task { await fetch() }
     }
 
@@ -60,6 +59,7 @@ final class ExploreViewModel {
                 " moods=\(moodCount)"
             )
             phase = sections.isEmpty ? .empty : .loaded
+            hasLoaded = phase == .loaded
         } catch {
             Log.explore.error("Explore fetch failed: \(error)")
             self.error = error
@@ -72,7 +72,10 @@ final class ExploreViewModel {
     /// cannot move — but per-country charts can, via the country selector.
     /// Falls back to explore's own items on any failure.
     private func applyRegionalTrending(region: String) async {
-        guard let index = sections.firstIndex(where: { $0.title.lowercased() == "trending" }) else { return }
+        guard let index = sections.firstIndex(where: { $0.title.lowercased().contains("trending") }) else {
+            Log.explore.debug("Explore: no trending shelf for regional swap")
+            return
+        }
         guard let playlistId = try? await RegionalCharts.trendingPlaylistId(country: region, using: InnerTubeClient.tropShared),
               let (_, rows) = try? await SyncBridge.playlistDetail.fetchPlaylistRows(playlistId: playlistId) else { return }
         let songs = rows.compactMap { item -> SongItem? in

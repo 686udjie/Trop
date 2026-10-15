@@ -51,7 +51,7 @@ enum PlaybackQueue {
             guard let radio = try? await PersonalizationService.shared.fetchRadio(videoId: song.videoId, options: options),
                   radio.songs.count > 1 else { return }
             guard NowPlaying.shared.videoId == song.videoId else { return }
-            NowPlaying.shared.queueSongs = radio.songs
+            NowPlaying.shared.queueSongs = preservingArtists(radio.songs, over: NowPlaying.shared.queueSongs)
             NowPlaying.shared.queueIndex = radio.currentIndex
         }
     }
@@ -70,8 +70,19 @@ enum PlaybackQueue {
             guard let radio = try? await PersonalizationService.shared.fetchRadio(videoId: song.videoId),
                   radio.songs.count > 1,
                   NowPlaying.shared.videoId == song.videoId else { return }
-            NowPlaying.shared.queueSongs = radio.songs
+            NowPlaying.shared.queueSongs = preservingArtists(radio.songs, over: NowPlaying.shared.queueSongs)
             NowPlaying.shared.queueIndex = radio.currentIndex
+        }
+    }
+
+    private static func preservingArtists(_ songs: [SongItem], over current: [SongItem]) -> [SongItem] {
+        guard !current.isEmpty else { return songs }
+        let existingById = Dictionary(uniqueKeysWithValues: current.map { ($0.videoId, $0) })
+        return songs.map { song in
+            guard let old = existingById[song.videoId], old.artists.count > song.artists.count else { return song }
+            var merged = song
+            merged.artists = old.artists
+            return merged
         }
     }
 }

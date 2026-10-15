@@ -102,29 +102,13 @@ extension AlbumDetailViewModel {
             // Artists from straplineTextOne
             if let strapline = responsiveHeader["straplineTextOne"] as? [String: Any],
                let runs = strapline["runs"] as? [[String: Any]] {
-                for run in runs {
-                    guard let text = run["text"] as? String else { continue }
-                    var artistId: String?
-                    if let browse = (run["navigationEndpoint"] as? [String: Any])?["browseEndpoint"] as? [String: Any] {
-                        artistId = browse["browseId"] as? String
-                    }
-                    artists.append(YTArtist(name: cleanArtistDisplay(text), id: artistId))
-                }
+                artists = ArtistCredits.parse(runs: runs).map { YTArtist(name: $0.name, id: $0.browseId) }
             }
             // Artist fallback from subtitle runs
             if artists.isEmpty,
                let subtitle = responsiveHeader["subtitle"] as? [String: Any],
                let runs = subtitle["runs"] as? [[String: Any]] {
-                for run in runs {
-                    guard let text = run["text"] as? String else { continue }
-                    let trimmed = text.trimmingCharacters(in: .whitespaces)
-                    if trimmed.isEmpty || trimmed == "•" { continue }
-                    var artistId: String?
-                    if let browse = (run["navigationEndpoint"] as? [String: Any])?["browseEndpoint"] as? [String: Any] {
-                        artistId = browse["browseId"] as? String
-                    }
-                    artists.append(YTArtist(name: cleanArtistDisplay(trimmed), id: artistId))
-                }
+                artists = ArtistCredits.parse(runs: runs).map { YTArtist(name: $0.name, id: $0.browseId) }
             }
 
             // Year / songCount / duration from secondSubtitle
@@ -158,17 +142,7 @@ extension AlbumDetailViewModel {
 
                 if let subtitle = detailHeader["subtitle"] as? [String: Any],
                    let runs = subtitle["runs"] as? [[String: Any]] {
-                    for run in runs {
-                        guard let text = run["text"] as? String else { continue }
-                        let trimmed = text.trimmingCharacters(in: .whitespaces)
-                        if trimmed.isEmpty || trimmed == "•" { continue }
-                        var artistId: String?
-                        if let nav = run["navigationEndpoint"] as? [String: Any],
-                           let browse = nav["browseEndpoint"] as? [String: Any] {
-                            artistId = browse["browseId"] as? String
-                        }
-                        artists.append(YTArtist(name: cleanArtistDisplay(trimmed), id: artistId))
-                    }
+                    artists += ArtistCredits.parse(runs: runs).map { YTArtist(name: $0.name, id: $0.browseId) }
                 }
 
                 if let secondSubtitle = detailHeader["secondSubtitle"] as? [String: Any],
